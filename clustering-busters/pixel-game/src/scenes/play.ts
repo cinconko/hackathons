@@ -41,13 +41,13 @@ const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EI
 
 const asSprite = (o: unknown) => o as Sprite;
 
-interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number }
+interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number; from: number }
 /**
  * The boss moves as one piece (the team's drawing is never cut): he waddles when he walks, rears back
  * when you are in reach, lunges and squashes when he hits you, swells while charging a shot and
  * recoils when he fires. A kick is a short one-off move on top of that.
  */
-interface BossKick { kind: 'smash' | 'recoil' | 'pop'; angle: number; at: number; ms: number }
+interface BossKick { kind: 'smash' | 'throw' | 'slam' | 'flick'; angle: number; at: number; ms: number }
 const MELEE_REACH = 30;          // closer than this (centre to centre) and he rears back to strike
 
 export class PlayScene extends Phaser.Scene {
@@ -92,6 +92,9 @@ export class PlayScene extends Phaser.Scene {
   private spiralAngle = 0;
   private telegraph: Telegraph | null = null;
   private bossView!: Phaser.GameObjects.Image;   // what you see; this.boss is the (invisible) body
+  private heldBall!: Phaser.GameObjects.Image;   // the ball in his fist (or over his head) before he throws
+  private bossHands = 'a';                        // which hand frame he shows (boot.ts HAND_FRAMES)
+  private bossFlashing = false;                   // the white hit flash: the hands wait
   private bossKick: BossKick | null = null;
   private bossMotion = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
   private dashAngle = 0;
@@ -147,6 +150,8 @@ export class PlayScene extends Phaser.Scene {
     this.spiralAngle = 0;
     this.telegraph = null;
     this.bossKick = null;
+    this.bossHands = 'a';
+    this.bossFlashing = false;
     this.bossMotion = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
     this.dashAngle = 0;
     this.slowUntil = this.paralyzedUntil = this.poisonUntil = this.poisonNextTick = this.suckUntil = this.suckNextTick = 0;
@@ -178,6 +183,7 @@ export class PlayScene extends Phaser.Scene {
     // Scaling a physics sprite resizes its hitbox, so the moves happen on a separate picture.
     this.boss.setVisible(false);
     this.bossView = this.add.image(this.boss.x, this.boss.y, `boss_${startStage}`).setDepth(9);
+    this.heldBall = this.add.image(0, 0, 'bullet').setDepth(10).setVisible(false);
 
     this.bullets = this.physics.add.group();
     this.pickups = this.physics.add.group();
@@ -416,15 +422,58 @@ export class PlayScene extends Phaser.Scene {
   // ---- boss --------------------------------------------------------------------------
 
   /** The pose his arms should be in now: from the warning before a shot, or just after one. */
-  private applyBossTexture() { this.bossView.setTexture(`boss_${this.stage}`); }
+  private applyBossTexture() { this.bossView.setTexture(this.bossTexture()); }
+
+  /** This stage's picture with his hands in the current frame (no hand frames: the plain one). */
+  private bossTexture() {
+    const k = `boss_${this.stage}_${this.bossHands}`;
+    return this.textures.exists(k) ? k : `boss_${this.stage}`;
+  }
+
+  /**
+   * His hands: spread wide while he puffs up for the ring and when he smashes, pulled in while he
+   * winds up a shot or a charge or rears back, otherwise writhing (faster while he walks).
+   */
+  private animateHands(near: boolean) {
+    const now = this.fightMs;
+    const t = this.telegraph;
+    const kick = this.bossKick?.kind;
+    const moving = (this.boss.body as Body).velocity.length() > 4;
+    const hands = t?.kind === 'ring' || kick === 'smash' || kick === 'throw' || kick === 'slam' || kick === 'flick' ? 'spread'
+      : t?.kind === 'aimed' || t?.kind === 'dash' || now < this.dashUntil || near ? 'grab'
+      : ['a', 'b', 'a', 'c'][Math.floor(now / (moving ? 150 : 280)) % 4];
+    if (hands === this.bossHands) return;
+    this.bossHands = hands;
+    if (!this.bossFlashing && !this.bossDead) this.applyBossTexture();
+  }
 
   private angleToPlayer() { return Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y); }
 
   private kickBoss(kind: BossKick['kind'], angle: number, ms: number) { this.bossKick = { kind, angle, at: this.fightMs, ms }; }
 
   /**
+   * Where his hands are, from the centre of the 32x35 drawing (boot.ts BOSS_HANDS): the fist at the
+   * end of each straight-out arm, and the point between his two top claws (over his head).
+   */
+  private static readonly FIST = { left: { x: -14, y: -8 }, right: { x: 13, y: -8 } };
+  private static readonly OVERHEAD = { x: 0, y: -17 };
+
+  /** A point on his drawing -> the arena, following how the picture leans and squashes right now. */
+  private onBoss(local: { x: number; y: number }) {
+    const v = this.bossView;
+    const c = Math.cos(v.rotation), sn = Math.sin(v.rotation);
+    const lx = local.x * v.scaleX, ly = local.y * v.scaleY;
+    return { x: v.x + lx * c - ly * sn, y: v.y + lx * sn + ly * c };
+  }
+
+  /** His throwing fist: the straight-out arm on the side he throws toward. */
+  private throwHand(angle: number) {
+    return this.onBoss(Math.cos(angle) < 0 ? PlayScene.FIST.left : PlayScene.FIST.right);
+  }
+
+  /**
    * Every frame: where the picture sits around the body, how far it leans and how it squashes.
-   * The steady part (walk, rear back, charge) eases in; a kick (smash, recoil, pop) plays on top.
+   * The steady part (walk, rear back, wind-up, charge) eases in; a kick (smash, throw, slam, flick) plays on top.
    */
   private animateBoss(delta: number) {
     const now = this.fightMs;
@@ -433,11 +482,16 @@ export class PlayScene extends Phaser.Scene {
     const side = (angle: number) => (Math.cos(angle) < 0 ? -1 : 1);          // -1: toward the left
     const goal = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
     const near = Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.player.x, this.player.y) < MELEE_REACH;
-    if (t?.kind === 'ring') {                                  // swelling up before the ring of bullets
-      const k = 1 + 0.07 * Math.abs(Math.sin(now / 45));
-      Object.assign(goal, { sx: k, sy: k });
-    } else if (t?.kind === 'aimed') {                          // leaning into the aim
-      Object.assign(goal, { rot: 0.14 * side(t.angle), dx: 2 * side(t.angle) });
+    const wound = t ? Phaser.Math.Clamp((now - t.from) / Math.max(1, t.fireAt - t.from), 0, 1) : 0;   // 0 -> 1 until he lets go
+    let ball: { at: { x: number; y: number }; scale: number } | null = null;   // in his hands: a point on the drawing
+    if (t?.kind === 'ring') {                                  // rising up, a ball growing between his top claws
+      Object.assign(goal, { sx: 1 - 0.04 * wound, sy: 1 + 0.12 * wound, dy: -3 * wound });
+      const scale = 1 + 1.2 * wound;
+      ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };   // resting on the claws as it grows
+    } else if (t?.kind === 'aimed') {                          // winding up: leaning back, the ball in his fist
+      const s = side(t.angle);
+      Object.assign(goal, { rot: -0.22 * s * wound, dx: -3 * s * wound, dy: -1, sy: 1.04 });
+      ball = { at: s < 0 ? PlayScene.FIST.left : PlayScene.FIST.right, scale: 1 + 0.5 * wound };
     } else if (t?.kind === 'dash') {                           // crouching, about to charge
       Object.assign(goal, { rot: -0.12 * side(t.angle), sx: 1.12, sy: 0.88, dy: 2 });
     } else if (now < this.dashUntil) {                         // charging: leaning hard, stretched
@@ -465,14 +519,19 @@ export class PlayScene extends Phaser.Scene {
         const cx = Math.cos(kick.angle), cy = Math.sin(kick.angle);
         if (kick.kind === 'smash') {                           // lunge at you and flatten on impact
           dx += cx * 8 * arc; dy += cy * 8 * arc; rot = 0.3 * side(kick.angle) * arc; sx += 0.2 * arc; sy -= 0.18 * arc;
-        } else if (kick.kind === 'recoil') {                   // kicked back by his own burst
-          dx -= cx * 4 * arc; dy -= cy * 4 * arc; rot -= 0.12 * side(kick.angle) * arc;
-        } else {                                               // pop: bullets burst out of him
-          sx += 0.18 * (1 - p); sy += 0.18 * (1 - p);
+        } else if (kick.kind === 'throw') {                    // flinging forward, the whole body behind the arm
+          dx += cx * 6 * arc; dy += cy * 3 * arc; rot = 0.3 * side(kick.angle) * arc; sx += 0.08 * arc;
+        } else if (kick.kind === 'slam') {                     // the ball smashed down: he flattens
+          sx += 0.22 * arc; sy -= 0.2 * arc; dy += 3 * arc;
+        } else {                                               // flick: a quick throw to one side
+          rot += 0.16 * side(kick.angle) * arc; dx += cx * 3 * arc;
         }
       }
     }
     this.bossView.setPosition(Math.round(this.boss.x + dx), Math.round(this.boss.y + dy)).setRotation(rot).setScale(sx, sy);
+    this.heldBall.setVisible(!!ball);
+    if (ball) { const at = this.onBoss(ball.at); this.heldBall.setPosition(Math.round(at.x), Math.round(at.y)).setScale(ball.scale); }
+    this.animateHands(near);
   }
 
   private updateBoss() {
@@ -490,11 +549,13 @@ export class PlayScene extends Phaser.Scene {
       const t = this.telegraph;
       this.telegraph = null;
       if (t.kind === 'aimed') {
-        for (const off of [-0.25, 0, 0.25]) this.bullet(this.boss.x, this.boss.y, t.angle + off, 85);
-        this.kickBoss('recoil', t.angle, 200);
+        const hand = this.throwHand(t.angle);                  // the balls leave from his fist
+        for (const off of [-0.25, 0, 0.25]) this.bullet(hand.x, hand.y, t.angle + off, 85);
+        this.kickBoss('throw', t.angle, 220);
       } else if (t.kind === 'ring') {
         for (let i = 0; i < 10; i++) this.bullet(this.boss.x, this.boss.y, (i / 10) * Math.PI * 2, 55);
-        this.kickBoss('pop', 0, 220);
+        this.kickBoss('slam', 0, 240);                         // the ball over his head, slammed down: it bursts
+        this.cameras.main.shake(80, 0.006);
       }
       else { body.setVelocity(Math.cos(t.angle) * 150, Math.sin(t.angle) * 150); this.dashUntil = now + 350; this.dashAngle = t.angle; }
       return;
@@ -503,18 +564,18 @@ export class PlayScene extends Phaser.Scene {
 
     if (st.dashEveryMs > 0 && now >= this.nextDashAt) {
       this.nextDashAt = now + st.dashEveryMs;
-      this.telegraph = { kind: 'dash', angle: Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y), fireAt: now + R.TELEGRAPH_MS };
+      this.telegraph = { kind: 'dash', angle: Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y), fireAt: now + R.TELEGRAPH_MS, from: now };
       return;
     }
     this.physics.moveToObject(this.boss, this.player, st.speed * slow);
     if (now >= this.nextShotAt && now >= this.bossInvulnUntil) {
       this.nextShotAt = now + st.shotEveryMs / slow;
       const angle = Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y);
-      if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS };
-      else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350 };
+      if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS, from: now };
+      else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350, from: now };
       else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
         for (let i = 0; i < 4; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI) / 2, 70);
-        this.kickBoss('pop', 0, 120);                          // four ways at once: a small burst
+        this.kickBoss('flick', this.spiralAngle, 140);         // a quick throw, side to side as the spiral turns
         this.spiralAngle += 0.35;
       }
     }
@@ -538,7 +599,8 @@ export class PlayScene extends Phaser.Scene {
     if (hitStop) {
       sfx(this, 'hit');
       this.bossView.setTexture('boss_flash');
-      this.time.delayedCall(60, () => { if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
+      this.bossFlashing = true;
+      this.time.delayedCall(60, () => { this.bossFlashing = false; if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
       this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
     }
     const loose = drops ? R.hitDrop(this.rng, this.villageLvl) : null;   // rarity rolled: hits can knock rare rings loose too
@@ -566,6 +628,7 @@ export class PlayScene extends Phaser.Scene {
   private killBoss() {
     this.bossDead = true;
     this.telegraph = null;
+    this.heldBall.setVisible(false);
     this.bullets.clear(true, true);
     this.drop(R.deathDrop(this.rng, this.villageLvl));
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
@@ -750,8 +813,9 @@ export class PlayScene extends Phaser.Scene {
       } else {
         const len = tg.kind === 'dash' ? 120 : 150;
         const width = tg.kind === 'dash' ? 3 : 1;
+        const o = tg.kind === 'aimed' ? this.throwHand(tg.angle) : b;    // aimed balls leave from his fist
         for (const off of tg.kind === 'aimed' ? [-0.25, 0, 0.25] : [0]) {
-          t.lineStyle(width, 0xff3a3a, pulse).lineBetween(b.x, b.y, b.x + Math.cos(tg.angle + off) * len, b.y + Math.sin(tg.angle + off) * len);
+          t.lineStyle(width, 0xff3a3a, pulse).lineBetween(o.x, o.y, o.x + Math.cos(tg.angle + off) * len, o.y + Math.sin(tg.angle + off) * len);
         }
       }
     }
@@ -858,6 +922,7 @@ export class PlayScene extends Phaser.Scene {
   private thrownOut() {
     if (this.ended) return;
     this.ended = true;
+    this.heldBall.setVisible(false);
     const found = [...this.rings];
     updateSave((s) => ({ ...s, wallet: this.wallet, lifetimeRings: R.addRings(s.lifetimeRings, found) }));
 

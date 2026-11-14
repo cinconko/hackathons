@@ -19,6 +19,59 @@ import { loadSave, updateSave } from '../save';
 //   ?scene=village&merchant   open the ring merchant's shop at once (&nodeal: cards already on the table)
 //   ?scene=village&yard       start inside the training yard, weapon out
 //   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
+/**
+ * The boss's six hands, in boss_art.png pixels (32x35): the box around each hand and the way
+ * "out" (away from his body). A hand frame moves each hand along it: +1 reaches out (drawn over
+ * the drawing, so the hand just looks longer), -1 pulls it in over the end of its arm.
+ */
+const BOSS_W = 32;
+const BOSS_H = 35;
+const BOSS_PAD = 2;   // room around the picture for a hand reaching past its edge
+const BOSS_HANDS: { box: [number, number, number, number]; out: [number, number] }[] = [
+  { box: [8, 0, 12, 2], out: [0, -1] },     // top left claw
+  { box: [20, 1, 23, 3], out: [0, -1] },    // top right claw
+  { box: [0, 7, 3, 11], out: [-1, 0] },     // far left
+  { box: [27, 8, 31, 11], out: [1, 0] },    // far right
+  { box: [5, 16, 9, 20], out: [-1, 1] },    // lower left claw
+  { box: [25, 14, 28, 17], out: [1, 0] },   // lower right
+];
+/** Per hand (same order): how far it moves. Played by the arena (play.ts, bossHands). */
+const HAND_FRAMES: Record<string, number[]> = {
+  a: [0, 0, 0, 0, 0, 0],                  // as drawn
+  b: [1, -1, -1, 1, 1, -1],               // writhing: every other hand reaches
+  c: [-1, 1, 1, -1, -1, 1],               // ... and the others
+  spread: [1, 1, 2, 2, 1, 1],             // all out: puffing up for the ring, smashing
+  grab: [-1, -1, -1, -1, -1, -1],         // all in: winding up a shot or a charge
+};
+
+/** One hand frame: the picture padded by BOSS_PAD, each hand moved along its "out". */
+function moveHands(src: ImageData, shifts: number[]): ImageData {
+  const W = src.width + BOSS_PAD * 2;
+  const H = src.height + BOSS_PAD * 2;
+  const out = new ImageData(W, H);
+  for (let y = 0; y < src.height; y++) {
+    out.data.set(src.data.subarray(y * src.width * 4, (y + 1) * src.width * 4), ((y + BOSS_PAD) * W + BOSS_PAD) * 4);
+  }
+  const at = (x: number, y: number) => ((y + BOSS_PAD) * W + x + BOSS_PAD) * 4;
+  BOSS_HANDS.forEach(({ box: [x0, y0, x1, y1], out: [ox, oy] }, i) => {
+    const n = shifts[i] ?? 0;
+    if (!n) return;
+    const hand: [number, number, Uint8ClampedArray][] = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const p = (y * src.width + x) * 4;
+      if (src.data[p + 3] > 0) hand.push([x, y, src.data.slice(p, p + 4)]);
+    }
+    if (n < 0) for (const [x, y] of hand) out.data.fill(0, at(x, y), at(x, y) + 4);   // pulled in: lift it off first
+    for (const [x, y, px] of hand) {
+      const nx = x + ox * n;
+      const ny = y + oy * n;
+      if (nx < -BOSS_PAD || ny < -BOSS_PAD || nx >= src.width + BOSS_PAD || ny >= src.height + BOSS_PAD) continue;
+      out.data.set(px, at(nx, ny));
+    }
+  });
+  return out;
+}
+
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
 
@@ -539,9 +592,12 @@ export class BootScene extends Phaser.Scene {
       put(img, 15, 15, 0xfff1a8);                              // shine
       return img;
     };
-    this.addPixels('boss_1', withKey(mix(0, 0)));
-    this.addPixels('boss_2', withKey(mix(0xff8a2c, 0.25)));
-    this.addPixels('boss_3', withKey(mix(0xff2a2a, 0.38)));
+    const stages: [number, ImageData][] = [[1, withKey(mix(0, 0))], [2, withKey(mix(0xff8a2c, 0.25))], [3, withKey(mix(0xff2a2a, 0.38))]];
+    for (const [s, img] of stages) this.addPixels(`boss_${s}`, img);
+    // his hands: frames where only the six hands move by a pixel or two (the arms stay as drawn)
+    if (w === BOSS_W && h === BOSS_H) {
+      for (const [s, img] of stages) for (const [name, shifts] of Object.entries(HAND_FRAMES)) this.addPixels(`boss_${s}_${name}`, moveHands(img, shifts));
+    }
     this.addPixels('boss_flash', mix(0xffffff, 1));
     this.addPixels('boss_nokey', mix(0xff2a2a, 0.38));
   }
