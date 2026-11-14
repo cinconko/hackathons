@@ -1107,7 +1107,7 @@ export class PlayScene extends Phaser.Scene {
     }
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
-    this.texts.retailer.setText(this.bossDead ? '' : here ? `Fisherman here ${secs}s` : `Fisherman in ${secs}s`);
+    this.texts.retailer.setText(this.bossDead ? '' : here ? `Fisher here ${secs}s` : `Fisher in ${secs}s`);
   }
 
   private drawArena() {
