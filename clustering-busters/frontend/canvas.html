@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oblak, je to podvod?</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; height: 100%; background: #0B0F19; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  /* Hidden text fields: they take the keyboard input, the canvas draws the text */
+  .sr { position: fixed; left: -9999px; top: 0; width: 1px; height: 1px; opacity: 0; }
+</style>
+</head>
+<body>
+<canvas id="c" aria-label="Oblak: je to podvod? Kontrola zpráv"></canvas>
+<textarea id="tin" class="sr" aria-label="Text zprávy"></textarea>
+<textarea id="tout" class="sr" aria-label="Text k odeslání"></textarea>
+<script>
+const C = document.getElementById('c');
+const g = C.getContext('2d');
+const tin = document.getElementById('tin');
+const tout = document.getElementById('tout');
+
+// Palettes: security GUI system (dark ops by default) plus the cloud brand green
+const P = {
+  // Six Cats palette: #000000 #374750 #FFFFFF #55BF2B #2D7BD0 (see frontend/DESIGN.md)
+  // onBrand = text on green buttons and banners (black: 8.87:1; white fails at 2.37:1)
+  light: { bg:'#FFFFFF', surf:'#FFFFFF', border:'#D5DDE2', field:'#F4F6F7', brand:'#55BF2B', onBrand:'#000000', accent:'#2D7BD0', accentText:'#1F5FA6', secure:'#2F7A12', warn:'#B45309', alert:'#B91C1C', text:'#000000', muted:'#374750', cloud:'#FFFFFF', face:'#000000' },
+  dark:  { bg:'#000000', surf:'#374750', border:'#4A5C68', field:'#000000', brand:'#55BF2B', onBrand:'#000000', accent:'#2D7BD0', accentText:'#8EC5F0', secure:'#55BF2B', warn:'#F59E0B', alert:'#EF4444', text:'#FFFFFF', muted:'#C2CDD4', cloud:'#FFFFFF', face:'#000000' }
+};
+let dark = false;  // white background by default; the theme button switches to dark
+const col = () => (dark ? P.dark : P.light);
+
+const LABELS = { scam: 'Podvod', suspicious: 'Buďte opatrní', safe: 'Vypadá to v pořádku' };
+const ADVICE = {
+  scam: 'Na nic neklikejte a neodpovídejte. Nic neplaťte. Pokud jde o banku, zavolejte na číslo z vaší karty.',
+  suspicious: 'Neklikejte na odkazy. Ověřte si to přímo, například zavoláním na číslo, které znáte.',
+  safe: 'Nic podezřelého jsme nenašli. Pokud vás zpráva přesto žádá o peníze nebo kódy, raději se zeptejte.'
+};
+const HERO = {
+  idle:       { title: 'Ahoj! Vložte zprávu a já se podívám.', sub: 'Zatím nic nekontroluji. Oblak se usmívá, protože je všechno v klidu.', bob: false },
+  scam:       { title: 'Pozor, tohle je podvod!', sub: 'Neklikejte na nic a nic neposílejte.', bob: true },
+  suspicious: { title: 'Hmm, buďte opatrní.', sub: 'Nejsem si jistý. Ověřte si to jinak.', bob: false },
+  safe:       { title: 'Vypadá to v pořádku!', sub: 'Nic podezřelého jsme nenašli.', bob: false }
+};
+const LEARNED = [
+  { tag: 'Zásilka + doplatek', res: 'podvod' },
+  { tag: '„Ahoj mami, nové číslo“', res: 'podvod' },
+  { tag: '„Ahoj, v sobotu u babičky“', res: 'bezpečné' }
+];
+
+// App state (demo values; the real logic lives in backend/)
+const S = {
+  msg: 'Vaše zásilka čeká na doplatek 39 Kč. Zaplaťte do 24 hodin: bit.ly/posta-cz',
+  out: '',
+  outStatus: null,        // null | { ok: true } | { ok: false }
+  confirm: null,          // null | { text }
+  verdict: null,          // null | { kind, label, reasons, advice, confidence }
+  hero: { ...HERO.idle, mood: 'idle' },
+  scrollY: 0, contentH: 0
+};
+tin.value = S.msg;
+tin.addEventListener('input', () => { S.msg = tin.value; });
+tout.addEventListener('input', () => { S.out = tout.value; });
+
+// Demo-only classifier (the real one is backend/verdict.py)
+function demoVerdict(text) {
+  const t = text.toLowerCase();
+  const reasons = [];
+  let score = 0;
+  if (/bit\.ly|tinyurl|t\.co\//.test(t)) { score += 3; reasons.push('Zkrácený odkaz skrývá skutečnou adresu.'); }
+  if (/doplatek|zásilk|zasilk|zaplat/.test(t)) { score += 3; reasons.push('Žádá malý doplatek za zásilku, typický podvod.'); }
+  if (/nové číslo|nove cislo|ahoj mami|pošli|posli/.test(t)) { score += 4; reasons.push('Typický podvod „Ahoj mami, mám nové číslo“.'); }
+  if (/zablokov|ověřte|overte/.test(t)) { score += 3; reasons.push('Vyhrožuje zablokováním nebo žádá ověření.'); }
+  if (/kód|kod/.test(t)) { score += 4; reasons.push('Žádá o kód. Ten nikdy nikomu neposílejte.'); }
+  const kind = score >= 5 ? 'scam' : score >= 2 ? 'suspicious' : 'safe';
+  if (kind === 'safe') reasons.push('Nenašli jsme typické znaky podvodu.');
+  return { kind, reasons };
+}
+
+function runCheck() {
+  const text = S.msg.trim();
+  if (!text) return;
+  const { kind, reasons } = demoVerdict(text);
+  S.verdict = { kind, label: LABELS[kind], reasons, advice: ADVICE[kind], confidence: kind === 'safe' ? 'střední' : 'vysoká' };
+  S.hero = { ...HERO[kind], mood: kind };
+}
+function sample() {
+  S.msg = 'Ahoj mami, rozbil se mi telefon, tohle je moje nové číslo. Můžeš mi poslat peníze?';
+  tin.value = S.msg;
+  runCheck();
+}
+function checkOut() {
+  const text = S.out;
+  const sensitive = (/\b\d{4,8}\b/.test(text) && /kód|kod|code|heslo|pin/i.test(text)) || /\b(?:\d[ -]?){13,19}\b/.test(text);
+  if (sensitive) {
+    S.outStatus = { ok: false };
+    S.confirm = { text: 'Banky ani úřady o kódy přes zprávy nežádají. Opravdu chcete odeslat?' };
+  } else {
+    S.outStatus = { ok: true };
+    S.confirm = null;
+  }
+}
+
+// Hit regions for clicks (content coordinates)
+let hits = [];
+function hit(x, y, w, h, fn) { hits.push({ x, y, w, h, fn }); }
+
+// Drawing helpers
+function rr(x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath();
+}
+function card(x, y, w, h, accent) {
+  const c = col();
+  rr(x, y, w, h, 14); g.fillStyle = c.surf; g.fill();
+  rr(x, y, w, h, 14); g.strokeStyle = c.border; g.lineWidth = 1; g.stroke();
+  if (accent) { rr(x, y, 6, h, 3); g.fillStyle = accent; g.fill(); }
+}
+function wrap(str, maxW, font) {
+  g.font = font;
+  const out = [];
+  for (const para of String(str).split('\n')) {
+    let line = '';
+    for (const word of para.split(' ')) {
+      const t = line ? line + ' ' + word : word;
+      if (g.measureText(t).width > maxW && line) { out.push(line); line = word; } else { line = t; }
+    }
+    out.push(line);
+  }
+  return out;
+}
+function para(str, x, y, maxW, font, color, lh) {
+  g.font = font; g.fillStyle = color;
+  for (const l of wrap(str, maxW, font)) { g.fillText(l, x, y); y += lh; }
+  return y;
+}
+function T(str, x, y, font, color) { g.font = font; g.fillStyle = color; g.fillText(str, x, y); }
+function button(x, y, w, label, kind, fn) {
+  const c = col(), h = 40, primary = kind === 'primary';
+  rr(x, y, w, h, 10);
+  if (primary) { g.fillStyle = c.brand; g.fill(); }
+  else { rr(x, y, w, h, 10); g.strokeStyle = c.border; g.lineWidth = 1; g.stroke(); }
+  g.font = '700 15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif';
+  g.fillStyle = primary ? c.onBrand : c.text;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText(label, x + w / 2, y + h / 2);
+  g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  hit(x, y, w, h, fn);
+}
+function icon(kind, x, y, color) {
+  g.strokeStyle = color; g.fillStyle = color; g.lineWidth = 2.2; g.lineCap = 'round';
+  g.beginPath(); g.arc(x + 11, y + 11, 11, 0, Math.PI * 2); g.stroke();
+  g.beginPath();
+  if (kind === 'scam') { g.moveTo(x + 7, y + 7); g.lineTo(x + 15, y + 15); g.moveTo(x + 15, y + 7); g.lineTo(x + 7, y + 15); }
+  else if (kind === 'suspicious') { g.moveTo(x + 11, y + 6); g.lineTo(x + 11, y + 13); g.stroke(); g.beginPath(); g.arc(x + 11, y + 16.5, 1.3, 0, Math.PI * 2); g.fill(); return; }
+  else { g.moveTo(x + 6.5, y + 11.5); g.lineTo(x + 9.5, y + 14.5); g.lineTo(x + 15.5, y + 8); }
+  g.stroke();
+}
+
+// Mascot: the cloud, drawn from circles, face follows the mood
+const CLOUD = [[36,48,16],[58,36,20],[82,44,17],[60,52,18],[34,56,12],[90,58,11]];
+function cloud(x, y, k, mood, bob) {
+  const c = col();
+  g.save();
+  g.translate(x, y + bob * k);
+  g.scale(k, k);
+  g.fillStyle = c.cloud;
+  g.beginPath();
+  for (const [cx0, cy0, r] of CLOUD) { g.moveTo(cx0 + r, cy0); g.arc(cx0, cy0, r, 0, Math.PI * 2); }
+  g.fill();
+  g.fillStyle = c.face;
+  for (const ex of [50, 70]) { g.beginPath(); g.arc(ex, 42, 4.5, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#FFFFFF';
+  for (const ex of [48.5, 68.5]) { g.beginPath(); g.arc(ex, 40.5, 1.4, 0, Math.PI * 2); g.fill(); }
+  g.strokeStyle = c.face; g.lineWidth = 2.6; g.lineCap = 'round';
+  g.beginPath();
+  if (mood === 'scam') { g.moveTo(52, 57); g.quadraticCurveTo(60, 50, 68, 57); }
+  else if (mood === 'suspicious') { g.moveTo(52, 54); g.lineTo(68, 54); }
+  else if (mood === 'safe') { g.moveTo(51, 49); g.quadraticCurveTo(60, 60, 69, 49); }
+  else { g.moveTo(52, 50); g.quadraticCurveTo(60, 57, 68, 50); }
+  g.stroke();
+  g.restore();
+}
+
+// Cards. Each returns its bottom y.
+function msgCard(x, y, w) {
+  const c = col(), h = 240;
+  card(x, y, w, h);
+  T('1. Zpráva, kterou jste dostali', x + 16, y + 30, '700 16px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text);
+  const fx = x + 16, fy = y + 46, fw = w - 32, fh = 120;
+  rr(fx, fy, fw, fh, 10); g.fillStyle = c.field; g.fill();
+  rr(fx, fy, fw, fh, 10); g.strokeStyle = c.border; g.stroke();
+  g.save(); rr(fx, fy, fw, fh, 10); g.clip();
+  if (S.msg) para(S.msg, fx + 12, fy + 26, fw - 24, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text, 21);
+  else T('Např.: Vaše zásilka čeká na doplatek…', fx + 12, fy + 26, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted);
+  g.restore();
+  hit(fx, fy, fw, fh, () => { tin.focus(); });
+  button(x + 16, y + 184, 160, 'Zkontrolovat', 'primary', runCheck);
+  button(x + 188, y + 184, 170, 'Vzorová zpráva', 'ghost', sample);
+  return y + h;
+}
+
+function verdictCard(x, y, w) {
+  const c = col(), v = S.verdict;
+  const color = c[{ scam: 'alert', suspicious: 'warn', safe: 'secure' }[v.kind]];
+  const iw = w - 56, rf = '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif';
+  const rl = v.reasons.map(r => wrap(r, iw - 20, rf));
+  let rh = 0; rl.forEach(ls => { rh += ls.length * 22 + 4; });
+  const al = wrap(v.advice, iw - 24, rf);
+  const ah = al.length * 22 + 20;
+  const h = 16 + 40 + rh + 12 + ah + 14 + 18 + 16;
+  card(x, y, w, h, color);
+  icon(v.kind, x + 24, y + 16, color);
+  T(v.label, x + 52, y + 40, '800 20px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', color);
+  let cy = y + 62;
+  g.font = rf;
+  rl.forEach(ls => {
+    ls.forEach((l, i) => {
+      if (i === 0) { g.fillStyle = c.text; g.beginPath(); g.arc(x + 28, cy - 5, 2.5, 0, Math.PI * 2); g.fill(); }
+      T(l, x + 40, cy, rf, c.text);
+      cy += 22;
+    });
+    cy += 4;
+  });
+  cy += 12;
+  rr(x + 24, cy, iw, ah, 10); g.fillStyle = c.field; g.fill();
+  rr(x + 24, cy, iw, ah, 10); g.strokeStyle = c.border; g.stroke();
+  para(v.advice, x + 36, cy + 24, iw - 24, rf, c.text, 22);
+  cy += ah + 14;
+  T('Jistota: ' + v.confidence + ' · Zdroj: pravidla (demo)', x + 24, cy + 14, '13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted);
+  return y + h;
+}
+
+function outCard(x, y, w) {
+  const c = col();
+  const sub = 'Napište zprávu, kterou chcete odeslat. Hlídáme kódy a čísla účtů.';
+  const subL = wrap(sub, w - 32, '14px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif');
+  const fy = y + 56 + subL.length * 20;
+  const fh = 90;
+  const by = fy + fh + 12;
+  const h = by + 52 - y + 16;
+  card(x, y, w, h);
+  T('2. Kontrola před odesláním', x + 16, y + 30, '700 16px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text);
+  para(sub, x + 16, y + 52, w - 32, '14px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted, 20);
+  rr(x + 16, fy, w - 32, fh, 10); g.fillStyle = c.field; g.fill();
+  rr(x + 16, fy, w - 32, fh, 10); g.strokeStyle = c.border; g.stroke();
+  g.save(); rr(x + 16, fy, w - 32, fh, 10); g.clip();
+  if (S.out) para(S.out, x + 28, fy + 24, w - 56, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text, 21);
+  else T('Např.: kód je 482913', x + 28, fy + 24, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted);
+  g.restore();
+  hit(x + 16, fy, w - 32, fh, () => { tout.focus(); });
+  button(x + 16, by, 200, 'Zkontrolovat odeslání', 'primary', checkOut);
+  if (S.outStatus) {
+    const ok = S.outStatus.ok;
+    const color = ok ? c.secure : c.alert;
+    const label = ok ? '✓ Bez citlivých údajů' : '! Citlivý údaj nalezen';
+    g.font = '700 13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif';
+    const bw = g.measureText(label).width + 22;
+    rr(x + 16, by + 52, bw, 28, 14); g.strokeStyle = color; g.lineWidth = 1.2; g.stroke();
+    T(label, x + 27, by + 70, '700 13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', color);
+  }
+  return y + h;
+}
+
+function confirmCard(x, y, w) {
+  const c = col();
+  const tl = wrap(S.confirm.text, w - 48, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif');
+  const by = y + 60 + tl.length * 22 + 8;
+  const h = by + 40 + 16 - y;
+  card(x, y, w, h, c.alert);
+  icon('scam', x + 24, y + 16, c.alert);
+  T('Pozor: chystáte se poslat kód', x + 52, y + 40, '800 18px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.alert);
+  para(S.confirm.text, x + 24, y + 62, w - 48, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text, 22);
+  button(x + 24, by, 140, 'Neposílat', 'primary', () => { S.confirm = null; });
+  button(x + 176, by, 170, 'Přesto odeslat', 'ghost', () => { S.confirm = null; });
+  return y + h;
+}
+
+function learnedCard(x, y, w) {
+  const c = col();
+  const h = 30 + 36 + LEARNED.length * 26 + 22;
+  card(x, y, w, h);
+  T('3. Co se Oblak naučil', x + 16, y + 30, '700 16px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text);
+  g.font = '700 13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif';
+  const bw = g.measureText('Učí se z vašich oprav').width + 24;
+  rr(x + 16, y + 44, bw, 26, 13); g.strokeStyle = c.accentText; g.lineWidth = 1.2; g.stroke();
+  T('Učí se z vašich oprav', x + 28, y + 62, '700 13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.accentText);
+  let ly = y + 92;
+  for (const r of LEARNED) {
+    g.fillStyle = c.text; g.beginPath(); g.arc(x + 22, ly - 5, 2.5, 0, Math.PI * 2); g.fill();
+    g.font = '700 14px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif';
+    g.fillStyle = c.accentText; g.fillText(r.tag, x + 32, ly);
+    const tw = g.measureText(r.tag).width;
+    T(' → ' + r.res, x + 32 + tw, ly, '14px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text);
+    ly += 26;
+  }
+  return y + h;
+}
+
+// Main draw loop
+function draw(now) {
+  const W = innerWidth, H = innerHeight, dpr = devicePixelRatio || 1;
+  if (C.width !== Math.round(W * dpr) || C.height !== Math.round(H * dpr)) {
+    C.width = Math.round(W * dpr); C.height = Math.round(H * dpr);
+  }
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const c = col();
+  g.fillStyle = c.bg; g.fillRect(0, 0, W, H);
+  hits = [];
+  g.save();
+  g.translate(0, -S.scrollY);
+
+  const M = 16, GAP = 16, two = W >= 760;
+  let y = 16;
+
+  // Header: logo tile, title, theme button
+  rr(M, y, 56, 56, 14); g.fillStyle = c.brand; g.fill();
+  cloud(M + 4, y + 12, 0.4, 'idle', 0);
+  T('Oblak', M + 68, y + 26, '800 24px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.text);
+  T('Je to podvod? Řekneme vám to jednoduše.', M + 68, y + 46, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted);
+  const themeLabel = dark ? 'Světlý režim' : 'Tmavý režim';
+  button(W - M - 150, y + 8, 150, themeLabel, 'ghost', () => { dark = !dark; });
+  y += 72;
+
+  // Mascot hero banner
+  const hb = 130;
+  rr(M, y, W - 2 * M, hb, 16); g.fillStyle = c.brand; g.fill();
+  const bob = S.hero.bob ? Math.sin((now || 0) / 260) * 3 : 0;
+  cloud(M + 20, y + (hb - 80) / 2, 1.0, S.hero.mood, bob);
+  const tx = M + 170, tw = W - 2 * M - 190;
+  para(S.hero.title, tx, y + 52, tw, '800 20px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', col().onBrand, 26);
+  para(S.hero.sub, tx, y + 82, tw, '15px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', col().onBrand, 21);
+  y += hb + GAP + 8;
+
+  // Two columns on wide screens, one column on phones
+  const colW = two ? (W - 2 * M - GAP) / 2 : W - 2 * M;
+  const leftX = M, rightX = two ? M + colW + GAP : M;
+  let ly = y, ry = two ? y : y;
+
+  ly = msgCard(leftX, ly, colW) + GAP;
+  if (S.verdict) ly = verdictCard(leftX, ly, colW) + GAP;
+
+  if (!two) ry = ly;
+  ry = outCard(rightX, ry, colW) + GAP;
+  if (S.confirm) ry = confirmCard(rightX, ry, colW) + GAP;
+  ry = learnedCard(rightX, ry, colW) + GAP;
+
+  const bottom = Math.max(ly, ry);
+  T('Výsledek je pomoc, ne záruka. Pokud jde o peníze, zavolejte své bance na číslo z karty.', M, bottom + 16, '13px Figtree, -apple-system, "Segoe UI", Helvetica, sans-serif', c.muted);
+  S.contentH = bottom + 48;
+
+  g.restore();
+  requestAnimationFrame(draw);
+}
+
+// Input: clicks hit the regions, wheel and touch drag scroll the page
+const maxScroll = () => Math.max(0, S.contentH - innerHeight);
+const clampScroll = () => { S.scrollY = Math.min(maxScroll(), Math.max(0, S.scrollY)); };
+C.addEventListener('click', e => {
+  const r = C.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top + S.scrollY;
+  for (let i = hits.length - 1; i >= 0; i--) {
+    const h = hits[i];
+    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); break; }
+  }
+});
+C.addEventListener('wheel', e => { S.scrollY += e.deltaY; clampScroll(); e.preventDefault(); }, { passive: false });
+let touchY = null;
+C.addEventListener('touchstart', e => { touchY = e.touches[0].clientY; }, { passive: true });
+C.addEventListener('touchmove', e => {
+  const y = e.touches[0].clientY;
+  S.scrollY += touchY - y; touchY = y; clampScroll(); e.preventDefault();
+}, { passive: false });
+addEventListener('resize', clampScroll);
+
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>

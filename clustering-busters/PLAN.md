@@ -1,7 +1,7 @@
 # Clustering Busters: plan
 
 **Name:** Clustering Busters (the repo and code are still called `clusterbusters`).
-**Repo:** [cinconko/clusterbusters](https://github.com/cinconko/clusterbusters) · local clone: `../../clusterbusters`
+**Code:** this folder (backend and demo page). The Mac app stays in [cinconko/clusterbusters](https://github.com/cinconko/clusterbusters) · local clone: `../../clusterbusters/electron`
 **Full product plan:** [docs/PLAN.md](../../clusterbusters/docs/PLAN.md) · model choices: [docs/MODEL.md](../../clusterbusters/docs/MODEL.md)
 
 ## Idea
@@ -16,14 +16,14 @@ An agent that tells non-technical people, in plain Czech, whether a message is a
 
 ## Scope
 
-**In:** the existing backend (`POST /check`, `/check-image`, `/check-outgoing`, `/feedback`), the demo page, and the Clusty Mac app.
+**In:** the backend (`POST /check`, `/check-image`, `/check-outgoing`, `/feedback`), the demo page, and the Clusty Mac app (lives in the clusterbusters repo).
 **Out:** new accounts, mobile apps, and anything that needs real bank data.
 
 ## Timeline
 
 | When | What |
 |---|---|
-| Before start | Run `./scripts/setup.sh` on the demo laptop; check `./scripts/test.sh` passes |
+| Before start | Run `./scripts/setup.sh` here on the demo laptop; check `./scripts/test.sh` passes |
 | Hour 1 | Fix blockers; pick the demo messages (1 scam, 1 safe, 1 bank-code message) |
 | Middle | Polish the demo page and the warning copy |
 | 1 hour before end | Feature freeze; rehearse the demo script twice |
