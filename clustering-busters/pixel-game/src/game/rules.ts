@@ -2,8 +2,9 @@
 // tuned in one place and tested with `npm test` (node --test, no extra packages).
 //
 //   boss HP ──► stage 1 / 2 / 3 ──► drop (ring + coins) on every stage change and on death
-//   fight clock ──► fisherman away / here (every 30 s, stays 10 s) ──► 3 items in stock
-//   weapon + rings + upgrades ──► damage and speed
+//   fight clock ──► fisherman away / here (every 30 s, stays 10 s) ──► 3 items in stock (coins)
+//   rings = money ──► village upgrades (kept between runs) ──► loadout for the next fight
+//   boss dies ──► key ──► hidden door ──► treasury chests full of rings
 
 export type Rng = () => number;
 
@@ -44,14 +45,12 @@ export const RARITY_ORDER: readonly Rarity[] = ['classic', 'rare', 'superRare'];
 export interface RingInfo {
   readonly name: string;
   readonly color: number;
-  readonly damage: number; // added to the damage multiplier
-  readonly speed: number;  // added to the speed multiplier
-  readonly maxHp: number;  // extra hearts
+  readonly value: number; // worth, in classic rings
 }
 export const RINGS: Readonly<Record<Rarity, RingInfo>> = {
-  classic: { name: 'Classic ring', color: 0xc8c8d0, damage: 0.1, speed: 0, maxHp: 0 },
-  rare: { name: 'Rare ring', color: 0x44aaff, damage: 0.25, speed: 0.1, maxHp: 0 },
-  superRare: { name: 'Super rare ring', color: 0xff55dd, damage: 0.5, speed: 0.15, maxHp: 1 },
+  classic: { name: 'Classic ring', color: 0xc8c8d0, value: 1 },
+  rare: { name: 'Rare ring', color: 0x44aaff, value: 5 },
+  superRare: { name: 'Super rare ring', color: 0xff55dd, value: 20 },
 };
 
 // Drop odds: 5 % super rare, 25 % rare, the rest classic.
@@ -67,16 +66,6 @@ export function rollRing(rng: Rng, floor: Rarity = 'classic'): Rarity {
 }
 
 export interface Bonuses { damageMul: number; speedMul: number; bonusHp: number }
-
-export function ringBonuses(rings: readonly Rarity[]): Bonuses {
-  const out = { damageMul: 1, speedMul: 1, bonusHp: 0 };
-  for (const r of rings) {
-    out.damageMul += RINGS[r].damage;
-    out.speedMul += RINGS[r].speed;
-    out.bonusHp += RINGS[r].maxHp;
-  }
-  return out;
-}
 
 export function countRings(rings: readonly Rarity[]): Record<Rarity, number> {
   const out: Record<Rarity, number> = { classic: 0, rare: 0, superRare: 0 };
@@ -182,6 +171,88 @@ export function rollStock(rng: Rng, owned: readonly WeaponId[], count: number = 
   }
   return pool.slice(0, count);
 }
+
+// ---- Rings are money: the wallet ----------------------------------------------------
+
+export type Wallet = Record<Rarity, number>;
+export const emptyWallet = (): Wallet => ({ classic: 0, rare: 0, superRare: 0 });
+
+export function walletValue(w: Wallet): number {
+  return RARITY_ORDER.reduce((sum, r) => sum + w[r] * RINGS[r].value, 0);
+}
+
+export function addRings(w: Wallet, rings: readonly Rarity[]): Wallet {
+  const out = { ...w };
+  for (const r of rings) out[r]++;
+  return out;
+}
+
+/**
+ * Pays `price` (in classic rings) from the wallet: cheapest rings first, and when a bigger
+ * ring overpays, the change comes back as classic rings. null = not enough.
+ */
+export function pay(w: Wallet, price: number): Wallet | null {
+  if (price < 0 || walletValue(w) < price) return null;
+  const out = { ...w };
+  let rest = price;
+  for (const r of RARITY_ORDER) {
+    if (rest <= 0) break;
+    const v = RINGS[r].value;
+    const use = Math.min(out[r], Math.ceil(rest / v));
+    out[r] -= use;
+    rest -= use * v;
+  }
+  out.classic += -rest; // change (rest is 0 or negative here)
+  return out;
+}
+
+// ---- The village: permanent upgrades bought with rings --------------------------------
+
+export type UpgradeId = 'bow' | 'bombs' | 'heart' | 'sharp' | 'boots';
+export type Upgrades = Record<UpgradeId, number>; // level of each, 0 = not bought
+export const noUpgrades = (): Upgrades => ({ bow: 0, bombs: 0, heart: 0, sharp: 0, boots: 0 });
+
+export interface VillageItem { readonly name: string; readonly desc: string; readonly price: number; readonly max: number }
+export const VILLAGE_ITEMS: Readonly<Record<UpgradeId, VillageItem>> = {
+  bow: { name: 'Bow', desc: 'start fights with a bow', price: 6, max: 1 },
+  bombs: { name: 'Bombs', desc: 'start fights with bombs', price: 12, max: 1 },
+  heart: { name: 'Heart charm', desc: '+1 heart', price: 8, max: 3 },
+  sharp: { name: 'Sharp edge', desc: '+15% damage', price: 10, max: 3 },
+  boots: { name: 'Swift boots', desc: '+10% speed', price: 6, max: 2 },
+};
+export const VILLAGE_ORDER: readonly UpgradeId[] = ['bow', 'bombs', 'heart', 'sharp', 'boots'];
+
+export type BuyResult =
+  | { ok: true; wallet: Wallet; upgrades: Upgrades }
+  | { ok: false; reason: 'maxed' | 'too poor' };
+
+export function buyUpgrade(wallet: Wallet, upgrades: Upgrades, id: UpgradeId): BuyResult {
+  const item = VILLAGE_ITEMS[id];
+  if (upgrades[id] >= item.max) return { ok: false, reason: 'maxed' };
+  const paid = pay(wallet, item.price);
+  if (!paid) return { ok: false, reason: 'too poor' };
+  return { ok: true, wallet: paid, upgrades: { ...upgrades, [id]: upgrades[id] + 1 } };
+}
+
+export interface Loadout { weapons: WeaponId[]; maxHp: number; damageMul: number; speedMul: number }
+
+/** What you bring into the arena, from the village upgrades. */
+export function loadout(u: Upgrades): Loadout {
+  const weapons: WeaponId[] = [...STARTING_WEAPONS];
+  if (u.bow > 0) weapons.push('bow');
+  if (u.bombs > 0) weapons.push('bombs');
+  return { weapons, maxHp: PLAYER_HP + u.heart, damageMul: 1 + 0.15 * u.sharp, speedMul: 1 + 0.1 * u.boots };
+}
+
+// ---- The treasury: behind the hidden door, opened with the boss's key ------------------
+
+const many = (r: Rarity, n: number): Rarity[] => Array.from({ length: n }, () => r);
+/** Three chests. Worth 6 + 14 + 30 = 50 classic rings. */
+export const TREASURY: readonly (readonly Rarity[])[] = [
+  many('classic', 6),
+  [...many('classic', 4), ...many('rare', 2)],
+  [...many('rare', 2), 'superRare'],
+];
 
 // ---- Fight result and helpers ----------------------------------------------------------
 

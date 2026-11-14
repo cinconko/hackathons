@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
 import { BootScene } from './scenes/boot';
-import { GameOverScene } from './scenes/gameover';
+import { IntroScene } from './scenes/intro';
 import { MenuScene } from './scenes/menu';
 import { PlayScene } from './scenes/play';
+import { ResultScene } from './scenes/result';
+import { TreasuryScene } from './scenes/treasury';
+import { VillageScene } from './scenes/village';
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,7 +19,7 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.NONE,            // we size the canvas ourselves, in whole multiples (see fitCanvas)
   },
   physics: { default: 'arcade', arcade: { debug: false } },
-  scene: [BootScene, MenuScene, PlayScene, GameOverScene],
+  scene: [BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene],
 });
 
 // Largest whole-number zoom that fits the window. Every game pixel becomes an exact
