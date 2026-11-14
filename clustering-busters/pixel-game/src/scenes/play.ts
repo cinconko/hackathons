@@ -4,6 +4,8 @@ import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import * as R from '../game/rules';
 import { addKeys, near, steer, type Keys } from '../player';
+import { handHud, hasWeapon } from '../hand';
+import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
 import { loadSave, updateSave } from '../save';
 import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
@@ -61,7 +63,10 @@ export class PlayScene extends Phaser.Scene {
   private door!: Phaser.GameObjects.Image;
   private keyIcon!: Phaser.GameObjects.Image;
   private specialIcons: Phaser.GameObjects.Image[] = [];
-  private texts!: { hp: Phaser.GameObjects.Text; weapon: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
+  private cdG!: Phaser.GameObjects.Graphics;               // cooldown shading, ON TOP of the icons
+  private cdTexts: Phaser.GameObjects.Text[] = [];          // seconds left on each recharging special
+  private texts!: { hp: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
+  private hand!: ReturnType<typeof handHud>;
   private walletUi!: ReturnType<typeof walletHud>;
   private keys!: Keys;
 
@@ -111,6 +116,7 @@ export class PlayScene extends Phaser.Scene {
   private hitStopUntil = 0;   // real time (performance.now), not fight time
   private inHitStop = false;
   private drinkNote = '';     // the bar drink kicking in, shown on landing
+  private villageLvl = 1;     // the bigger the village, the more rings Mossback drops
 
   constructor() { super('play'); }
 
@@ -123,6 +129,7 @@ export class PlayScene extends Phaser.Scene {
     const base = R.loadout(save.inventory);
     this.kit = { ...base, maxHp: base.maxHp + (drink?.hp ?? 0) };
     this.drinkNote = drink ? `${drink.name}: ${drink.desc}` : '';
+    this.villageLvl = R.villageLevel(save.spent);
     this.fightMs = Math.max(0, data.startMs ?? 0);
     this.hp = this.kit.maxHp;
     this.wallet = { ...save.wallet };
@@ -187,7 +194,7 @@ export class PlayScene extends Phaser.Scene {
     });
     // the custom crosshair replaces the system cursor, only in the arena
     this.input.setDefaultCursor('none');
-    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.input.setDefaultCursor('default'));
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.input.setDefaultCursor('default'); hideHandArt(); });
 
     this.tgG = this.add.graphics().setDepth(7);
     this.aimG = this.add.graphics().setDepth(8);
@@ -198,7 +205,6 @@ export class PlayScene extends Phaser.Scene {
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
       hp: this.add.text(PLAY.x + WALL + 66, PLAY.y + 2, '', FONT).setDepth(950),
-      weapon: this.add.text(PLAY.x + WALL + 3, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950),
       boss: this.add.text(WIDTH / 2, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0).setDepth(950),
       retailer: this.add.text(PLAY.x + PLAY.width - 3, PLAY.y + 2, '', { ...FONT, color: '#9fd3ff' }).setOrigin(1, 0).setDepth(950),
     };
@@ -208,8 +214,15 @@ export class PlayScene extends Phaser.Scene {
       this.add.text(x, PLAY.y + 21, String(i + 1), { ...FONT, color: '#888888' }).setOrigin(0.5, 0).setDepth(950);
       return this.add.image(x, PLAY.y + 16, `icon_${id}`).setDepth(945);
     });
+    // drawn above the icons (946+): the old shading sat under them (940) and never showed
+    this.cdG = this.add.graphics().setDepth(946);
+    this.cdTexts = this.specialIcons.map((icon) => this.add.text(icon.x, icon.y - 4, '', { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0).setDepth(947));
+    this.hand = handHud(this, PLAY.x + WALL + 3, PLAY.y + PLAY.height - 19);
+    if (hasWeapon(this.kit.weapons)) this.hand.show();   // nothing before your first weapon
     this.walletUi = walletHud(this, PLAY.x + PLAY.width - 128, PLAY.y + PLAY.height - 9);
     this.walletUi.update(this.wallet);
+    const luckPct = Math.round((R.ringLuck(this.villageLvl) - 1) * 100);
+    if (luckPct) this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 19, `village bonus +${luckPct}% rings`, { ...FONT, color: '#c8e8b8' }).setOrigin(1, 0).setDepth(950);
 
     drawFrame(this);
     playMusic(this, 'arena');
@@ -239,7 +252,9 @@ export class PlayScene extends Phaser.Scene {
         dustPuff(this, x, y, 8, 16);
         this.landed = true;
         this.nextShotAt = this.fightMs + 1500;
-        this.banner('MOSSBACK', this.drinkNote ? `${this.drinkNote}. Get the key!` : 'Get the key around his neck');
+        const luck = Math.round((R.ringLuck(this.villageLvl) - 1) * 100);
+        const notes = [this.drinkNote, luck ? `village bonus +${luck}% rings` : ''].filter(Boolean).join(', ');
+        this.banner('MOSSBACK', notes ? `${notes}. Get the key!` : 'Get the key around his neck');
       },
     });
   }
@@ -586,7 +601,8 @@ export class PlayScene extends Phaser.Scene {
       this.time.delayedCall(60, () => { if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
       this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
     }
-    if (drops && this.rng() < R.RING_ON_HIT_CHANCE) this.spawnRing(this.boss.x, this.boss.y, 'classic');
+    const loose = drops ? R.hitDrop(this.rng, this.villageLvl) : null;   // rarity rolled: hits can knock rare rings loose too
+    if (loose) this.spawnRing(this.boss.x, this.boss.y, loose);
     if (this.bossHp <= 0) { this.killBoss(); return; }
     const next = R.bossStage(this.bossHp);
     for (let s = this.stage + 1; s <= next; s++) this.enterStage(s as R.Stage);
@@ -600,7 +616,7 @@ export class PlayScene extends Phaser.Scene {
     this.nextShotAt = this.fightMs + 1500;
     this.nextDashAt = this.fightMs + R.STAGES[next].dashEveryMs;
     this.bullets.clear(true, true);
-    this.drop(R.stageDrop(this.rng));
+    this.drop(R.stageDrop(this.rng, this.villageLvl));
     this.cameras.main.shake(200, 0.015);
     this.tweens.add({ targets: this.boss, alpha: 0.3, yoyo: true, repeat: 5, duration: 100, onComplete: () => this.boss.setAlpha(1) });
     sfx(this, 'stage');
@@ -611,7 +627,7 @@ export class PlayScene extends Phaser.Scene {
     this.bossDead = true;
     this.telegraph = null;
     this.bullets.clear(true, true);
-    this.drop(R.deathDrop(this.rng));
+    this.drop(R.deathDrop(this.rng, this.villageLvl));
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
     this.cameras.main.shake(300, 0.02);
     this.tweens.add({ targets: this.boss, alpha: 0, scale: 1.6, duration: 900 });
@@ -824,13 +840,19 @@ export class PlayScene extends Phaser.Scene {
     g.fillStyle(0x442228).fillRect(hx, hy, 60, 5);
     g.fillStyle(0xe03a4a).fillRect(hx, hy, Math.round((60 * this.hp) / this.kit.maxHp), 5);
     this.texts.hp.setText(`${Math.ceil(this.hp)}`);
-    // specials: dark from the top while recharging
+    // specials: dark from the top while recharging, with the seconds left on top
+    this.cdG.clear();
     this.specialIcons.forEach((icon, i) => {
       const id = this.kit.specials[i];
       const left = (this.readyAt[id] ?? 0) - this.fightMs;
       if (left > 0) {
         const frac = left / (R.item(id).cooldownMs ?? 1);
-        g.fillStyle(0x000000, 0.7).fillRect(icon.x - 4, icon.y - 4, 9, Math.ceil(9 * frac));
+        this.cdG.fillStyle(0x000000, 0.7).fillRect(icon.x - 4, icon.y - 4, 9, Math.ceil(9 * frac));
+        this.cdTexts[i].setText(String(Math.ceil(left / 1000))).setVisible(true);
+        icon.setAlpha(0.6);
+      } else {
+        this.cdTexts[i].setVisible(false);
+        icon.setAlpha(1);
       }
     });
     // the boss bar
@@ -846,7 +868,12 @@ export class PlayScene extends Phaser.Scene {
     const status = [now < this.slowUntil ? 'slow' : '', now < this.poisonUntil ? `poison ${Math.ceil((this.poisonUntil - now) / 1000)}s` : '', now < this.paralyzedUntil ? 'stunned' : '']
       .filter(Boolean).join(' ');
     this.texts.boss.setText(!this.bossDead ? `MOSSBACK ${this.stage}/3${status ? `  ${status}` : ''}` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
-    this.texts.weapon.setText(`${this.currentWeapon().name}${this.kit.weapons.length > 1 ? '  Q: switch' : ''}`);
+    if (this.hand.visible) {
+      const w = this.currentWeapon();
+      const readyFrac = Phaser.Math.Clamp(1 - (this.nextAttackAt - this.fightMs) / w.cooldownMs, 0, 1);
+      this.hand.update(this.kit.weapons, this.wIndex, readyFrac);
+      showHandArt(this, this.kit.weapons[this.wIndex], readyFrac);   // the big picture beside the game
+    }
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
     this.texts.retailer.setText(this.bossDead ? '' : here ? `Fisherman here ${secs}s` : `Fisherman in ${secs}s`);

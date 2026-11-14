@@ -30,6 +30,13 @@ page lists the music and sound effects. The browser console also prints a table 
   `boss_flash` (all white, shown for a frame when hit) and `boss_nokey` (after the key fell).
 - PNG or WebP for images; OGG first for sound, with an MP3 copy if it must play in Safari.
 
+## Weapon pictures (optional, big and detailed)
+
+`sprites/art_<weapon>.png` (e.g. `art_sword.png`, `art_warHammer.png`, `art_handCannon.png`) is the
+big picture of the weapon in hand, shown in the black space beside the game. Any size, drawn as
+detailed as you like, transparent background, the weapon upright. Without it the game shows the
+small sprite blown up.
+
 ## Music (one per scene)
 
 `menu`, `intro`, `village`, `arena`, `treasury`, `victory`: they loop and crossfade when the scene

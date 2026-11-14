@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
+import { placeHandArt } from './handArt';
 import { loadSave, updateSave } from './save';
 import { BootScene } from './scenes/boot';
 import { MediaScene } from './scenes/media';
@@ -33,6 +34,7 @@ function fitCanvas() {
   // setZoom (not CSS sizes): it also updates the pointer mapping, so the mouse lands on the
   // right game pixel. With CSS-only sizing, Scale.NONE never learns the canvas grew.
   game.scale.setZoom(zoom);
+  requestAnimationFrame(placeHandArt);   // the weapon picture lives in the black space beside the canvas
 }
 fitCanvas();
 window.addEventListener('resize', fitCanvas);

@@ -216,9 +216,91 @@ export class BootScene extends Phaser.Scene {
     });
     villager('villager_a', 0xd8823a, 0x2a1a10);
     villager('villager_b', 0x6aa84a, 0xe8c34a);
+    // ---- village stages: camp -> tents -> village -> fountains -> rich town -> city ----
+    // campfire: crossed logs + three flame frames
+    for (let i = 0; i < 3; i++) {
+      tex(`campfire_${i}`, 14, 14, () => {
+        px(0x5a3a1a, 1, 11, 12, 2); px(0x6b4a2b, 3, 10, 8, 1); px(0x777777, 0, 12, 2, 2); px(0x777777, 12, 12, 2, 2);
+        const h = [7, 9, 8][i];
+        px(0xd83a1a, 4, 11 - h, 6, h); px(0xffaa33, 5, 12 - h + (i % 2), 4, h - 2); px(0xffee88, 6, 13 - h + 2, 2, h - 4);
+      });
+    }
+    // fountain: stone basin, water, a jet in two heights
+    for (let i = 0; i < 2; i++) {
+      tex(`fountain_${i}`, 26, 22, () => {
+        g.fillStyle(0x8a8a94).fillEllipse(13, 17, 26, 10); g.fillStyle(0x1e4f7a).fillEllipse(13, 16, 20, 6);
+        px(0x8a8a94, 11, 6, 4, 10); px(0x9a9aa4, 9, 6, 8, 2);
+        const top = i ? 0 : 2;
+        px(0x9fd3ff, 12, top, 2, 6 - top); px(0x9fd3ff, 9 + i, top + 2, 1, 3); px(0x9fd3ff, 16 - i, top + 2, 1, 3);
+        px(0xffffff, 12, top); px(0x9fd3ff, 6, 14, 1, 1); px(0x9fd3ff, 19, 14, 1, 1);
+      });
+    }
+    tex('barrel', 10, 12, () => { px(0x6b4a2b, 0, 1, 10, 10); px(0x8a6040, 1, 0, 8, 12); px(0x3a3a3a, 0, 3, 10, 1); px(0x3a3a3a, 0, 8, 10, 1); px(0x999999, 4, 6, 2, 2); });
+    // the beer guy (camp) and the barkeeper (bar building): frame 0 mug down, frame 1 mug raised with foam
+    const pourer = (key: string, shirt: number, apron: boolean) => {
+      for (let i = 0; i < 2; i++) tex(`${key}_${i}`, 12, 14, () => {
+        px(0x3a2418, 3, 0, 6, 2); px(0xf2c79a, 3, 2, 6, 4); px(0x000000, 4, 3); px(0x000000, 7, 3); px(0x5a3a2a, 3, 5, 6, 1);
+        px(shirt, 2, 6, 8, 8); if (apron) px(0xeeeeee, 4, 7, 4, 7);
+        const my = i ? 3 : 8;                          // the mug moves up
+        px(0xc89a3a, 9, my, 3, 4); px(0xffffff, 9, my - 1, 3, 1); px(0xf2c79a, 8, my + 1, 1, 2);
+      });
+    };
+    pourer('beerguy', 0x6b5a3a, false);
+    pourer('barkeeper', 0x8a3a3a, true);
+    // the merchant: frame 1 holds a ring up
+    for (let i = 0; i < 2; i++) tex(`merchant_${i}`, 12, 16, () => {
+      px(0x6a3fa0, 2, 2, 8, 3); px(0xf2c79a, 3, 5, 6, 4); px(0x000000, 4, 6); px(0x000000, 7, 6); px(0x8a5fc0, 2, 9, 8, 7); px(GOLD, 5, 11, 2, 2);
+      if (i) { px(0xf2c79a, 10, 3, 2, 3); px(0x44aaff, 10, 0, 2, 1); px(0x44aaff, 9, 1); px(0x44aaff, 12 - 1, 1); }
+      else px(0xf2c79a, 10, 10, 2, 2);
+    });
+    tex('blanket', 34, 10, () => {
+      px(0x9a3a3a, 0, 2, 34, 8); px(0xc85a4a, 1, 3, 32, 6); for (let i = 0; i < 8; i++) px(0xffcc44, 2 + i * 4, 4, 1, 4);
+      for (let i = 0; i < 4; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0][i], 4 + i * 7, 5, 3, 2);
+      px(0x6b4a2b, 26, 0, 7, 6); px(0x8a6a3a, 27, 1, 5, 4);          // a crate
+    });
+    const tent = (key: string, cloth: number, dark: number) => tex(key, 26, 18, () => {
+      for (let i = 0; i < 16; i++) px(i < 8 ? cloth : dark, 12 - Math.floor(i * 0.75), 2 + i, 2 + Math.floor(i * 1.5), 1);
+      px(0x2a1a10, 11, 10, 4, 8); px(0x6b4a2b, 12, 0, 1, 3);
+    });
+    tent('tent_a', 0xe8d8b0, 0xc8b890);
+    tent('tent_b', 0xd8a86a, 0xb8884a);
+    tex('hut', 24, 20, () => {
+      for (let i = 0; i < 7; i++) px(0xc8a84a, 7 - i, i, 10 + i * 2, 1);   // straw roof
+      px(0x8a6040, 2, 7, 20, 13); for (let y = 8; y < 20; y += 3) px(0x6b4a2b, 2, y, 20, 1);
+      px(0x3a2418, 10, 12, 5, 8);
+    });
+    // rich people: top hat, long coat, a cane
+    const noble = (key: string, coat: number, hat: number) => tex(key, 9, 14, () => {
+      px(hat, 2, 0, 5, 3); px(hat, 1, 3, 7, 1); px(0xf2c79a, 2, 4, 5, 3); px(0x000000, 3, 5); px(0x000000, 5, 5);
+      px(coat, 1, 7, 7, 6); px(GOLD, 4, 8, 1, 4); px(0x2b2b3a, 2, 13, 2, 1); px(0x2b2b3a, 5, 13, 2, 1); px(0x2b1a10, 8, 8, 1, 6);
+    });
+    noble('noble_a', 0x5a2a8a, 0x1a1a24);
+    noble('noble_b', 0x2a4a8a, 0x3a2418);
+    // horse + cart, two leg frames
+    for (let i = 0; i < 2; i++) tex(`cart_${i}`, 38, 18, () => {
+      px(0x8a6040, 0, 6, 18, 6); px(0x6b4a2b, 0, 5, 18, 1); px(0xc8a84a, 2, 3, 14, 3);        // cart with hay
+      g.fillStyle(0x3a2418).fillCircle(4, 14, 3).fillCircle(14, 14, 3); px(0x999999, 4, 14); px(0x999999, 14, 14);
+      px(0x6b4a2b, 18, 9, 4, 1);                                                             // shaft
+      px(0x7a4a2a, 22, 6, 12, 6); px(0x7a4a2a, 31, 2, 5, 5); px(0x3a2418, 33, 1, 2, 2); px(0x000000, 34, 3);  // horse
+      const a = i ? 1 : 0;
+      px(0x5a3a1a, 23 + a, 12, 2, 5); px(0x5a3a1a, 31 - a, 12, 2, 5); px(0x5a3a1a, 26 - a, 12, 2, 5 - a); px(0x5a3a1a, 29 + a, 12, 2, 5 - a);
+    });
+
     tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
     tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
     g.destroy();
+
+    // Animations (frames above, or a file sheet with the same keys). Created once for all scenes.
+    const anim = (key: string, frames: [string, number][]) => {
+      if (this.anims.exists(key)) return;
+      this.anims.create({ key, frames: frames.map(([k, duration]) => ({ key: k, duration })), repeat: -1 });
+    };
+    anim('campfire', [['campfire_0', 120], ['campfire_1', 120], ['campfire_2', 120]]);
+    anim('fountain', [['fountain_0', 260], ['fountain_1', 260]]);
+    anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
+    anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
+    anim('merchant', [['merchant_0', 1800], ['merchant_1', 600]]);
+    anim('cart', [['cart_0', 160], ['cart_1', 160]]);
 
     // ---- dev hooks ----
     const q = new URLSearchParams(window.location.search);
