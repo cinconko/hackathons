@@ -4,19 +4,20 @@ import { drawFrame } from '../frame';
 import { Combat, SPELL_SPEED } from '../combat';
 import { bounce, dustPuff } from '../fx';
 import {
-  addRings, buyItem, SPECIAL, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, CARD_COUNT, dealMerchant, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
-  type CatalogId, type CatalogItem, type ItemKind, type Rarity, type SpecialId,
+  addRings, buyItem, SPECIAL, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, dealFits, dealMerchant, MERCHANT_NAMES, MERCHANT_SELLS, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
+  type CatalogId, type CatalogItem, type ItemKind, type MerchantKind, type Rarity, type SpecialId,
 } from '../game/rules';
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
-import { playMusic, robeFor, sfx } from '../media';
+import { MERCHANT_ROBES, playMusic, sfx } from '../media';
 import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, walletHud } from '../ui';
 
 // The hub between fights:
-//   ring merchant  three random cards from the weapons chart, dealt again after every run
+//   merchants      ranger / smith / armorer / alchemist / peddler (3 cards, robe = what he mostly sells) or,
+//                  1 visit in 10, the special one (4 cards + a best deal); a new one after every run (rules.ts)
 //   bar            one drink at a time, drunk at the start of the next fight
 //   well           step into it and you fall in (sometimes there is a ring at the bottom)
 //   catapult       flies you into Mossback's arena
@@ -114,6 +115,15 @@ const PARTS: readonly Part[] = [
 ];
 
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
+/** Each merchant's shop window: his title, what he says, the frame in the colour of what he sells. */
+const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string; color: number }>> = {
+  ranger: { title: 'THE RANGER', line: '"Bows and slings, mostly. Three today."', color: KIND_COLORS.range },
+  smith: { title: 'THE SMITH', line: '"Fresh off the anvil. Three today."', color: KIND_COLORS.melee },
+  armorer: { title: 'THE ARMORER', line: '"Mossback hits hard. Wear something."', color: KIND_COLORS.armor },
+  alchemist: { title: 'THE ALCHEMIST', line: '"Spells and potions. Mind the green one."', color: 0x4ab84a },
+  peddler: { title: 'THE PEDDLER', line: '"A bit of everything. Three today."', color: 0xd9822a },
+  special: { title: 'THE SPECIAL MERCHANT', line: '"Rare to see me. Five today, one at a steal."', color: 0xc89a1a },
+};
 
 export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; inYard?: boolean }
 
@@ -198,10 +208,14 @@ export class VillageScene extends Phaser.Scene {
 
     // the merchant deals new cards every time you come back from the arena (and on a first visit)
     const save = loadSave();
-    // 4 random cards + 1 special (a top item at a discount); old 3-card saves get a fresh deal too
-    if (data.bouncedBack || data.fromRun || save.merchantCards.length !== CARD_COUNT) {
+    // one of five classic merchants (3 cards, mostly his kind) or, now and then, the special one (5,
+    // with a best deal); a save whose deal fits none (an older one, the very first visit) is dealt again
+    let specialArrived = false;
+    const saved = { kind: save.merchantKind, cards: save.merchantCards, special: save.merchantSpecial };
+    if (data.bouncedBack || data.fromRun || !save.merchantCards.length || !dealFits(saved)) {
       const deal = dealMerchant(Math.random, save.inventory.owned);
-      updateSave((s) => ({ ...s, merchantCards: deal.cards, merchantSpecial: deal.special }));
+      specialArrived = deal.kind === 'special';
+      updateSave((s) => ({ ...s, merchantKind: deal.kind, merchantCards: deal.cards, merchantSpecial: deal.special }));
     }
 
     this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
@@ -254,7 +268,11 @@ export class VillageScene extends Phaser.Scene {
       this.bounceIn(data.kept ?? 0);
     } else {
       this.cameras.main.fadeIn(data.fromIntro ? 900 : 500);
-      banner(this, 'RINGFALL VILLAGE', data.fromRun ? 'The merchant has new cards.' : 'Merchant, bar, well. The catapult is east.');
+      banner(this, 'RINGFALL VILLAGE', specialArrived ? 'The special merchant is here: five cards today!'
+        : data.fromRun ? this.whoCame() : 'Merchant, bar, well. The catapult is east.');
+    }
+    if (specialArrived && data.bouncedBack) {
+      this.afterBounce.push(() => this.time.delayedCall(700, () => banner(this, 'SPECIAL MERCHANT', 'Five cards today, one of them a best deal.')));
     }
     if (this.revealHand && !data.openShop) {
       if (data.bouncedBack) this.afterBounce.push(() => this.time.delayedCall(300, () => this.doRevealHand()));
@@ -403,7 +421,14 @@ export class VillageScene extends Phaser.Scene {
     else this.renderBar();
   }
 
-  /** The merchant's offers: the 4 random cards, then the special card (a top item at a discount). */
+  /** "The Ranger is here: mostly range." (the banner after a run) */
+  private whoCame() {
+    const kind = loadSave().merchantKind;
+    const sells = MERCHANT_SELLS[kind];
+    return `The ${MERCHANT_NAMES[kind]} is here: ${sells ? `mostly ${KIND_NAMES[sells].toLowerCase()}` : 'a bit of everything'}.`;
+  }
+
+  /** The merchant's offers: his random cards, then (special merchant only) the best deal. */
   private offers(): { id: CatalogId; price: number; full: number; discount: number; special: boolean }[] {
     const s = loadSave();
     const list = s.merchantCards.map((id) => ({ id, price: item(id).price, full: item(id).price, discount: 0, special: false }));
@@ -413,13 +438,14 @@ export class VillageScene extends Phaser.Scene {
   }
 
   /**
-   * Five cards on the merchant's table: four random ones and the special one (gold, shimmering,
-   * old price crossed out). Dealt with a flip when the shop opens; a bought one pops.
+   * The merchant's table: 3 cards from a classic merchant, 5 from the special one (4 + the best deal:
+   * gold, shimmering, old price crossed out). Dealt with a flip when the shop opens; a bought one pops.
    */
   private renderCards() {
     const s = loadSave();
     const offers = this.offers();
-    const { c, x, y, w, h } = this.frame('THE RING MERCHANT', '"Four today, and one special. New ones next time."', 'merchant', 0x8a5fc0, 308, 170);
+    const who = MERCHANT_LOOK[s.merchantKind];
+    const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
     const cw = 58;
     const ch = 112;
     const gap = 3;
@@ -1273,7 +1299,7 @@ export class VillageScene extends Phaser.Scene {
 
   /** The merchant and his blanket in this deal's robe colour (when its sprites exist). */
   private robed(p: { key: string; anim?: string }): { key: string; anim?: string } {
-    const robe = robeFor(loadSave().merchantCards);
+    const robe = MERCHANT_ROBES[loadSave().merchantKind];
     if (p.anim === 'merchant' && this.anims.exists(`merchant_${robe}`)) return { key: `merchant_${robe}_0`, anim: `merchant_${robe}` };
     if (p.key === 'blanket' && this.textures.exists(`blanket_${robe}`)) return { key: `blanket_${robe}` };
     return p;

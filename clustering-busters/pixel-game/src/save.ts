@@ -1,13 +1,14 @@
 // Typed localStorage save. Missing or corrupt data falls back to defaults.
-import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, type DrinkId, type Inventory, type SpecialOffer, type Wallet } from './game/rules';
+import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, type DrinkId, type Inventory, type MerchantKind, type SpecialOffer, type Wallet } from './game/rules';
 
 export interface SaveData {
   muted: boolean;
   seenIntro: boolean;      // the opening cutscene plays once, then it is in the menu
   wallet: Wallet;          // all your rings: the only money (village and fisherman)
   inventory: Inventory;    // what the village sold you and what you wear (kept between runs)
-  merchantCards: CatalogId[]; // the 4 random cards on the merchant's table (dealt again after every run)
-  merchantSpecial: SpecialOffer | null; // the 5th card: a top item at a discount
+  merchantKind: MerchantKind;   // who came: ranger, smith, armorer, alchemist, peddler (3 cards) or the special one (5)
+  merchantCards: CatalogId[];   // his random cards (dealt again after every run)
+  merchantSpecial: SpecialOffer | null; // the special merchant's best deal: a top item at a discount
   drink: DrinkId | null;   // bought at the bar, drunk at the start of the next fight
   spent: number;           // rings spent in the village: it grows with them
   villageSeen: number;     // the village level the player has already watched being built
@@ -23,7 +24,7 @@ export interface SaveData {
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, grandpaMet: false, natureSeed: 0, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantKind: 'peddler', merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, grandpaMet: false, natureSeed: 0, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
 
 /** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */
