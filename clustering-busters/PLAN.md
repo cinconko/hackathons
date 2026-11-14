@@ -1,57 +1,38 @@
 # Clustering Busters: plan
 
-**Code:** this folder.
-
-| Folder | What |
-|---|---|
-| [`backend/`](backend) | Scam-check API: `POST /check`, `/check-image`, `/check-outgoing`, `/feedback` |
-| [`frontend/`](frontend) | Demo page (`demo.html`), served by the backend at http://127.0.0.1:8000 |
-| [`pixel-game/`](pixel-game) | Ringfall, the boss-fight pixel game |
-| [`scripts/`](scripts) | `setup.sh`, `run-backend.sh`, `test.sh` |
-
-The Mac app Clusty is separate: [cinconko/clusterbusters](https://github.com/cinconko/clusterbusters) (`electron/`). Background reading there: [product plan](https://github.com/cinconko/clusterbusters/blob/main/docs/PLAN.md), [model choices](https://github.com/cinconko/clusterbusters/blob/main/docs/MODEL.md).
+**The project:** Ringfall, a pixel adventure game with one big boss fight. Code: [`pixel-game/`](pixel-game).
 
 ## Idea
 
-An agent that tells non-technical people, in plain Czech, whether a message is a scam, what to do about it, and warns before they send a bank code or card number. It learns from every "right / wrong" correction.
+You fight one boss in three stages. The boss drops rings, the fisherman sells you gear every 30 seconds, and you pick the weapon that fits the moment.
 
-## Goal for the hackathon
+## What is in the game
 
-- [x] Demo a working scam check end to end (text, screenshot, outgoing-data warning). Checked through the API on 14 Nov; still click through the demo page once in a browser.
-- [x] Show the learning loop: a user correction changes the next answer (`safe` → `scam`, source `learned`).
-- [ ] Mac app Clusty running live on screen capture (optional if time is short)
-
-## Scope
-
-**In:** the backend, the demo page, the Ringfall game, and the Clusty Mac app.
-**Out:** new accounts, mobile apps, and anything that needs real bank data.
-
-## Timeline
-
-| When | What |
+| Part | How it works |
 |---|---|
-| Before start | In this folder: run `./scripts/setup.sh` on the demo laptop; check `./scripts/test.sh` passes |
-| Hour 1 | Fix blockers; pick the demo messages (1 scam, 1 safe, 1 bank-code message) |
-| Middle | Polish the demo page and the warning copy |
-| 1 hour before end | Feature freeze; rehearse the demo script twice |
-| End | Demo, then write the team's lessons in [`NOTES.md`](NOTES.md) |
+| Screen | 320x180 pixel grid, scaled in whole steps (exact 6x = full HD 1920x1080), pixel frame around the play area, F for fullscreen |
+| Boss | Mossback, 3 stages by HP thirds: green fires bullet rings, orange fires aimed bursts, red fires spirals and dashes |
+| Rings | Classic (70%), rare (25%), super rare (5%). One drops on every stage change, the final drop is at least rare. They boost damage, speed and hearts |
+| Retailer | A fisherman comes to the pond every 30 s and stays 10 s. He shows 3 things to buy; the fight pauses while you shop |
+| Weapons | Fists and sword (melee), bow (shooting), bombs (thrown). Bow and bombs are bought from the fisherman |
 
-## Demo script (3 minutes)
+All numbers (odds, prices, timings, damage) are in [`pixel-game/src/game/rules.ts`](pixel-game/src/game/rules.ts).
 
-1. Paste a scam SMS → warning in plain Czech with the next step.
-2. Drop a screenshot of a fake bank page → same check via Apple Vision OCR.
-3. Type a bank account number → outgoing warning (never leaves the device).
-4. Mark a result as wrong → show the learned rule changing the next answer.
+## Next
 
-## Ringfall (the game)
+- [ ] Real art and sound in [`pixel-game/public/media/`](pixel-game/public/media) (sprites, audio), replacing the placeholders drawn in code
+- [ ] Play-test and balance (boss HP, coin drops, prices)
+- [ ] Decide the final game and boss names (Ringfall and Mossback are placeholders)
+- [ ] Build for itch.io: `npm run itch` in `pixel-game/`
 
-Boss fight in a full HD pixel frame: one boss with 3 stages, rings in 3 rarities, a fisherman shop every 30 s, and fists, sword, bow and bombs. Run it with `cd pixel-game && npm ci && npm run dev`. Details in the code: [`pixel-game/src/game/rules.ts`](pixel-game/src/game/rules.ts).
+## Run it
 
-## Risks
-
-- Demo laptop missing Screen Recording permission for Clusty → test before the event.
-- Model API unavailable → the rules-only path must still give answers.
-- No CI or push hook in this repo → run `./scripts/test.sh` (and `npm test` in `pixel-game/`) before every push.
+```bash
+cd pixel-game
+npm ci
+npm run dev        # open the URL it prints
+npm test           # game rule tests
+```
 
 ## Team
 
