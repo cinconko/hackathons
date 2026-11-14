@@ -82,3 +82,9 @@ make Spells/poison_potion.png    icon_poison     6x9   cut
 make Spells/poison_potion.png    card_poison     13x19 cut
 # Fisherman's supplies
 make Supplies/health_potion.png  supply_potion   11x13 cut
+# The bar: the team's beer mugs, drawn at game size. full = your drink, half = while it pours,
+# spilled = no drink yet; the full one, small, is the drink icon (bar menu, the hanging sign).
+make Bar/full_beer.png           beer_full       21x24 cut
+make Bar/half_empty_beer.png     beer_half       21x21 cut
+make Bar/spilled_beer.png        beer_spilled    26x16 cut
+make Bar/full_beer.png           mug             8x9   cut

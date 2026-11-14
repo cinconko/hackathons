@@ -125,7 +125,7 @@ const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string
   special: { title: 'THE SPECIAL MERCHANT', line: '"Rare to see me. Five today, one at a steal."', color: 0xc89a1a },
 };
 
-export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; inYard?: boolean }
+export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; openBar?: boolean; inYard?: boolean }
 
 interface Cart {
   sprite: Phaser.GameObjects.Sprite;
@@ -279,6 +279,7 @@ export class VillageScene extends Phaser.Scene {
       else this.time.delayedCall(900, () => this.doRevealHand());
     }
     if (data.openShop) this.openPanel('cards'); // dev hook
+    if (data.openBar) this.openPanel('bar');    // dev hook
   }
 
   update(_t: number, delta: number) {
@@ -381,8 +382,9 @@ export class VillageScene extends Phaser.Scene {
     } else {
       const id = DRINK_ORDER[this.sel];
       const d = DRINKS[id];
-      const paid = pay(s.wallet, d.price);
-      if (!paid) this.note = `${d.name} is ${d.price} rings.`;
+      const paid = s.drink === id ? null : pay(s.wallet, d.price);
+      if (s.drink === id) this.note = `You already have the ${d.name}. Drunk at the next fight.`;   // no paying twice for the same mug
+      else if (!paid) this.note = `${d.name} is ${d.price} rings.`;
       else {
         sfx(this, 'buy');
         const after = updateSave((x) => ({ ...x, wallet: paid, drink: id, spent: x.spent + d.price }));
@@ -562,31 +564,25 @@ export class VillageScene extends Phaser.Scene {
       c.add(this.add.text(x + 84, ry, d.desc, { ...FONT, color: '#e8c890' }));
       c.add(this.add.text(x + 232, ry, s.drink === id ? 'IN HAND' : `${d.price} rings`, { ...FONT, color: s.drink === id ? '#6fd13a' : walletValue(s.wallet) >= d.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(1, 0));
     });
-    // the big mug: pours when you just bought, else shows your drink (or stands empty)
-    const mug = this.add.graphics();
-    c.add(mug);
-    const mx = x + 206;
-    const my = y + 74;
-    const draw = (f: number) => {
-      if (!mug.active) return;
-      const fill = Math.round(20 * f);
-      mug.clear();
-      if (f < 1 && f > 0) mug.fillStyle(0xd89a2a).fillRect(mx + 7, my - 12, 2, 12 + 21 - fill);       // the stream from the tap
-      mug.fillStyle(0x6b4a2b).fillRect(mx + 3, my - 14, 10, 3);                                         // the tap
-      mug.fillStyle(0xd89a2a).fillRect(mx + 1, my + 21 - fill, 14, fill);                               // beer
-      if (f > 0.8) mug.fillStyle(0xffffff).fillRect(mx + 1, my + 21 - fill - 3, 14, 3).fillRect(mx + 3, my + 21 - fill - 5, 4, 2).fillRect(mx + 9, my + 21 - fill - 4, 3, 1);
-      for (let b = 0; b < 4 && fill > 4; b++) mug.fillStyle(0xffe8a8).fillRect(mx + 3 + b * 3, my + 20 - ((f * 40 + b * 6) % Math.max(1, fill)), 1, 1);   // bubbles
-      mug.lineStyle(1, 0xdddddd, 0.9).strokeRect(mx, my, 16, 22).strokeRect(mx + 16, my + 6, 4, 9);
-    };
+    // the big mug: pours when you just bought (half, then full), else your drink, or knocked over when you have none
+    const mx = x + 214;
+    const my = y + 96;                                       // where the mug stands (its bottom)
+    const mug = this.add.image(mx, my, s.drink ? 'beer_full' : 'beer_spilled').setOrigin(0.5, 1);
+    const tap = this.add.graphics();
+    c.add([tap, mug]);
     if (this.pour) {
       this.pour = false;
       const st = { f: 0 };
-      const tw = this.tweens.add({ targets: st, f: 1, duration: 900, ease: 'Sine.easeOut', onUpdate: () => draw(st.f), onComplete: () => draw(1) });
+      const draw = () => {
+        if (!mug.active) return;
+        mug.setTexture(st.f < 0.55 ? 'beer_half' : 'beer_full');
+        tap.clear().fillStyle(0x6b4a2b).fillRect(mx - 7, my - 32, 10, 3);                              // the tap, just above the full mug
+        if (st.f < 1) tap.fillStyle(0xd89a2a).fillRect(mx - 3, my - 29, 2, 29 - mug.height + 4);       // the stream into the mug
+      };
+      const tw = this.tweens.add({ targets: st, f: 1, duration: 900, ease: 'Sine.easeOut', onUpdate: draw, onComplete: draw });
       c.once(Phaser.GameObjects.Events.DESTROY, () => tw.stop());
-    } else {
-      draw(s.drink ? 1 : 0);
     }
-    if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 180 } }));
+    if (this.note) c.add(this.add.text(x + 8, y + h - 13, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 180 } }).setOrigin(0, 1));   // grows upward, clear of the keys line
     c.add(this.add.text(x + 8, y + h - 11, 'W/S choose  Enter buy  E leave', { ...FONT, color: '#888888' }));
   }
 
