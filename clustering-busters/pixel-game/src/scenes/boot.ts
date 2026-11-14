@@ -249,14 +249,28 @@ export class BootScene extends Phaser.Scene {
     });
     tex('sign', 16, 12, () => { px(0x8a6a3a, 0, 0, 16, 7); px(0x6b4a2b, 7, 7, 2, 5); px(0x3a2a1a, 3, 3, 8, 1); px(0x3a2a1a, 10, 2, 2, 3); px(0x3a2a1a, 12, 3); });
     // The bar: a wide timber building with a hanging mug sign; the barkeeper wears an apron.
+    // the tavern: a timber-framed house, whitewashed walls between dark beams, a straw thatch roof,
+    // a stone chimney, an arched plank door, small leaded windows and a hanging sign with a mug
     tex('bar', 50, 34, () => {
-      for (let i = 0; i < 10; i++) px(0x5a3a2a, 10 - i, i, 30 + i * 2, 1);            // roof
-      px(0x3a2418, 0, 10, 50, 1);
-      px(0x8a6040, 2, 11, 46, 23); px(0x6b4a2b, 2, 11, 46, 1);                          // timber walls
-      for (let x = 2; x < 48; x += 8) px(0x6b4a2b, x, 11, 1, 23);
-      px(0x3a2418, 20, 20, 10, 14); px(0x2a1810, 24, 20, 1, 14); px(GOLD, 28, 27);       // double door
-      px(0xffd27a, 6, 16, 8, 6); px(0xffd27a, 36, 16, 8, 6);                            // warm windows
-      px(0x6b4a2b, 10, 16, 1, 6); px(0x6b4a2b, 40, 16, 1, 6);
+      const BEAM = 0x3a2414, PLASTER = 0xe6dcc2, THATCH = 0xc49a52, THATCH_DARK = 0x8a6a32;
+      px(0x7a7a84, 37, 0, 5, 7); px(0x9a9aa4, 37, 0, 5, 1); px(0x5a5a64, 39, 2, 1, 1); px(0x5a5a64, 37, 4, 1, 1);   // chimney
+      for (let i = 0; i < 11; i++) px(THATCH, 11 - i, 2 + i, 28 + i * 2, 1);                                         // thatch roof
+      for (let i = 0; i < 11; i += 2) for (let x = 12 - i; x < 39 + i; x += 3) px(THATCH_DARK, x, 2 + i, 1, 1);     // straw strokes
+      px(THATCH_DARK, 0, 12, 50, 1);                                                                                // eave
+      px(PLASTER, 2, 13, 46, 21);                                                                                   // walls
+      px(BEAM, 2, 13, 46, 1); px(BEAM, 2, 22, 46, 1); px(BEAM, 2, 33, 46, 1);                                       // beams
+      for (const x of [2, 15, 34, 47]) px(BEAM, x, 13, 1, 21);                                                      // posts
+      for (let i = 0; i < 10; i++) { px(BEAM, 3 + i, 23 + i, 1, 1); px(BEAM, 14 - i, 23 + i, 1, 1); px(BEAM, 35 + i, 23 + i, 1, 1); px(BEAM, 46 - i, 23 + i, 1, 1); }   // X braces
+      for (const wx of [6, 38]) {                                                                                   // leaded windows, warm light
+        px(0xffd27a, wx, 15, 6, 6); px(BEAM, wx - 1, 14, 8, 1); px(BEAM, wx - 1, 21, 8, 1);
+        px(0xb8862a, wx + 2, 15, 1, 6); px(0xb8862a, wx, 17, 6, 1); px(0xfff1b8, wx + 1, 16);
+      }
+      px(0x5a3a22, 19, 21, 12, 13); px(0x5a3a22, 20, 20, 10, 1); px(0x5a3a22, 21, 19, 8, 1);                        // arched door
+      for (const x of [22, 25, 28]) px(0x4a2e1a, x, 20, 1, 14);                                                     // planks
+      px(0x2a2a2a, 19, 24, 5, 1); px(0x2a2a2a, 19, 30, 5, 1); px(GOLD, 27, 27);                                     // iron hinges, handle
+      px(BEAM, 32, 15, 6, 1); px(BEAM, 33, 16, 1, 2); px(BEAM, 37, 16, 1, 2);                                       // the sign's bracket...
+      px(0x8a6040, 32, 18, 7, 5); px(0x5a3a22, 32, 18, 7, 1);                                                       // ...the board...
+      px(0xeeeeee, 34, 19, 2, 3); px(0xd89a2a, 34, 20, 2, 2); px(0xeeeeee, 36, 20, 1, 1);                           // ...and its mug
     });
     tex('barkeeper', 10, 14, () => { px(0x3a2418, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3); px(0x5a3a2a, 2, 5, 6, 1); px(0x8a3a3a, 1, 6, 8, 8); px(0xeeeeee, 3, 7, 4, 7); });
     // the bar's big mugs (the team's art replaces them): full, half poured, knocked over
