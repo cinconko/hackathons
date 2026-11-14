@@ -211,12 +211,22 @@ export class Combat {
     const s = this.shots.create(p.x, p.y, texture) as Sprite;
     s.setRotation(Math.atan2(dir.y, dir.x)).setDepth(p.depth + 1).setData('dmg', dmg).setData('effect', effect).setData('dies', this.o.now() + 2000);
     (s.body as Body).setVelocity(dir.x * speed, dir.y * speed);
+    // team art: <projectile>_cast flashes at the hand that cast it (spells)
+    this.flash(`${texture}_cast`, p.x + dir.x * 7, p.y + dir.y * 7, 1, 180, p.depth + 2, dir.x < 0);
+  }
+
+  /** A one-off picture that fades out (and grows to `grow`), if the art exists. */
+  private flash(key: string, x: number, y: number, grow: number, ms: number, depth: number, flipX = false) {
+    if (!this.scene.textures.exists(key)) return;
+    const fx = this.scene.add.image(Math.round(x), Math.round(y), key).setDepth(depth).setFlipX(flipX);
+    this.scene.tweens.add({ targets: fx, alpha: 0, scale: grow, duration: ms, ease: 'Quad.easeOut', onComplete: () => fx.destroy() });
   }
 
   private shotHit(s: Sprite) {
     if (!s.active) return;
     const dmg = s.getData('dmg') as number;
     const effect = s.getData('effect') as ShotEffect;
+    this.flash(`${s.texture.key}_hit`, s.x, s.y, 1.4, 280, s.depth + 1);   // team art: the burst where it hits
     s.destroy();
     const t = this.o.target;
     if (!t.alive()) return;

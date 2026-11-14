@@ -45,6 +45,12 @@ page lists the music and sound effects. The browser console also prints a table 
   keys (`boss_2.png`) still wins over the made one.
 - **Campfires**: `art/Campfire/Campfire_1.png` (wood, village level 1) and `Campfire_2.png` (stones,
   levels 2-3) -> `campfire_wood.png` / `campfire_stone.png`; the game adds the flicker frames.
+- **Spells** (`art/Spells/<spell>.png`, `_held`, `_large`, `_ring`): the orb flies (`proj_<spell>`) and
+  is the HUD icon (`icon_<spell>`), the casting hand flashes when you cast (`proj_<spell>_cast`), the
+  large swirl is the merchant's card (`card_<spell>`), the ring bursts where it hits (`proj_<spell>_hit`).
+  Any projectile gets a cast flash / hit burst just by adding those two files.
+- **Supplies**: `supply_<id>` shows next to it in the fisherman's shop (`supply_potion` = the health potion).
+- **No spaces in file names**: `fireball held.png` is skipped. Use `_` (`fireball_held.png`).
 - **Big source art goes in `art/`, not here**: everything in `public/` ships to players.
 - PNG or WebP for images; OGG first for sound, with an MP3 copy if it must play in Safari.
 

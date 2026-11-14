@@ -726,6 +726,7 @@ export class PlayScene extends Phaser.Scene {
       const color = sold ? '#555555' : R.walletValue(this.wallet) >= s.price ? '#ffffff' : '#ff8888';
       const line = `${i + 1}  ${s.name.padEnd(12)} ${sold ? 'SOLD' : `${s.price}r`.padStart(4)}  ${s.desc}`;
       c.add(this.add.text(x + 8, y + 34 + i * 13, line, { ...FONT, color }));
+      if (this.textures.exists(`supply_${id}`)) c.add(this.add.image(x + w - 12, y + 38 + i * 13, `supply_${id}`).setAlpha(sold ? 0.3 : 1));
     });
     if (this.shopNote) c.add(this.add.text(x + 8, y + 74, this.shopNote, { ...FONT, color: '#ffcc44' }));
     c.add(this.add.text(x + 8, y + h - 12, '1-3: buy    E / Esc: back to the fight', { ...FONT, color: '#888888' }));
