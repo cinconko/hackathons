@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  bossStage, countRings, deathDrop, formatTime, hitDamage, ITEMS, msUntilRetailer, msUntilRetailerLeaves,
-  retailerVisit, ringBonuses, rollRing, rollStock, seededRng, stageStartHp, BOSS_MAX_HP,
+  addRings, bossStage, buyUpgrade, countRings, deathDrop, emptyWallet, formatTime, hitDamage, ITEMS, loadout,
+  msUntilRetailer, msUntilRetailerLeaves, noUpgrades, pay, retailerVisit, rollRing, rollStock, seededRng,
+  stageStartHp, TREASURY, walletValue, BOSS_MAX_HP, PLAYER_HP,
 } from '../src/game/rules.ts';
 
 const fixed = (v: number) => () => v;
@@ -41,14 +42,6 @@ test('rings: odds hold over many rolls', () => {
   assert.ok(Math.abs(many.rare / 20000 - 0.25) < 0.02, `rare ${many.rare}`);
 });
 
-test('ring bonuses add up', () => {
-  assert.deepEqual(ringBonuses([]), { damageMul: 1, speedMul: 1, bonusHp: 0 });
-  const b = ringBonuses(['classic', 'rare', 'superRare']);
-  assert.ok(Math.abs(b.damageMul - 1.85) < 1e-9);
-  assert.ok(Math.abs(b.speedMul - 1.25) < 1e-9);
-  assert.equal(b.bonusHp, 1);
-});
-
 test('damage is weapon damage times the multiplier, never below 1', () => {
   assert.equal(hitDamage('fists', 1), 1);
   assert.equal(hitDamage('fists', 0.1), 1);
@@ -83,4 +76,55 @@ test('fisherman sells 3 different items and never a weapon you own', () => {
 test('time format', () => {
   assert.equal(formatTime(0), '0:00');
   assert.equal(formatTime(83_400), '1:23');
+});
+
+test('rings are money: classic 1, rare 5, super rare 20', () => {
+  assert.equal(walletValue({ classic: 3, rare: 2, superRare: 1 }), 33);
+  assert.deepEqual(addRings(emptyWallet(), ['rare', 'classic', 'rare']), { classic: 1, rare: 2, superRare: 0 });
+});
+
+test('paying uses the cheapest rings first and gives change in classic rings', () => {
+  assert.deepEqual(pay({ classic: 10, rare: 1, superRare: 1 }, 6), { classic: 4, rare: 1, superRare: 1 });
+  assert.deepEqual(pay({ classic: 2, rare: 1, superRare: 0 }, 6), { classic: 1, rare: 0, superRare: 0 });   // 2 + 5 = 7, change 1
+  assert.deepEqual(pay({ classic: 0, rare: 0, superRare: 1 }, 8), { classic: 12, rare: 0, superRare: 0 });  // 20, change 12
+  assert.equal(pay({ classic: 3, rare: 0, superRare: 0 }, 4), null);
+  assert.deepEqual(pay({ classic: 1, rare: 0, superRare: 0 }, 0), { classic: 1, rare: 0, superRare: 0 });
+});
+
+test('paying never creates or loses value', () => {
+  const rng = seededRng(3);
+  for (let i = 0; i < 2000; i++) {
+    const w = { classic: Math.floor(rng() * 12), rare: Math.floor(rng() * 4), superRare: Math.floor(rng() * 3) };
+    const price = Math.floor(rng() * 70);
+    const after = pay(w, price);
+    if (walletValue(w) < price) { assert.equal(after, null); continue; }
+    assert.ok(after);
+    assert.equal(walletValue(after), walletValue(w) - price);
+    for (const k of ['classic', 'rare', 'superRare'] as const) assert.ok(after[k] >= 0);
+  }
+});
+
+test('village: buying raises the level, stops at max, needs enough rings', () => {
+  const rich = { classic: 0, rare: 0, superRare: 5 };
+  const a = buyUpgrade(rich, noUpgrades(), 'bow');
+  assert.ok(a.ok);
+  if (!a.ok) return;
+  assert.equal(a.upgrades.bow, 1);
+  assert.equal(walletValue(a.wallet), 100 - 6);
+  assert.deepEqual(buyUpgrade(a.wallet, a.upgrades, 'bow'), { ok: false, reason: 'maxed' });
+  assert.deepEqual(buyUpgrade(emptyWallet(), noUpgrades(), 'heart'), { ok: false, reason: 'too poor' });
+});
+
+test('loadout follows the upgrades', () => {
+  assert.deepEqual(loadout(noUpgrades()), { weapons: ['fists', 'sword'], maxHp: PLAYER_HP, damageMul: 1, speedMul: 1 });
+  const l = loadout({ bow: 1, bombs: 1, heart: 2, sharp: 2, boots: 1 });
+  assert.deepEqual(l.weapons, ['fists', 'sword', 'bow', 'bombs']);
+  assert.equal(l.maxHp, PLAYER_HP + 2);
+  assert.ok(Math.abs(l.damageMul - 1.3) < 1e-9);
+  assert.ok(Math.abs(l.speedMul - 1.1) < 1e-9);
+});
+
+test('treasury: 3 chests worth 50 classic rings', () => {
+  assert.equal(TREASURY.length, 3);
+  assert.equal(walletValue(addRings(emptyWallet(), TREASURY.flat())), 50);
 });

@@ -2,24 +2,32 @@ import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import * as R from '../game/rules';
+import { addKeys, near, steer, type Keys } from '../player';
+import { bounce, dustPuff } from '../fx';
+import { loadSave, updateSave } from '../save';
+import { banner as showBanner, fadeToScene, floatText as showFloat } from '../ui';
 
 // The boss fight. Rules (stages, drops, the fisherman's timing and stock, damage) come from
 // game/rules.ts; this scene only moves sprites, reads input and draws.
 //
 // Every timer runs on fightMs, which stops while the shop is open: the boss, the bullets and
 // the fisherman's 10 s stay all wait for you while you shop.
+//
+//   catapult ─► landing (shadow, dust, shake) ─► fight ─► boss dies, drops the key from his neck
+//   ─► take the key ─► the hidden door in the west wall opens ─► treasury
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
-type Key = Phaser.Input.Keyboard.Key;
 interface Dir { x: number; y: number }
-export interface PlayData { startMs?: number; stage?: number; openShop?: boolean }
+export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
 
 const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#ffffff' };
 const FISHER_X = WIDTH / 2;
 const FISHER_Y = PLAY.y + PLAY.height - 26;
 const ARROW_SPEED = 200;
 const BLAST_RADIUS = 26;
+const WALL = 8;                                              // the west wall's thickness
+const DOOR = { x: PLAY.x + WALL / 2 + 2, y: PLAY.y + PLAY.height / 2 };
 
 const asSprite = (o: unknown) => o as Sprite;
 
@@ -34,7 +42,10 @@ export class PlayScene extends Phaser.Scene {
   private pickups!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Graphics;
   private texts!: { coins: Phaser.GameObjects.Text; weapon: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text; rings: Phaser.GameObjects.Text[] };
-  private keys!: Record<string, Key>;
+  private keys!: Keys;
+  private kit!: R.Loadout;
+  private door!: Phaser.GameObjects.Image;
+  private keyIcon!: Phaser.GameObjects.Image;
 
   // fight state (reset in create, because Phaser reuses the scene object)
   private fightMs = 0;
@@ -62,16 +73,21 @@ export class PlayScene extends Phaser.Scene {
   private shop: Phaser.GameObjects.Container | null = null;
   private shopNote = '';
   private devOpenShop = false;
+  private landed = true;
+  private hasKey = false;
+  private doorOpen = false;
 
   constructor() { super('play'); }
 
   create(data: PlayData = {}) {
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
     this.fightMs = Math.max(0, data.startMs ?? 0);
-    this.hp = R.PLAYER_HP;
     this.coins = R.STARTING_COINS;
-    this.owned = [...R.STARTING_WEAPONS];
+    this.kit = R.loadout(loadSave().upgrades);
+    this.owned = [...this.kit.weapons];
     this.weapon = 'sword';
+    this.hasKey = false;
+    this.doorOpen = false;
     this.rings = [];
     this.upgrades = { damage: 0, speed: 0 };
     this.facing = { x: 1, y: 0 };
@@ -92,16 +108,18 @@ export class PlayScene extends Phaser.Scene {
     this.shop = null;
     this.shopNote = '';
     this.devOpenShop = !!data.openShop;
+    this.hp = this.kit.maxHp;
 
-    this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
+    this.physics.world.setBounds(PLAY.x + WALL, PLAY.y, PLAY.width - WALL, PLAY.height);
     this.drawArena();
+    this.door = this.add.image(DOOR.x, DOOR.y, 'door').setDepth(4).setVisible(false);
 
     this.fisher = this.add.image(FISHER_X, FISHER_Y, 'fisher').setDepth(5).setVisible(false);
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
-    this.player = this.physics.add.sprite(PLAY.x + 40, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
+    this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
     this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
-    (this.boss.body as Body).setCircle(10, 2, 3);
+    (this.boss.body as Body).setCircle(10, 2, 2);
     this.applyBossTint();
 
     this.bullets = this.physics.add.group();
@@ -117,10 +135,9 @@ export class PlayScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.player, this.pickups, (_p, item) => this.collect(asSprite(item)));
 
-    const kb = this.input.keyboard!;
-    this.keys = kb.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,J,Q,E,ESC,ONE,TWO,THREE,FOUR') as Record<string, Key>;
+    this.keys = addKeys(this);
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      if (this.shop || this.ended) return;
+      if (this.shop || this.ended || !this.landed) return;
       const dx = p.worldX - this.player.x;
       const dy = p.worldY - this.player.y;
       const len = Math.hypot(dx, dy) || 1;
@@ -130,50 +147,78 @@ export class PlayScene extends Phaser.Scene {
 
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
-      coins: this.add.text(PLAY.x + 3, PLAY.y + 10, '', { ...FONT, color: '#ffcc44' }).setDepth(950),
-      weapon: this.add.text(PLAY.x + 3, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950),
+      coins: this.add.text(PLAY.x + WALL + 3, PLAY.y + 10, '', { ...FONT, color: '#ffcc44' }).setDepth(950),
+      weapon: this.add.text(PLAY.x + WALL + 3, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950),
       boss: this.add.text(WIDTH / 2, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0).setDepth(950),
       retailer: this.add.text(PLAY.x + PLAY.width - 3, PLAY.y + 2, '', { ...FONT, color: '#9fd3ff' }).setOrigin(1, 0).setDepth(950),
       rings: R.RARITY_ORDER.map((_r, i) => this.add.text(PLAY.x + PLAY.width - 54 + i * 18 + 8, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950)),
     };
+    this.keyIcon = this.add.image(PLAY.x + WALL + 8 + this.kit.maxHp * 9, PLAY.y + 5, 'key').setDepth(950).setVisible(false);
 
     drawFrame(this);
-    if (startStage === 1) this.banner('MOSSBACK', 'Stage 1 of 3');
+    if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
+    if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
+    if (data.landing) this.land();
+    else { this.landed = true; if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3'); }
+  }
+
+  /** Fell out of the catapult's sky: a shadow grows, the hero drops in, dust and a shake, then fight. */
+  private land() {
+    this.landed = false;
+    this.cameras.main.fadeIn(350, 255, 255, 255);
+    const x = this.player.x;
+    const y = this.player.y;
+    this.player.setVisible(false);
+    const shadow = this.add.image(x, y + 5, 'shadow').setDepth(9).setScale(0.2);
+    this.tweens.add({ targets: shadow, scale: 1.4, duration: 700, ease: 'Quad.easeIn' });
+    const faller = this.add.image(x, y - 140, 'player').setDepth(12).setScale(2.5);
+    this.tweens.add({
+      targets: faller, y, scale: 1, duration: 700, ease: 'Quad.easeIn',
+      onComplete: () => {
+        faller.destroy();
+        shadow.destroy();
+        this.player.setVisible(true);
+        this.cameras.main.shake(260, 0.02);
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const d = this.add.image(x, y + 4, 'dust').setDepth(11);
+          this.tweens.add({ targets: d, x: x + Math.cos(a) * 16, y: y + 4 + Math.sin(a) * 7, alpha: 0, duration: 450, onComplete: () => d.destroy() });
+        }
+        this.landed = true;
+        this.nextShotAt = this.fightMs + 1500;
+        this.banner('MOSSBACK', 'Get the key around his neck');
+      },
+    });
   }
 
   update(_t: number, delta: number) {
     if (this.ended) return;
     if (this.shop) { this.shopKeys(); return; }
+    if (!this.landed) { this.drawHud(); return; }
     this.fightMs += delta;
     this.movePlayer();
     this.actionKeys();
     if (!this.bossDead) this.updateBoss();
     this.updateRetailer();
     this.cleanupProjectiles();
-    if (this.bossDead) this.pickups.getChildren().forEach((c) => this.physics.moveToObject(c, this.player, 150));
+    if (this.bossDead) {
+      this.pickups.getChildren().forEach((c) => { if ((c as Sprite).getData('kind') !== 'key') this.physics.moveToObject(c, this.player, 150); });
+      if (this.hasKey && this.doorOpen && near(this.player, DOOR.x + 6, DOOR.y, 12)) this.enterTreasury();
+    }
     this.drawHud();
   }
 
   // ---- player ------------------------------------------------------------------------
 
   private bonuses(): R.Bonuses {
-    const b = R.ringBonuses(this.rings);
-    return { damageMul: b.damageMul + this.upgrades.damage, speedMul: b.speedMul + this.upgrades.speed, bonusHp: b.bonusHp };
+    return { damageMul: this.kit.damageMul + this.upgrades.damage, speedMul: this.kit.speedMul + this.upgrades.speed, bonusHp: 0 };
   }
 
-  private maxHp(): number { return R.PLAYER_HP + this.bonuses().bonusHp; }
+  private maxHp(): number { return this.kit.maxHp; }
 
   private movePlayer() {
-    const k = this.keys;
-    const vx = (k.D.isDown || k.RIGHT.isDown ? 1 : 0) - (k.A.isDown || k.LEFT.isDown ? 1 : 0);
-    const vy = (k.S.isDown || k.DOWN.isDown ? 1 : 0) - (k.W.isDown || k.UP.isDown ? 1 : 0);
-    const body = this.player.body as Body;
-    if (vx === 0 && vy === 0) { body.setVelocity(0, 0); return; }
-    const len = Math.hypot(vx, vy);
-    const speed = R.PLAYER_SPEED * this.bonuses().speedMul;
-    this.facing = { x: vx / len, y: vy / len };
-    body.setVelocity(this.facing.x * speed, this.facing.y * speed);
-    if (vx !== 0) this.player.setFlipX(vx < 0);
+    const dir = steer(this.player, this.keys, this.bonuses().speedMul);
+    if (dir) this.facing = dir;
   }
 
   private actionKeys() {
@@ -242,7 +287,7 @@ export class PlayScene extends Phaser.Scene {
     this.invulnUntil = this.fightMs + R.INVULN_MS;
     this.cameras.main.shake(100, 0.008);
     this.tweens.add({ targets: this.player, alpha: 0.2, yoyo: true, repeat: 4, duration: 90, onComplete: () => this.player.setAlpha(1) });
-    if (this.hp <= 0) this.finish(false);
+    if (this.hp <= 0) this.thrownOut();
   }
 
   // ---- boss --------------------------------------------------------------------------
@@ -320,8 +365,11 @@ export class PlayScene extends Phaser.Scene {
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
     this.cameras.main.shake(300, 0.02);
     this.tweens.add({ targets: this.boss, alpha: 0, scale: 1.6, duration: 900 });
-    this.banner('VICTORY', 'Grab the rings!');
-    this.time.delayedCall(3500, () => this.finish(true));
+    this.boss.setTexture('boss_nokey');
+    const key = asSprite(this.pickups.create(this.boss.x, this.boss.y + 8, 'key'));
+    key.setData('kind', 'key').setDepth(7).setCollideWorldBounds(true);
+    this.tweens.add({ targets: key, y: key.y - 3, yoyo: true, repeat: -1, duration: 350 });
+    this.banner('MOSSBACK FALLS', 'The key fell from his neck. Take it!');
   }
 
   // ---- drops -------------------------------------------------------------------------
@@ -353,18 +401,44 @@ export class PlayScene extends Phaser.Scene {
 
   private collect(item: Sprite) {
     if (!item.active) return;
-    if (item.getData('kind') === 'coin') {
-      this.coins++;
-    } else {
-      this.addRing(item.getData('rarity') as R.Rarity);
-    }
+    const kind = item.getData('kind');
+    if (kind === 'coin') this.coins++;
+    else if (kind === 'key') this.takeKey();
+    else this.addRing(item.getData('rarity') as R.Rarity);
     item.destroy();
   }
 
+  private takeKey() {
+    this.hasKey = true;
+    this.keyIcon.setVisible(true);
+    this.time.delayedCall(700, () => this.revealDoor());
+  }
+
+  /** The key glows and part of the west wall turns out to be a door. */
+  private revealDoor() {
+    this.doorOpen = true;
+    this.door.setVisible(true).setAlpha(0);
+    this.tweens.add({ targets: this.door, alpha: 1, duration: 600 });
+    this.cameras.main.shake(300, 0.012);
+    for (let i = 0; i < 6; i++) {
+      const sp = this.add.image(DOOR.x + Phaser.Math.Between(-4, 4), DOOR.y + Phaser.Math.Between(-8, 8), 'sparkle').setDepth(12);
+      this.tweens.add({ targets: sp, alpha: 0, y: sp.y - 8, duration: 900, delay: i * 120, onComplete: () => sp.destroy() });
+    }
+    this.time.delayedCall(400, () => this.door.setTexture('door_open'));
+    this.banner('A HIDDEN DOOR!', 'West wall. The treasury is behind it.');
+  }
+
+  private enterTreasury() {
+    if (this.ended) return;
+    this.ended = true;
+    (this.player.body as Body).setVelocity(0, 0);
+    // rings still on the floor are yours
+    for (const c of this.pickups.getChildren() as Sprite[]) if (c.getData('kind') === 'ring') this.rings.push(c.getData('rarity') as R.Rarity);
+    fadeToScene(this, 'treasury', { rings: [...this.rings], coins: this.coins, timeMs: Math.round(this.fightMs) }, 500);
+  }
+
   private addRing(rarity: R.Rarity) {
-    const before = this.maxHp();
     this.rings.push(rarity);
-    this.hp += this.maxHp() - before; // a ring with an extra heart comes with it filled
     const info = R.RINGS[rarity];
     this.floatText(this.player.x, this.player.y - 12, info.name, `#${info.color.toString(16).padStart(6, '0')}`);
   }
@@ -465,7 +539,7 @@ export class PlayScene extends Phaser.Scene {
 
   private drawHud() {
     const g = this.hud.clear();
-    for (let i = 0; i < this.maxHp(); i++) this.heart(g, PLAY.x + 3 + i * 9, PLAY.y + 3, i < this.hp);
+    for (let i = 0; i < this.maxHp(); i++) this.heart(g, PLAY.x + WALL + 3 + i * 9, PLAY.y + 3, i < this.hp);
 
     const bw = 110;
     const bx = WIDTH / 2 - bw / 2;
@@ -486,7 +560,7 @@ export class PlayScene extends Phaser.Scene {
 
     this.texts.coins.setText(`${this.coins}c`);
     this.texts.weapon.setText(`${R.WEAPONS[this.weapon].name}  Q: switch`);
-    this.texts.boss.setText(this.bossDead ? 'MOSSBACK defeated' : `MOSSBACK  stage ${this.stage}/3`);
+    this.texts.boss.setText(!this.bossDead ? `MOSSBACK  stage ${this.stage}/3` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
     this.texts.retailer.setText(this.bossDead ? '' : here ? `Fisherman here ${secs}s` : `Fisherman in ${secs}s`);
@@ -505,6 +579,10 @@ export class PlayScene extends Phaser.Scene {
       const y = PLAY.y + ((i * 97 + (i % 7) * 13) % PLAY.height);
       g.fillStyle(i % 9 === 0 ? 0x3d4a35 : 0x2c3b28).fillRect(x, y, i % 9 === 0 ? 2 : 1, 1);
     }
+    // the west wall (the treasury door hides in it)
+    g.fillStyle(0x55555f).fillRect(PLAY.x, PLAY.y, WALL, PLAY.height);
+    for (let y = 0; y < PLAY.height; y += 6) g.fillStyle(0x45454f).fillRect(PLAY.x, PLAY.y + y, WALL, 1);
+    g.fillStyle(0x6a6a74).fillRect(PLAY.x + WALL - 1, PLAY.y, 1, PLAY.height);
     // the fisherman's pond, bottom centre
     const pw = 52;
     const px = FISHER_X - pw / 2;
@@ -514,16 +592,9 @@ export class PlayScene extends Phaser.Scene {
     g.fillStyle(0x6b4a2b).fillRect(FISHER_X - 6, py - 2, 12, 3);    // dock
   }
 
-  private banner(title: string, sub: string) {
-    const t = this.add.text(WIDTH / 2, PLAY.y + 46, title, { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(955);
-    const s = this.add.text(WIDTH / 2, PLAY.y + 60, sub, { ...FONT, color: '#cccccc' }).setOrigin(0.5).setDepth(955);
-    this.tweens.add({ targets: [t, s], alpha: 0, delay: 1400, duration: 500, onComplete: () => { t.destroy(); s.destroy(); } });
-  }
+  private banner(title: string, sub: string) { showBanner(this, title, sub); }
 
-  private floatText(x: number, y: number, msg: string, color: string) {
-    const t = this.add.text(x, y, msg, { ...FONT, color }).setOrigin(0.5).setDepth(955);
-    this.tweens.add({ targets: t, y: y - 10, alpha: 0, duration: 700, onComplete: () => t.destroy() });
-  }
+  private floatText(x: number, y: number, msg: string, color: string) { showFloat(this, x, y, msg, color); }
 
   private cleanupProjectiles() {
     const out = (o: Sprite) => o.x < PLAY.x - 2 || o.x > PLAY.x + PLAY.width + 2 || o.y < PLAY.y - 2 || o.y > PLAY.y + PLAY.height + 2;
@@ -531,12 +602,51 @@ export class PlayScene extends Phaser.Scene {
     for (const a of [...this.arrows.getChildren()] as Sprite[]) if (out(a) || this.fightMs > (a.getData('dies') as number)) a.destroy();
   }
 
-  private finish(won: boolean) {
+  /**
+   * Lost the fight: no death screen. Mossback slams the hero, who bounces away across the arena
+   * and out of sight, back to the village (where he bounces in and gets up). The rings picked up
+   * so far are saved first: nothing after this would save them.
+   */
+  private thrownOut() {
     if (this.ended) return;
     this.ended = true;
-    // rings still on the floor when the boss dies are yours
-    if (won) for (const c of this.pickups.getChildren() as Sprite[]) if (c.getData('kind') === 'ring') this.rings.push(c.getData('rarity') as R.Rarity);
-    const result: R.FightResult = { won, rings: [...this.rings], timeMs: Math.round(this.fightMs), coins: this.coins };
-    this.time.delayedCall(won ? 0 : 600, () => this.scene.start('gameover', result));
+    const rings = [...this.rings];
+    updateSave((s) => ({ ...s, wallet: R.addRings(s.wallet, rings), lifetimeRings: R.addRings(s.lifetimeRings, rings) }));
+
+    // freeze the fight
+    (this.player.body as Body).setVelocity(0, 0).enable = false;
+    (this.boss.body as Body).setVelocity(0, 0).enable = false;
+    this.bullets.clear(true, true);
+    this.arrows.clear(true, true);
+    this.tweens.killTweensOf(this.player);
+    this.player.setAlpha(1);
+    this.fisherPrompt.setVisible(false);
+    this.banner('MOSSBACK SMASHES YOU', '...all the way back to the village');
+
+    const p = this.player;
+    const dir = p.x <= this.boss.x ? -1 : 1;                 // away from him
+    const clampX = (x: number) => Phaser.Math.Clamp(x, PLAY.x + WALL + 6, PLAY.x + PLAY.width - 6);
+    // the slam: he squashes, springs, the ground shakes
+    this.tweens.add({
+      targets: this.boss, scaleY: 0.75, scaleX: 1.2, duration: 160, yoyo: true, ease: 'Quad.easeOut',
+      onComplete: () => {
+        this.cameras.main.shake(260, 0.025);
+        bounce(this, p, [
+          { x: clampX(p.x + dir * 45), y: p.y, h: 30, ms: 420 },
+          { x: clampX(p.x + dir * 75), y: p.y, h: 16, ms: 300 },
+        ], { spin: dir * Math.PI * 2, onLand: (x, y) => { dustPuff(this, x, y); this.cameras.main.shake(90, 0.01); } }, () => this.bounceOut());
+      },
+    });
+  }
+
+  /** The last bounce is a big one: up, toward the camera, out of sight. White flash, village. */
+  private bounceOut() {
+    const p = this.player;
+    this.tweens.add({ targets: p, y: PLAY.y - 30, scale: 2.6, rotation: p.rotation - Math.PI * 3, duration: 650, ease: 'Quad.easeOut' });
+    this.tweens.add({ targets: this.boss, y: this.boss.y - 5, yoyo: true, repeat: 3, duration: 140 });   // he laughs
+    this.time.delayedCall(450, () => {
+      this.cameras.main.fadeOut(350, 255, 255, 255);
+      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('village', { bouncedBack: true, kept: this.rings.length }));
+    });
   }
 }
