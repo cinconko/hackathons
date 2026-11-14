@@ -38,10 +38,13 @@ page lists the music and sound effects. The browser console also prints a table 
 - **Draw at the game's real size** (the checklist shows it). The game is a 320x180 grid and
   scales up by whole steps itself: do not pre-scale.
 - **Weapons in hand point right**: the game rotates them toward the aim.
-- **The boss is one picture**: `art/Boss.png` -> `npm run art` -> `sprites/boss_art.png` (32x35).
-  The game makes the rest from it: stage 2 orange and stage 3 red glow, the key on his neck, the
-  breathing frame (`boss_<stage>_b`), `boss_flash` (white, when hit) and `boss_nokey`. A file named
-  like one of those keys still wins over the made one.
+- **The boss is one picture**: `art/Boss.png` -> `npm run art` -> `sprites/boss_pose_<pose>.png`
+  (40x38: idle, step_l, step_r, spread, aim). `tools/pose-boss.py` cuts his six arms and two legs out
+  of the big drawing along hand-drawn outlines, turns them around the shoulders and hips, then
+  shrinks each pose (needs Pillow). To fix an outline: `python3 tools/pose-boss.py --outlines out.png`.
+  The game adds the rest: stage 2 orange and stage 3 red glow, the key on his chest, breathing,
+  the right-facing aim, `boss_flash` (white, when hit) and `boss_nokey`. A file named like one of
+  those keys (`boss_2_spread.png`) still wins over the made one.
 - **Campfires**: `art/Campfire/Campfire_1.png` (wood, village level 1) and `Campfire_2.png` (stones,
   levels 2-3) -> `campfire_wood.png` / `campfire_stone.png`; the game adds the flicker frames.
 - **Big source art goes in `art/`, not here**: everything in `public/` ships to players.

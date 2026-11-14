@@ -13,6 +13,7 @@ export interface SaveData {
   villageSeen: number;     // the village level the player has already watched being built
   handRevealed: boolean;   // the "in hand" indicator has popped up once (after the first weapon)
   kidGiftGiven: boolean;   // Tobi gave you the ring from the well
+  grandpaMet: boolean;     // Grandpa greeted you after your first lost fight (he comes only once)
   talkedTo: string[];      // people you have talked to (no "!" over them any more)
   lifetimeRings: Wallet;   // every ring ever found
   wins: number;
@@ -21,7 +22,7 @@ export interface SaveData {
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, grandpaMet: false, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
 
 /** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */

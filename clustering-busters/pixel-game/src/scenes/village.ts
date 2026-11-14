@@ -178,6 +178,7 @@ export class VillageScene extends Phaser.Scene {
     this.npcs = [];
     this.dialog = null;
     this.afterBounce = [];
+    this.grandpa = null;
     this.placed = new Map();
     this.layers = new Set();
     this.pendingGrow = false;
@@ -1118,7 +1119,8 @@ export class VillageScene extends Phaser.Scene {
     const roadY = PLAY.y + 112;
     const p = this.player;
     p.setPosition(PLAY.x + PLAY.width + 16, roadY - 40).setRotation(0);
-    this.time.delayedCall(1800, () => this.grandpaComes(PLAY.x + 140, roadY));   // he sets off while you are still bouncing
+    const grandpa = !loadSave().grandpaMet;   // only the first time you are bounced home
+    if (grandpa) this.time.delayedCall(1800, () => this.grandpaComes(PLAY.x + 140, roadY));   // he sets off while you are still bouncing
     const thud = (x: number, y: number, i: number) => {
       sfx(this, 'bounce', 0.6 - i * 0.12);
       dustPuff(this, x, y, 6, 14 - i * 2);
@@ -1146,8 +1148,19 @@ export class VillageScene extends Phaser.Scene {
     this.tweens.add({ targets: g, y: y - 1, yoyo: true, repeat: 6, duration: 110 });   // a slow hobble
   }
 
-  /** Back on your feet: Grandpa tells you what happened. Control (and any village growth) after. */
+  /** Back on your feet: the first time Grandpa tells you what happened, after that a banner. */
+  private backOnFeet(kept: number) {
+    if (this.grandpa) { this.grandpaSpeaks(kept); return; }
+    this.locked = false;
+    banner(this, 'BOUNCED BACK HOME', `${kept ? `You kept ${kept} ring${kept === 1 ? '' : 's'}.` : 'No rings this time.'} The merchant has new cards.`);
+    const after = this.afterBounce;
+    this.afterBounce = [];
+    after.forEach((f) => f());
+  }
+
+  /** Grandpa tells you what happened (once per save). Control (and any village growth) after. */
   private grandpaSpeaks(kept: number) {
+    updateSave((s) => ({ ...s, grandpaMet: true }));
     const g = this.grandpa;
     if (g) { this.tweens.killTweensOf(g); g.setPosition(this.player.x - 14, this.player.y).setAlpha(1).setFlipX(false); }
     this.openDialog(GRANDPA.sprite, GRANDPA.name, bouncedBackLines(kept), () => {
@@ -1177,7 +1190,7 @@ export class VillageScene extends Phaser.Scene {
         this.tweens.add({ targets: p, rotation: 0, duration: 260, ease: 'Back.easeOut' });
         this.tweens.add({
           targets: p, y: p.y - 6, duration: 130, yoyo: true, ease: 'Quad.easeOut',
-          onComplete: () => this.grandpaSpeaks(kept),
+          onComplete: () => this.backOnFeet(kept),
         });
       },
     });
