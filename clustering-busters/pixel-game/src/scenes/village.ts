@@ -13,7 +13,7 @@ import { MERCHANT_ROBES, playMusic, sfx } from '../media';
 import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
-import { banner, floatText, FONT, walletHud } from '../ui';
+import { banner, floatText, FONT, TITLE_FONT, walletHud } from '../ui';
 
 // The hub between fights:
 //   merchants      ranger / smith / armorer / alchemist / peddler (3 cards, robe = what he mostly sells) or,
@@ -224,7 +224,7 @@ export class VillageScene extends Phaser.Scene {
 
     // the merchant, the bar and the stall change with the stages (PARTS); the signs stay
     this.add.text(STALL.x, STALL.y - 22, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
-    this.add.text(BAR.x, BAR.y - 10, 'BAR', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // clear of the level HUD
+    this.add.text(BAR.x, BAR.y - 10, 'TAVERN', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // clear of the level HUD
     this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
     this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
     this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 30, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
@@ -269,7 +269,7 @@ export class VillageScene extends Phaser.Scene {
     } else {
       this.cameras.main.fadeIn(data.fromIntro ? 900 : 500);
       banner(this, 'RINGFALL VILLAGE', specialArrived ? 'The special merchant is here: five cards today!'
-        : data.fromRun ? this.whoCame() : 'Merchant, bar, well. The catapult is east.');
+        : data.fromRun ? this.whoCame() : 'Merchant, tavern, well. The catapult is east.');
     }
     if (specialArrived && data.bouncedBack) {
       this.afterBounce.push(() => this.time.delayedCall(700, () => banner(this, 'SPECIAL MERCHANT', 'Five cards today, one of them a best deal.')));
@@ -299,7 +299,7 @@ export class VillageScene extends Phaser.Scene {
     const person = this.npcs.find((n) => near(this.player, n.sprite.x, n.sprite.y, 14));
     if (person) this.prompt.setText(`E: talk to ${NPCS[person.id].name}`).setPosition(person.sprite.x, person.sprite.y - 16).setVisible(true);
     else if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
-    else if (atBar) this.prompt.setText('E: bar').setPosition(BAR_DOOR.x, BAR_DOOR.y + 10).setVisible(true);
+    else if (atBar) this.prompt.setText('E: tavern').setPosition(BAR_DOOR.x, BAR_DOOR.y + 10).setVisible(true);
     else if (atCatapult) this.prompt.setText('E: launch!').setPosition(CATAPULT.x - 6, CATAPULT.y + 20).setVisible(true);
     else this.prompt.setVisible(false);
     if (JD(k.E) || JD(k.ENTER)) {
@@ -551,22 +551,59 @@ export class VillageScene extends Phaser.Scene {
     c.add(this.add.text(x + 8, y + h - 11, 'W/S choose  Enter wear  Q cards  E leave', { ...FONT, color: '#888888' }));
   }
 
-  /** The bar: one drink, drunk at the start of the next fight. Buying one pours it into a big mug. */
+  /**
+   * The tavern, The Golden Tankard: one drink, drunk at the start of the next fight. Wooden walls
+   * in a dark-wood frame with iron rivets, the drinks on a parchment menu, barrels, and the big mug
+   * on the counter (it pours when you buy).
+   */
   private renderBar() {
     const s = loadSave();
-    const { c, bg, x, y, h } = this.frame('THE BAR', '"One drink each. It kicks in at the fight."', 'barkeeper', 0xc89a3a, 240, 124);
+    this.panel?.destroy();
+    const w = 256, h = 142;
+    const x = Math.round((WIDTH - w) / 2), y = Math.round(PLAY.y + (PLAY.height - h) / 2);
+    const c = this.add.container(0, 0).setDepth(960);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
+    c.add([bg, this.add.tileSprite(x, y, w, h, 'floor_wood').setOrigin(0), this.add.rectangle(x, y, w, h, 0x1a0e06, 0.45).setOrigin(0)]);
+    const fr = this.add.graphics();
+    fr.fillStyle(0x3a2214).fillRect(x, y, w, 3).fillRect(x, y + h - 3, w, 3).fillRect(x, y, 3, h).fillRect(x + w - 3, y, 3, h);   // dark-wood frame
+    fr.fillStyle(0x8a5a2a).fillRect(x + 3, y + 3, w - 6, 1).fillRect(x + 3, y + h - 4, w - 6, 1).fillRect(x + 3, y + 3, 1, h - 6).fillRect(x + w - 4, y + 3, 1, h - 6);
+    for (const [rx, ry] of [[x + 1, y + 1], [x + w - 3, y + 1], [x + 1, y + h - 3], [x + w - 3, y + h - 3], [x + w / 2 - 1, y + 1], [x + w / 2 - 1, y + h - 3]]) {
+      fr.fillStyle(0x9a9aa8).fillRect(rx, ry, 2, 2).fillStyle(0xd8d8e0).fillRect(rx, ry, 1, 1);                                     // iron rivets
+    }
+    c.add(fr);
+    c.add(this.add.sprite(x + 14, y + 14, 'barkeeper_0').play('barkeeper'));
+    c.add(this.add.text(x + 26, y + 3, 'The Golden Tankard', { fontFamily: TITLE_FONT, fontSize: '16px', color: '#ffcc44' }));
+    c.add(this.add.text(x + 26, y + 20, '"One cup each. It warms you for the fight."', { ...FONT, color: '#e8c890' }));
+    c.add(this.add.text(x + w - 7, y + 6, `${walletValue(s.wallet)} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
+
+    // the parchment menu
+    const mx0 = x + 8, my0 = y + 32, mw = w - 16, mh = 52;   // the full width: name, effect, price
+    const menu = this.add.graphics();
+    menu.fillStyle(0xc8a870).fillRect(mx0 - 1, my0 - 1, mw + 2, mh + 2);
+    menu.fillStyle(0xe9d9ae).fillRect(mx0, my0, mw, mh);
+    menu.fillStyle(0xd8c490).fillRect(mx0, my0, mw, 2).fillRect(mx0, my0 + mh - 2, mw, 2);                                           // rolled ends
+    c.add(menu);
     DRINK_ORDER.forEach((id, i) => {
       const d = DRINKS[id];
-      const ry = y + 30 + i * 13;
-      if (i === this.sel) bg.fillStyle(0x3a2a18).fillRect(x + 3, ry - 2, 234, 12);
-      c.add(this.add.image(x + 12, ry + 3, 'mug'));
-      c.add(this.add.text(x + 22, ry, `${i === this.sel ? '>' : ' '}${d.name}`, FONT));
-      c.add(this.add.text(x + 84, ry, d.desc, { ...FONT, color: '#e8c890' }));
-      c.add(this.add.text(x + 232, ry, s.drink === id ? 'IN HAND' : `${d.price} rings`, { ...FONT, color: s.drink === id ? '#6fd13a' : walletValue(s.wallet) >= d.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(1, 0));
+      const ry = my0 + 6 + i * 15;
+      if (i === this.sel) menu.fillStyle(0xd2b878).fillRect(mx0 + 2, ry - 3, mw - 4, 13);
+      const inHand = s.drink === id;
+      const ink = inHand ? '#2f6b1f' : walletValue(s.wallet) >= d.price ? '#3a2410' : '#a03020';
+      c.add(this.add.image(mx0 + 9, ry + 3, 'mug'));
+      c.add(this.add.text(mx0 + 18, ry, `${i === this.sel ? '>' : ' '}${d.name}`, { ...FONT, color: '#3a2410' }));
+      c.add(this.add.text(mx0 + 70, ry, d.desc, { ...FONT, color: '#6b3a1a' }));
+      c.add(this.add.text(mx0 + mw - 5, ry, inHand ? 'IN HAND' : `${d.price} rings`, { ...FONT, color: ink }).setOrigin(1, 0));
     });
-    // the big mug: pours when you just bought (half, then full), else your drink, or knocked over when you have none
-    const mx = x + 214;
-    const my = y + 96;                                       // where the mug stands (its bottom)
+
+    // the counter, barrels behind it, and the big mug on it: pours when you just bought (half, then
+    // full), else your drink, or knocked over when you have none
+    const top = y + h - 18;                                   // the counter, under the menu on the right
+    const counter = this.add.graphics();
+    counter.fillStyle(0x6b4a2b).fillRect(x + 168, top, w - 172, 14).fillStyle(0x8a6040).fillRect(x + 168, top, w - 172, 2).fillStyle(0x4a2e1a).fillRect(x + 168, top + 13, w - 172, 1);
+    c.add([this.add.image(x + 224, top, 'barrel').setOrigin(0.5, 1).setScale(1.6), this.add.image(x + 242, top, 'barrel').setOrigin(0.5, 1).setScale(1.6), counter]);
+    const mx = x + 192;
+    const my = top + 1;                                       // where the mug stands (its bottom), on the counter
     const mug = this.add.image(mx, my, s.drink ? 'beer_full' : 'beer_spilled').setOrigin(0.5, 1);
     const tap = this.add.graphics();
     c.add([tap, mug]);
@@ -582,8 +619,9 @@ export class VillageScene extends Phaser.Scene {
       const tw = this.tweens.add({ targets: st, f: 1, duration: 900, ease: 'Sine.easeOut', onUpdate: draw, onComplete: draw });
       c.once(Phaser.GameObjects.Events.DESTROY, () => tw.stop());
     }
-    if (this.note) c.add(this.add.text(x + 8, y + h - 13, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 180 } }).setOrigin(0, 1));   // grows upward, clear of the keys line
-    c.add(this.add.text(x + 8, y + h - 11, 'W/S choose  Enter buy  E leave', { ...FONT, color: '#888888' }));
+    if (this.note) c.add(this.add.text(x + 8, y + h - 14, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 150 } }).setOrigin(0, 1));   // grows upward, clear of the keys line and the counter
+    c.add(this.add.text(x + 8, y + h - 12, 'W/S choose  Enter buy  E leave', { ...FONT, color: '#c8a878' }));
+    this.panel = c;
   }
 
   // ---- what's in hand ----
