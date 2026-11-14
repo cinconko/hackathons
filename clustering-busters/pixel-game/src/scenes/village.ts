@@ -10,7 +10,7 @@ import {
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, robeFor, sfx } from '../media';
-import { NPCS, talk, type NpcId } from '../game/npcs';
+import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, walletHud } from '../ui';
@@ -43,7 +43,7 @@ const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EI
 const ROAD_Y = PLAY.y + 112;
 /** Where carts deliver: a shop front off the road. minLvl = the shop exists from that stage. */
 const SHOPS = [
-  { id: 'merchant', x: STALL.x, stopY: PLAY.y + 70, minLvl: 1 },
+  { id: 'merchant', x: STALL.x, stopY: PLAY.y + 76, minLvl: 1 },   // in front of the stall, not against it
   { id: 'bar', x: BAR_DOOR.x, stopY: PLAY.y + 66, minLvl: 1 },
   { id: 'fruit', x: PLAY.x + 40, stopY: PLAY.y + 132, minLvl: 4 },
 ];
@@ -63,7 +63,7 @@ const PARTS: readonly Part[] = [
   ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),   // clear of the HUD, the signs and the yard
   // the forest, cleared stage by stage
   ...forest(2, [[60, 66], [80, 78], [184, 64], [196, 80], [232, 140], [246, 152], [28, 36], [44, 46]]),
-  ...forest(3, [[42, 92], [250, 86], [140, 64]]),
+  ...forest(3, [[42, 92], [250, 86], [150, 68]]),   // clear of the merchant's blanket
   ...forest(4, [[100, 150], [36, 150]]),
   ...forest(5, [[300, 140]]),
   ...forest(6, [[205, 86]]),
@@ -72,11 +72,13 @@ const PARTS: readonly Part[] = [
   { lvl: 1, key: 'bush_mid', x: 300, y: 120, depth: 4 },
   { lvl: 1, key: 'bush_mid_berry', x: 292, y: 58, depth: 4 },
   // 1 Camp: a campfire, beer from a barrel, the merchant on a blanket
-  { lvl: 1, until: 4, key: 'campfire_0', anim: 'campfire', x: 158, y: 86, solid: [10, 6, 3] },
+  { lvl: 1, until: 2, key: 'campfire_wood_0', anim: 'campfire_wood', x: 158, y: 86, solid: [12, 6, 4] },
+  // 2: stones around the campfire
+  { lvl: 2, until: 4, key: 'campfire_stone_0', anim: 'campfire_stone', x: 158, y: 86, solid: [12, 6, 4] },
   { lvl: 1, until: 3, key: 'blanket', x: 120, y: 56, solid: [34, 6, 2] },
   { lvl: 1, until: 3, key: 'barrel', x: 236, y: 50, solid: [10, 6, 3] },
   { lvl: 1, until: 3, key: 'beerguy_0', anim: 'beerguy', x: 222, y: 47, depth: 6, solid: [16, 6, 4] },
-  { lvl: 1, key: 'merchant_0', anim: 'merchant', x: 120, y: 42, depth: 6 },
+  { lvl: 1, until: 3, key: 'merchant_0', anim: 'merchant', x: 120, y: 42, depth: 6 },   // on the back of his blanket
   // 2 Tent camp: tents and the first wooden huts
   { lvl: 2, until: 3, key: 'tent_a', x: 70, y: 72, solid: [20, 8, 4] },
   { lvl: 2, until: 3, key: 'tent_b', x: 188, y: 68, solid: [20, 8, 4] },
@@ -91,6 +93,7 @@ const PARTS: readonly Part[] = [
   { lvl: 3, key: 'mug', x: 252, y: 30, depth: 8, swing: true },
   { lvl: 3, key: 'barkeeper_0', anim: 'barkeeper', x: 241, y: 58, depth: 6 },
   { lvl: 3, key: 'stall', x: 120, y: 50, depth: 7, solid: [40, 8, 6] },
+  { lvl: 3, key: 'merchant_0', anim: 'merchant', x: 91, y: 52, depth: 6 },             // beside his stall: the awning would hide his face
   ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern', x, y: 97 })),
   { lvl: 3, key: 'flowers', x: 70, y: 89 },
   { lvl: 3, key: 'flowers', x: 188, y: 85 },
@@ -142,7 +145,8 @@ export class VillageScene extends Phaser.Scene {
   private carts: Cart[] = [];
   private shopBusyUntil = new Map<string, number>();   // a shop that just got a delivery waits a while
   private npcs: { id: NpcId; sprite: Phaser.GameObjects.Image; mark: Phaser.GameObjects.Text; walk?: Phaser.Tweens.Tween }[] = [];
-  private dialog: { box: Phaser.GameObjects.Container; lines: string[]; i: number; typing: Phaser.Time.TimerEvent | null; text: Phaser.GameObjects.Text } | null = null;
+  private dialog: { box: Phaser.GameObjects.Container; lines: string[]; i: number; typing: Phaser.Time.TimerEvent | null; text: Phaser.GameObjects.Text; onClose?: () => void } | null = null;
+  private afterBounce: (() => void)[] = [];   // bounced home: what waits until Grandpa has spoken
   private dealCards = false;             // deal the cards with a flip when the shop opens
   private popCard = -1;                  // the card just bought: pop it
   private pour = false;                  // a drink was just bought: pour it
@@ -173,6 +177,7 @@ export class VillageScene extends Phaser.Scene {
     this.shopBusyUntil = new Map();
     this.npcs = [];
     this.dialog = null;
+    this.afterBounce = [];
     this.placed = new Map();
     this.layers = new Set();
     this.pendingGrow = false;
@@ -232,7 +237,10 @@ export class VillageScene extends Phaser.Scene {
     const seen = Math.min(save.villageSeen, villageLevel(save.spent));
     this.applyLevel(seen, false);
     this.updateLevelHud();
-    if (villageLevel(loadSave().spent) > seen) this.time.delayedCall(data.bouncedBack ? 3600 : 900, () => this.grow());
+    if (villageLevel(loadSave().spent) > seen) {
+      if (data.bouncedBack) this.afterBounce.push(() => this.time.delayedCall(300, () => this.grow()));
+      else this.time.delayedCall(900, () => this.grow());
+    }
 
     drawFrame(this);
     playMusic(this, 'village');
@@ -242,7 +250,10 @@ export class VillageScene extends Phaser.Scene {
       this.cameras.main.fadeIn(data.fromIntro ? 900 : 500);
       banner(this, 'RINGFALL VILLAGE', data.fromRun ? 'The merchant has new cards.' : 'Merchant, bar, well. The catapult is east.');
     }
-    if (this.revealHand && !data.openShop) this.time.delayedCall(data.bouncedBack ? 3400 : 900, () => this.doRevealHand());
+    if (this.revealHand && !data.openShop) {
+      if (data.bouncedBack) this.afterBounce.push(() => this.time.delayedCall(300, () => this.doRevealHand()));
+      else this.time.delayedCall(900, () => this.doRevealHand());
+    }
     if (data.openShop) this.openPanel('cards'); // dev hook
   }
 
@@ -441,7 +452,7 @@ export class VillageScene extends Phaser.Scene {
         card.add(this.add.text(L + cw - 14, T + 14, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
       }
       const ic = this.add.image(0, T + 32, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : `icon_${o.id}`);
-      ic.setScale(Math.min(2, 24 / Math.max(ic.width, ic.height)));
+      ic.setScale(Math.max(1, Math.floor(Math.min(2, 24 / Math.max(ic.width, ic.height)))));   // whole steps: team art stays crisp
       if (sold) ic.setAlpha(0.35);
       card.add(ic);
       // long names ("Hand cannon") wrap onto two lines; the stats follow below them
@@ -790,7 +801,11 @@ export class VillageScene extends Phaser.Scene {
       const after = updateSave((x) => ({ ...x, kidGiftGiven: true, wallet: addRings(x.wallet, ['classic']), lifetimeRings: addRings(x.lifetimeRings, ['classic']) }));
       this.time.delayedCall(1200, () => { this.wallet.update(after.wallet); sfx(this, 'ring'); floatText(this, this.player.x, this.player.y - 12, '+1 classic ring', '#c8c8d0'); });
     }
-    // the dialog box: portrait, name, typed text
+    this.openDialog(NPCS[id].sprite, NPCS[id].name, t.lines);
+  }
+
+  /** The dialog box: portrait, name, typed lines (Enter for the next). onClose runs after the last. */
+  private openDialog(sprite: string, name: string, lines: string[], onClose?: () => void) {
     const w = PLAY.width - 8;
     const h = 38;
     const x = PLAY.x + 4;
@@ -799,12 +814,12 @@ export class VillageScene extends Phaser.Scene {
     const bg = this.add.graphics();
     bg.fillStyle(0x000000, 0.85).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
     box.add(bg);
-    box.add(this.add.image(x + 14, y + h / 2, NPCS[id].sprite).setScale(2));
-    box.add(this.add.text(x + 30, y + 4, NPCS[id].name, { ...FONT, color: '#ffcc44' }));
+    box.add(this.add.image(x + 14, y + h / 2, sprite).setScale(2));
+    box.add(this.add.text(x + 30, y + 4, name, { ...FONT, color: '#ffcc44' }));
     const text = this.add.text(x + 30, y + 14, '', { ...FONT, color: '#ffffff', wordWrap: { width: w - 40 } });
     box.add(text);
     box.add(this.add.text(x + w - 4, y + h - 10, 'Enter', { ...FONT, color: '#666666' }).setOrigin(1, 0));
-    this.dialog = { box, lines: t.lines, i: 0, typing: null, text };
+    this.dialog = { box, lines, i: 0, typing: null, text, onClose };
     this.typeLine();
   }
 
@@ -830,6 +845,7 @@ export class VillageScene extends Phaser.Scene {
     d.box.destroy();
     this.dialog = null;
     this.npcs.forEach((n) => n.walk?.resume());
+    d.onClose?.();
   }
 
   // ---- the training yard ----
@@ -1102,6 +1118,7 @@ export class VillageScene extends Phaser.Scene {
     const roadY = PLAY.y + 112;
     const p = this.player;
     p.setPosition(PLAY.x + PLAY.width + 16, roadY - 40).setRotation(0);
+    this.time.delayedCall(1800, () => this.grandpaComes(PLAY.x + 140, roadY));   // he sets off while you are still bouncing
     const thud = (x: number, y: number, i: number) => {
       sfx(this, 'bounce', 0.6 - i * 0.12);
       dustPuff(this, x, y, 6, 14 - i * 2);
@@ -1118,6 +1135,35 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
+  private grandpa: Phaser.GameObjects.Image | null = null;
+
+  /** Grandpa hobbles in from the west along the road to where you landed. */
+  private grandpaComes(x: number, y: number) {
+    const g = this.add.image(PLAY.x - 8, y, GRANDPA.sprite).setDepth(9).setAlpha(0);
+    this.grandpa = g;
+    this.tweens.add({ targets: g, alpha: 1, duration: 200 });
+    this.tweens.add({ targets: g, x: x - 2, duration: 1500, ease: 'Sine.easeOut' });
+    this.tweens.add({ targets: g, y: y - 1, yoyo: true, repeat: 6, duration: 110 });   // a slow hobble
+  }
+
+  /** Back on your feet: Grandpa tells you what happened. Control (and any village growth) after. */
+  private grandpaSpeaks(kept: number) {
+    const g = this.grandpa;
+    if (g) { this.tweens.killTweensOf(g); g.setPosition(this.player.x - 14, this.player.y).setAlpha(1).setFlipX(false); }
+    this.openDialog(GRANDPA.sprite, GRANDPA.name, bouncedBackLines(kept), () => {
+      this.locked = false;
+      if (g) {   // and off he goes, back west
+        g.setFlipX(true);
+        this.tweens.add({ targets: g, x: PLAY.x - 10, duration: 2400, ease: 'Sine.easeIn', onComplete: () => g.destroy() });
+        this.tweens.add({ targets: g, y: g.y - 1, yoyo: true, repeat: 10, duration: 110 });
+      }
+      this.grandpa = null;
+      const after = this.afterBounce;
+      this.afterBounce = [];
+      after.forEach((f) => f());
+    });
+  }
+
   /** Stars circle his head, then he hops back onto his feet. */
   private dizzy(kept: number) {
     const p = this.player;
@@ -1131,10 +1177,7 @@ export class VillageScene extends Phaser.Scene {
         this.tweens.add({ targets: p, rotation: 0, duration: 260, ease: 'Back.easeOut' });
         this.tweens.add({
           targets: p, y: p.y - 6, duration: 130, yoyo: true, ease: 'Quad.easeOut',
-          onComplete: () => {
-            this.locked = false;
-            banner(this, 'BOUNCED BACK HOME', `${kept ? `You kept ${kept} ring${kept === 1 ? '' : 's'}.` : 'No rings this time.'} The merchant has new cards.`);
-          },
+          onComplete: () => this.grandpaSpeaks(kept),
         });
       },
     });

@@ -3,7 +3,7 @@ import { playMusic } from '../media';
 import { HEIGHT, PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { updateSave } from '../save';
-import { FONT } from '../ui';
+import { FONT, TITLE_FONT } from '../ui';
 
 // Opening cutscene: four shots with typed captions, inside cinematic letterbox bars.
 // Enter / Space / click: finish the line, then next shot. Esc: skip.
@@ -62,7 +62,7 @@ export class IntroScene extends Phaser.Scene {
       caption: 'Then Mossback came. He carried the treasury off to his lair and hid it in a locked room.',
       build: (s) => {
         const items = s.nightVillage(false);
-        const boss = s.add.image(WIDTH + 20, PLAY.y + 104, 'boss_3').setScale(2).setDepth(20);
+        const boss = s.add.sprite(WIDTH + 20, PLAY.y + 104, 'boss_3').play('boss_idle_3').setScale(2).setDepth(20);
         s.tweens.add({ targets: boss, x: WIDTH / 2 + 50, duration: 1200, ease: 'Quad.easeOut', onComplete: () => s.cameras.main.shake(400, 0.02) });
         s.tweens.add({ targets: boss, y: '-=4', yoyo: true, repeat: -1, duration: 220 });
         return [...items, boss];
@@ -72,9 +72,9 @@ export class IntroScene extends Phaser.Scene {
       caption: 'The only key hangs around his neck.',
       build: (s) => {
         const bg = s.add.rectangle(WIDTH / 2, HEIGHT / 2, PLAY.width, PLAY.height, 0x140c1c).setDepth(1);
-        const boss = s.add.image(WIDTH / 2, PLAY.y + 74, 'boss_1').setScale(4).setDepth(20);
+        const boss = s.add.sprite(WIDTH / 2, PLAY.y + 74, 'boss_1').play('boss_idle_1').setScale(4).setDepth(20);
         s.tweens.add({ targets: boss, scale: 4.6, duration: 2600, ease: 'Sine.easeInOut' });
-        const glint = s.add.image(WIDTH / 2 - 4, PLAY.y + 112, 'sparkle').setScale(2).setDepth(21).setAlpha(0);
+        const glint = s.add.image(WIDTH / 2 + 2, PLAY.y + 68, 'sparkle').setScale(2).setDepth(21).setAlpha(0);
         s.tweens.add({ targets: glint, alpha: 1, scale: 3, yoyo: true, repeat: -1, duration: 500, delay: 600 });
         return [bg, boss, glint];
       },
@@ -173,7 +173,7 @@ export class IntroScene extends Phaser.Scene {
     this.tweens.add({ targets: this.bars.top, y: PLAY.y - BAR_TOP, duration: 500, ease: 'Quad.easeIn' });
     this.tweens.add({ targets: this.bars.bottom, y: PLAY.y + PLAY.height, duration: 500, ease: 'Quad.easeIn' });
     const card = this.add.rectangle(WIDTH / 2, HEIGHT / 2, PLAY.width, PLAY.height, 0x000000).setDepth(950).setAlpha(0);
-    const title = this.add.text(WIDTH / 2, HEIGHT / 2 - 6, 'RINGFALL', { fontFamily: 'monospace', fontSize: '24px', color: '#ffcc44' }).setOrigin(0.5).setDepth(951).setAlpha(0).setScale(0.6);
+    const title = this.add.text(WIDTH / 2, HEIGHT / 2 - 8, 'RINGFALL', { fontFamily: TITLE_FONT, fontSize: '32px', color: '#ffcc44' }).setOrigin(0.5).setDepth(951).setAlpha(0).setScale(0.6);
     const sub = this.add.text(WIDTH / 2, HEIGHT / 2 + 14, 'Chapter 1: the village', { ...FONT, color: '#cccccc' }).setOrigin(0.5).setDepth(951).setAlpha(0);
     this.tweens.add({ targets: card, alpha: 1, duration: 500, delay: 300 });
     this.tweens.add({ targets: title, alpha: 1, scale: 1, duration: 600, delay: 600, ease: 'Back.easeOut' });

@@ -23,6 +23,9 @@ export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
 
   create() {
+    this.weaponArt();
+    this.bossArt();
+    this.campfireArt();
     const g = this.make.graphics({ x: 0, y: 0 }, false);
     // A sprite from public/media (loaded by the preload scene) wins; otherwise draw the placeholder.
     const tex = (key: string, w: number, h: number, draw: () => void) => {
@@ -64,7 +67,7 @@ export class BootScene extends Phaser.Scene {
       px(GOLD, 10, 20, 4, 2); px(0x000000, 11, 20, 2, 1);              // key bow
       px(GOLD, 11, 22, 2, 2); px(0xfff1a8, 10, 20);                    // shaft + shine
     });
-    for (const s of [1, 2, 3] as const) boss(`boss_${s}`, STAGES[s].color, false, true);
+    for (const s of [1, 2, 3] as const) { boss(`boss_${s}`, STAGES[s].color, false, true); boss(`boss_${s}_b`, STAGES[s].color, false, true); }
     boss('boss_flash', 0xffffff, true, false);
     boss('boss_nokey', STAGES[3].color, false, false);
 
@@ -235,10 +238,11 @@ export class BootScene extends Phaser.Scene {
     villager('villager_a', 0xd8823a, 0x2a1a10);
     villager('villager_b', 0x6aa84a, 0xe8c34a);
     // ---- village stages: camp -> tents -> village -> fountains -> rich town -> city ----
-    // campfire: crossed logs + three flame frames
-    for (let i = 0; i < 3; i++) {
-      tex(`campfire_${i}`, 14, 14, () => {
-        px(0x5a3a1a, 1, 11, 12, 2); px(0x6b4a2b, 3, 10, 8, 1); px(0x777777, 0, 12, 2, 2); px(0x777777, 12, 12, 2, 2);
+    // campfire: crossed logs + three flame frames; level 2 puts a ring of stones around it
+    for (const kind of ['wood', 'stone']) for (let i = 0; i < 3; i++) {
+      tex(`campfire_${kind}_${i}`, 14, 14, () => {
+        px(0x5a3a1a, 1, 11, 12, 2); px(0x6b4a2b, 3, 10, 8, 1);
+        if (kind === 'stone') { px(0x777777, 0, 12, 2, 2); px(0x777777, 12, 12, 2, 2); px(0x8a8a8a, 3, 13, 2, 1); px(0x8a8a8a, 9, 13, 2, 1); }
         const h = [7, 9, 8][i];
         px(0xd83a1a, 4, 11 - h, 6, h); px(0xffaa33, 5, 12 - h + (i % 2), 4, h - 2); px(0xffee88, 6, 13 - h + 2, 2, h - 4);
       });
@@ -386,6 +390,9 @@ export class BootScene extends Phaser.Scene {
       px(top, 1, 6, 8, h - 8); px(0x2b2b3a, 2, h - 2, 2, 2); px(0x2b2b3a, 6, h - 2, 2, 2); extra();
     });
     person('elder', 0xdddddd, 0x6a6a8a, () => { px(0xdddddd, 3, 5, 4, 2); px(0x8a6a3a, 9, 2, 1, 10); });          // white hair + beard, staff
+    person('grandpa', 0xf2c79a, 0x7a5a3a, () => {                                                                     // bald, white tufts, big moustache, cane
+      px(0xdddddd, 1, 1, 1, 3); px(0xdddddd, 8, 1, 1, 3); px(0xffffff, 3, 5, 4, 1); px(0xc8a86a, 3, 7, 4, 3); px(0x5a3a1a, 9, 4, 1, 8); px(0x5a3a1a, 8, 4);
+    }, 13);
     person('kid', 0xd8823a, 0x4ab84a, () => { px(0xffcc44, 0, 6, 1, 1); }, 9);                                         // small, freckled
     person('sergeant', 0x5a5a64, 0x7a7a84, () => { px(0x9a9aa8, 1, 0, 8, 2); px(0xd83a3a, 4, 7, 2, 3); px(0xdddddd, 9, 4, 1, 7); });   // helmet, armor, spear
 
@@ -398,7 +405,10 @@ export class BootScene extends Phaser.Scene {
       if (this.anims.exists(key)) return;
       this.anims.create({ key, frames: frames.map(([k, duration]) => ({ key: k, duration })), repeat: -1 });
     };
-    anim('campfire', [['campfire_0', 120], ['campfire_1', 120], ['campfire_2', 120]]);
+    anim('campfire_wood', [['campfire_wood_0', 130], ['campfire_wood_1', 110], ['campfire_wood_2', 120]]);
+    anim('campfire_stone', [['campfire_stone_0', 130], ['campfire_stone_1', 110], ['campfire_stone_2', 120]]);
+    // the boss breathes, faster the angrier he gets
+    for (const [s, ms] of [[1, 520], [2, 380], [3, 240]] as const) anim(`boss_idle_${s}`, [[`boss_${s}`, ms], [`boss_${s}_b`, ms]]);
     anim('fountain', [['fountain_0', 260], ['fountain_1', 260]]);
     anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
     anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
@@ -431,6 +441,148 @@ export class BootScene extends Phaser.Scene {
       this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), inYard: q.has('yard') });
     } else {
       this.scene.start('menu');
+    }
+  }
+
+  /**
+   * Team weapon art: files named after the weapon (sword.png, warhammer.png, slingshot.png...) in
+   * public/media/sprites become the in-hand sprite held_<weapon>. The empty border is trimmed and
+   * weapons drawn pointing up are turned to point right (the game rotates them toward the aim).
+   * The files stay as uploaded; a held_<weapon>.png of its own still wins.
+   */
+  private weaponArt() {
+    // [file, weapon id, degrees to turn so it points right]
+    const ART: [string, string, number][] = [
+      ['dagger', 'dagger', 90], ['sword', 'sword', 90], ['axe', 'axe', 90], ['mace', 'mace', 90],
+      ['warhammer', 'warHammer', 90], ['spear', 'spear', 0], ['slingshot', 'sling', 90],
+      ['bow', 'bow', 0], ['crossbow', 'crossbow', 0], ['javelin', 'javelin', 0], ['handcannon', 'handCannon', 0],
+    ];
+    for (const [file, id, turn] of ART) {
+      const key = `held_${id}`;
+      if (!this.textures.exists(file) || this.textures.exists(key)) continue;
+      const src = this.textures.get(file).getSourceImage() as HTMLImageElement;
+      // find the drawn part (alpha > 0)
+      const probe = document.createElement('canvas');
+      probe.width = src.width;
+      probe.height = src.height;
+      const pc = probe.getContext('2d')!;
+      pc.drawImage(src, 0, 0);
+      const px = pc.getImageData(0, 0, src.width, src.height).data;
+      let x0 = src.width, y0 = src.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < src.height; y++) for (let x = 0; x < src.width; x++) {
+        if (px[(y * src.width + x) * 4 + 3] > 0) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      if (x1 < 0) continue;                                   // an empty picture: keep the drawn one
+      const w = x1 - x0 + 1;
+      const h = y1 - y0 + 1;
+      const turned = turn % 180 !== 0;
+      const out = document.createElement('canvas');
+      out.width = turned ? h : w;
+      out.height = turned ? w : h;
+      const oc = out.getContext('2d')!;
+      oc.imageSmoothingEnabled = false;
+      oc.translate(out.width / 2, out.height / 2);
+      oc.rotate((turn * Math.PI) / 180);                      // clockwise: up becomes right
+      oc.drawImage(src, x0, y0, w, h, -w / 2, -h / 2, w, h);
+      this.textures.addCanvas(key, out);
+      mediaStatus.fromFiles.add(key);
+    }
+  }
+
+  /** Copy a loaded texture into a canvas we can read and change pixel by pixel. */
+  private pixels(key: string) {
+    const src = this.textures.get(key).getSourceImage() as HTMLImageElement;
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(src, 0, 0);
+    return { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height) };
+  }
+
+  /** ImageData -> a new texture (skipped when a file with that key exists). */
+  private addPixels(key: string, img: ImageData) {
+    if (this.textures.exists(key)) return;
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext('2d')!.putImageData(img, 0, 0);
+    this.textures.addCanvas(key, c);
+    mediaStatus.fromFiles.add(key);
+  }
+
+  /**
+   * The team's boss (sprites/boss_art.png, 32x35, from art/Boss.png) -> every boss texture the game uses:
+   * boss_<stage> + boss_<stage>_b (idle: the upper body dips 1 px), stage 2/3 glow orange/red,
+   * the treasury key on a cord around his neck, boss_flash (white, on a hit), boss_nokey (dead).
+   * Colours are baked in because the Canvas renderer ignores setTint.
+   */
+  private bossArt() {
+    if (!this.textures.exists('boss_art')) return;            // no file: boot draws the old placeholder
+    const { w, h, data } = this.pixels('boss_art');
+    const WAIST = 21;                                          // rows above this breathe, the legs stay
+    const mix = (tint: number, a: number) => {
+      const out = new ImageData(new Uint8ClampedArray(data.data), w, h);
+      const d = out.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (!d[i + 3]) continue;
+        d[i] = d[i] * (1 - a) + ((tint >> 16) & 255) * a;
+        d[i + 1] = d[i + 1] * (1 - a) + ((tint >> 8) & 255) * a;
+        d[i + 2] = d[i + 2] * (1 - a) + (tint & 255) * a;
+      }
+      return out;
+    };
+    const put = (img: ImageData, x: number, y: number, rgb: number) => {
+      const i = (y * w + x) * 4;
+      img.data.set([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 255], i);
+    };
+    const withKey = (img: ImageData) => {                      // below the chin, over the chest
+      for (const [x, y] of [[14, 13], [15, 14], [19, 13], [18, 14]]) put(img, x, y, 0x2b1a10);   // cord
+      for (const [x, y] of [[15, 15], [16, 15], [17, 15], [15, 16], [17, 16], [16, 17], [16, 18], [17, 18]]) put(img, x, y, 0xffcc44);
+      put(img, 16, 16, 0x2b1a10);                              // the hole in the bow
+      put(img, 15, 15, 0xfff1a8);                              // shine
+      return img;
+    };
+    const dip = (img: ImageData) => {                          // idle frame 2: everything above the waist 1 px lower
+      const out = new ImageData(new Uint8ClampedArray(img.data), w, h);
+      const row = w * 4;
+      out.data.copyWithin(row, 0, WAIST * row);
+      out.data.fill(0, 0, row);
+      return out;
+    };
+    const looks: Record<1 | 2 | 3, ImageData> = { 1: mix(0, 0), 2: mix(0xff8a2c, 0.25), 3: mix(0xff2a2a, 0.38) };
+    for (const s of [1, 2, 3] as const) {
+      const img = withKey(looks[s]);
+      this.addPixels(`boss_${s}`, img);
+      this.addPixels(`boss_${s}_b`, dip(img));
+    }
+    const flash = mix(0xffffff, 1);
+    this.addPixels('boss_flash', flash);
+    this.addPixels('boss_nokey', mix(0xff2a2a, 0.38));
+  }
+
+  /**
+   * The team's campfires (sprites/campfire_wood.png and campfire_stone.png, from art/Campfire/) ->
+   * three flicker frames each: as drawn, the flame 1 px taller, the flame brighter.
+   */
+  private campfireArt() {
+    for (const kind of ['wood', 'stone']) {
+      const src = `campfire_${kind}`;
+      if (!this.textures.exists(src)) continue;
+      const { w, h, data } = this.pixels(src);
+      const isFlame = (d: Uint8ClampedArray, i: number) => d[i + 3] > 0 && d[i] > 180 && d[i] - d[i + 2] > 70;
+      const taller = new ImageData(new Uint8ClampedArray(data.data), w, h);
+      for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) {
+        const i = (y * w + x) * 4;
+        if (isFlame(data.data, i)) taller.data.set(data.data.subarray(i, i + 4), i - w * 4);
+      }
+      const bright = new ImageData(new Uint8ClampedArray(data.data), w, h);
+      for (let i = 0; i < bright.data.length; i += 4) {
+        if (isFlame(data.data, i)) { bright.data[i + 1] = Math.min(255, bright.data[i + 1] + 45); bright.data[i + 2] = Math.min(255, bright.data[i + 2] + 20); }
+      }
+      this.addPixels(`${src}_0`, data);
+      this.addPixels(`${src}_1`, taller);
+      this.addPixels(`${src}_2`, bright);
     }
   }
 }

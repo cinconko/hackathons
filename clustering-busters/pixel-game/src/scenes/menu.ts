@@ -4,7 +4,7 @@ import { HEIGHT, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { formatTime, walletValue } from '../game/rules';
 import { loadSave } from '../save';
-import { fadeToScene } from '../ui';
+import { fadeToScene, title } from '../ui';
 
 const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#888888' };
 
@@ -13,8 +13,9 @@ export class MenuScene extends Phaser.Scene {
 
   create() {
     const save = loadSave();
-    this.add.text(WIDTH / 2, 44, 'RINGFALL', { fontFamily: 'monospace', fontSize: '24px', color: '#ffffff' }).setOrigin(0.5);
-    this.add.text(WIDTH / 2, 64, 'Mossback stole the treasury. Fly in. Take the key. Bring the rings home.', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 42, 'RINGFALL', title(32)).setOrigin(0.5);
+    this.add.text(WIDTH - 8, 7, 'Font: Alagard by Hewett Tsoi', { ...FONT, color: '#555555' }).setOrigin(1, 0);   // the author asks for credit
+    this.add.text(WIDTH / 2, 64, 'Mossback stole the treasury. Go get the rings back.', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
     const prompt = this.add.text(WIDTH / 2, 88, save.seenIntro ? 'Enter: to the village' : 'Press Enter or click to start', { fontFamily: 'monospace', fontSize: '10px', color: '#ffcc44' }).setOrigin(0.5);
     if (save.seenIntro) this.add.text(WIDTH / 2, 100, 'C: watch the story again', FONT).setOrigin(0.5);
     this.add.text(WIDTH / 2, 112, 'WASD move   mouse aim   click/Space attack   Q switch weapon', FONT).setOrigin(0.5);

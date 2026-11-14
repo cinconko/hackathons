@@ -4,7 +4,7 @@ import { HEIGHT, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { addRings, countRings, formatTime, RARITY_ORDER, RINGS, walletValue, type FightResult } from '../game/rules';
 import { updateSave } from '../save';
-import { fadeToScene, FONT, hex } from '../ui';
+import { fadeToScene, FONT, hex, TITLE_FONT } from '../ui';
 
 // After the treasury: what you found this run. The wallet arrives already counted (the arena
 // and the treasury keep it up to date); this screen saves it. Continue -> back to the village.
@@ -26,7 +26,7 @@ export class ResultScene extends Phaser.Scene {
       };
     });
 
-    this.add.text(WIDTH / 2, 36, data.won ? 'TREASURY RECOVERED' : 'DEFEATED', { fontFamily: 'monospace', fontSize: '18px', color: data.won ? '#ffcc44' : '#e03a4a' }).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 36, data.won ? 'TREASURY RECOVERED' : 'DEFEATED', { fontFamily: TITLE_FONT, fontSize: '16px', color: data.won ? '#ffcc44' : '#e03a4a' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 54, data.won ? `Time ${formatTime(data.timeMs)}${newBest ? '   new best!' : ''}` : 'The catapult is waiting. Try again.', { ...FONT, color: '#cccccc' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 74, data.found.length ? 'Rings found this run' : 'No rings this time', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
     RARITY_ORDER.forEach((r, i) => {

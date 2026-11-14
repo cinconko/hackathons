@@ -38,6 +38,21 @@ export const mediaStatus = {
   placeholders: new Map<string, { w: number; h: number }>(),
 };
 
+/**
+ * Loads every font in the manifest (fonts/<name>.ttf -> family <name>) before the first text is
+ * drawn: Phaser paints text onto a canvas once, so a late font would never show. A font that
+ * fails to load is skipped (the text falls back to monospace).
+ */
+export async function loadFonts(m: MediaManifest): Promise<void> {
+  await Promise.all(Object.entries(m.fonts ?? {}).map(async ([name, url]) => {
+    try {
+      const face = new FontFace(name, `url(${url})`);
+      await face.load();
+      (document.fonts as unknown as Set<FontFace>).add(face);   // add() exists in browsers; this TS lib lacks its typing
+    } catch { console.warn(`[media] could not load the font ${url}`); }
+  }));
+}
+
 export function queueMedia(load: Phaser.Loader.LoaderPlugin, m: MediaManifest): number {
   let n = 0;
   for (const [k, url] of Object.entries(m.sprites)) { load.image(k, url); n++; }

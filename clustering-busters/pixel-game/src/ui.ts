@@ -4,6 +4,12 @@ import { PLAY, WIDTH } from './config';
 import { RARITY_ORDER, RINGS, walletValue, type Wallet } from './game/rules';
 
 export const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#ffffff' };
+/**
+ * Titles: Alagard by Hewett Tsoi (public/media/fonts/alagard.ttf; "Give credit if used").
+ * A pixel font drawn for 16 px: use 16 or 32, never sizes in between (they blur).
+ */
+export const TITLE_FONT = 'alagard, monospace';
+export const title = (size: 16 | 32, color = '#ffffff') => ({ fontFamily: TITLE_FONT, fontSize: `${size}px`, color });
 export const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
 const shownBanners = new WeakMap<Phaser.Scene, Phaser.GameObjects.Text[]>();
@@ -11,7 +17,7 @@ const shownBanners = new WeakMap<Phaser.Scene, Phaser.GameObjects.Text[]>();
 /** A big centred title with a line under it. A new banner replaces the one still showing. */
 export function banner(scene: Phaser.Scene, title: string, sub: string, y = PLAY.y + 46) {
   shownBanners.get(scene)?.forEach((o) => { scene.tweens.killTweensOf(o); o.destroy(); });
-  const t = scene.add.text(WIDTH / 2, y, title, { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(955);
+  const t = scene.add.text(WIDTH / 2, y, title, { fontFamily: TITLE_FONT, fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(955);
   const s = scene.add.text(WIDTH / 2, y + 14, sub, { ...FONT, color: '#cccccc' }).setOrigin(0.5).setDepth(955);
   shownBanners.set(scene, [t, s]);
   scene.tweens.add({ targets: [t, s], alpha: 0, delay: 1800, duration: 500, onComplete: () => { t.destroy(); s.destroy(); } });
