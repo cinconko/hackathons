@@ -67,7 +67,7 @@ export class BootScene extends Phaser.Scene {
       px(GOLD, 10, 20, 4, 2); px(0x000000, 11, 20, 2, 1);              // key bow
       px(GOLD, 11, 22, 2, 2); px(0xfff1a8, 10, 20);                    // shaft + shine
     });
-    for (const s of [1, 2, 3] as const) for (const f of ['', '_1', '_2', '_3']) boss(`boss_${s}${f}`, STAGES[s].color, false, true);
+    for (const s of [1, 2, 3] as const) for (const f of ['', '_1', '_2', '_3', '_spread', '_aimL', '_aimR']) boss(`boss_${s}${f}`, STAGES[s].color, false, true);
     boss('boss_flash', 0xffffff, true, false);
     boss('boss_nokey', STAGES[3].color, false, false);
 
@@ -512,16 +512,22 @@ export class BootScene extends Phaser.Scene {
   }
 
   /**
-   * The team's boss (sprites/boss_art.png, 32x35, from art/Boss.png) -> every boss texture the game uses:
-   * boss_<stage> + boss_<stage>_1.._3 (idle cycle: arms flex in opposite pairs, the feet step in turn,
-   * the upper body dips 1 px), stage 2/3 glow orange/red,
-   * the treasury key on a cord around his neck, boss_flash (white, on a hit), boss_nokey (dead).
+   * The team's boss (sprites/boss_art.png, 32x35, from art/Boss.png) -> every boss texture the game uses,
+   * all 40x38 (the picture plus room for the arms to reach out):
+   *   boss_<stage>, _1.._3   idle cycle: arms flex in opposite pairs, the feet step in turn, the body breathes
+   *   boss_<stage>_spread    all four arms flung out (before shooting to every side)
+   *   boss_<stage>_aimL / _aimR  all four arms reach one way (before the aimed "shotgun" burst)
+   *   boss_flash (white, on a hit), boss_nokey (dead). Stage 2/3 glow orange/red; the key hangs on his chest.
    * Colours are baked in because the Canvas renderer ignores setTint.
    */
   private bossArt() {
     if (!this.textures.exists('boss_art')) return;            // no file: boot draws the old placeholder
-    const { w, h, data } = this.pixels('boss_art');
-    const WAIST = 21;                                          // rows above this breathe, the legs stay
+    const raw = this.pixels('boss_art');
+    const PX = 4, PY = 3;                                      // room left/right and above for the arms
+    const w = raw.w + 2 * PX, h = raw.h + PY;
+    const data = new ImageData(w, h);
+    for (let y = 0; y < raw.h; y++) data.data.set(raw.data.data.subarray(y * raw.w * 4, (y + 1) * raw.w * 4), ((y + PY) * w + PX) * 4);
+    const WAIST = 21 + PY;                                     // rows above this breathe, the legs stay
     const mix = (tint: number, a: number) => {
       const out = new ImageData(new Uint8ClampedArray(data.data), w, h);
       const d = out.data;
@@ -534,8 +540,7 @@ export class BootScene extends Phaser.Scene {
       return out;
     };
     const put = (img: ImageData, x: number, y: number, rgb: number) => {
-      const i = (y * w + x) * 4;
-      img.data.set([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 255], i);
+      img.data.set([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 255], ((y + PY) * w + x + PX) * 4);
     };
     const withKey = (img: ImageData) => {                      // below the chin, over the chest
       for (const [x, y] of [[14, 13], [15, 14], [19, 13], [18, 14]]) put(img, x, y, 0x2b1a10);   // cord
@@ -544,42 +549,74 @@ export class BootScene extends Phaser.Scene {
       put(img, 15, 15, 0xfff1a8);                              // shine
       return img;
     };
-    const dip = (img: ImageData) => {                          // idle frame 2: everything above the waist 1 px lower
+    const dip = (img: ImageData) => {                          // everything above the waist 1 px lower
       const out = new ImageData(new Uint8ClampedArray(img.data), w, h);
       const row = w * 4;
       out.data.copyWithin(row, 0, WAIST * row);
       out.data.fill(0, 0, row);
       return out;
     };
-    // Hands and feet: the picture is one piece, so each limb is a region of the 32x35 sprite.
+    const flipX = (img: ImageData) => {
+      const out = new ImageData(w, h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) out.data.set(img.data.subarray((y * w + x) * 4, (y * w + x) * 4 + 4), (y * w + (w - 1 - x)) * 4);
+      return out;
+    };
+
+    // Hands and feet: the picture is one piece, so each limb is a region of the original 32x35.
     // Arms are everything left / right of the body's columns, legs everything below the waist.
     type Part = 'upL' | 'loL' | 'upR' | 'loR' | 'legL' | 'legR';
-    const partAt = (x: number, y: number): Part | null =>
-      y >= WAIST ? (x <= 14 ? 'legL' : 'legR')
+    const partAt = (px: number, py: number): Part | null => {
+      const x = px - PX, y = py - PY;
+      return y >= 21 ? (x <= 14 ? 'legL' : 'legR')
         : x <= 11 ? (y <= 12 ? 'upL' : 'loL')
           : x >= 21 ? (y <= 12 ? 'upR' : 'loR')
             : null;                                            // head, chest, belly: stay put
+    };
     type Pose = Partial<Record<Part, [number, number]>>;
-    const pose = (img: ImageData, moves: Pose) => {
+    /**
+     * Move limbs. A limb is drawn at every step from where it is to where it goes, so a long reach
+     * stretches the arm instead of tearing it off the shoulder. `farArms`: the right arms are taken
+     * off his right side and reflected over to his left (dx, dy, darker: they are behind), so all
+     * four reach the same way.
+     */
+    const pose = (img: ImageData, moves: Pose, farArms?: [number, number]) => {
       const out = new ImageData(w, h);
       const src = img.data, d = out.data;
-      for (const pass of [0, 1]) {                             // the body first, moved limbs drawn over it
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-          const i = (y * w + x) * 4;
-          if (!src[i + 3]) continue;
-          const part = partAt(x, y);
-          const m = part ? moves[part] : undefined;
-          if ((pass === 0) === Boolean(m)) continue;
-          const nx = x + (m?.[0] ?? 0), ny = y + (m?.[1] ?? 0);
-          if (nx >= 0 && nx < w && ny >= 0 && ny < h) d.set(src.subarray(i, i + 4), (ny * w + nx) * 4);
+      const at = (x: number, y: number) => (y * w + x) * 4;
+      const inside = (x: number, y: number) => x >= 0 && x < w && y >= 0 && y < h;
+      const each = (fn: (x: number, y: number, part: Part | null) => void) => {
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (src[at(x, y) + 3]) fn(x, y, partAt(x, y));
+      };
+      if (farArms) each((x, y, part) => {
+        if (part !== 'upR' && part !== 'loR') return;
+        const nx = w - 1 - x + farArms[0], ny = y + farArms[1];
+        if (!inside(nx, ny)) return;
+        const i = at(x, y), o = at(nx, ny);
+        d.set([src[i] * 0.7, src[i + 1] * 0.7, src[i + 2] * 0.7, src[i + 3]], o);
+      });
+      each((x, y, part) => {                                   // what stays where it is
+        if (part && moves[part]) return;
+        if (farArms && (part === 'upR' || part === 'loR')) return;
+        d.set(src.subarray(at(x, y), at(x, y) + 4), at(x, y));
+      });
+      each((x, y, part) => {                                   // moved limbs, drawn over the body
+        const m = part ? moves[part] : undefined;
+        if (!m) return;
+        const n = Math.max(Math.abs(m[0]), Math.abs(m[1]));
+        for (let k = 1; k <= n; k++) {
+          const nx = x + Math.round((m[0] * k) / n), ny = y + Math.round((m[1] * k) / n);
+          if (inside(nx, ny)) d.set(src.subarray(at(x, y), at(x, y) + 4), at(nx, ny));
         }
-      }
+      });
       return out;
     };
-    // frame 1: left foot up, top arms tilt left-up / right-down, bottom arms swing out
-    // frame 2: breathe;  frame 3: the mirror of frame 1 (right foot up)
+    // idle frame 1: left foot up, top arms tilt left-up / right-down, bottom arms swing out;
+    // frame 2: breathe; frame 3: the mirror of frame 1 (right foot up)
     const STEP_L: Pose = { upL: [0, -1], upR: [0, 1], loL: [-1, 0], loR: [1, 0], legL: [0, -1] };
     const STEP_R: Pose = { upL: [0, 1], upR: [0, -1], loL: [1, 0], loR: [-1, 0], legR: [0, -1] };
+    const SPREAD: Pose = { upL: [-3, -2], upR: [3, -2], loL: [-3, 2], loR: [3, 2] };
+    const REACH: Pose = { upL: [-3, 1], loL: [-3, -1] };      // + the right arms reflected over: all point left
+
     const looks: Record<1 | 2 | 3, ImageData> = { 1: mix(0, 0), 2: mix(0xff8a2c, 0.25), 3: mix(0xff2a2a, 0.38) };
     for (const s of [1, 2, 3] as const) {
       const img = looks[s];
@@ -587,9 +624,12 @@ export class BootScene extends Phaser.Scene {
       this.addPixels(`boss_${s}_1`, withKey(pose(img, STEP_L)));
       this.addPixels(`boss_${s}_2`, dip(withKey(pose(img, {}))));
       this.addPixels(`boss_${s}_3`, withKey(pose(img, STEP_R)));
+      this.addPixels(`boss_${s}_spread`, withKey(pose(img, SPREAD)));
+      const left = pose(img, REACH, [-2, 2]);
+      this.addPixels(`boss_${s}_aimL`, withKey(left));
+      this.addPixels(`boss_${s}_aimR`, withKey(flipX(left)));
     }
-    const flash = mix(0xffffff, 1);
-    this.addPixels('boss_flash', flash);
+    this.addPixels('boss_flash', mix(0xffffff, 1));
     this.addPixels('boss_nokey', mix(0xff2a2a, 0.38));
   }
 

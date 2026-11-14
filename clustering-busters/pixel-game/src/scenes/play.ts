@@ -42,6 +42,9 @@ const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EI
 const asSprite = (o: unknown) => o as Sprite;
 
 interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number }
+/** Arms flung out before shooting to every side; all four reaching one way before the aimed burst. */
+type BossPose = 'spread' | 'aimL' | 'aimR';
+const SHOT_POSE_MS = 180;
 
 export class PlayScene extends Phaser.Scene {
   private rng: R.Rng = Math.random;
@@ -84,6 +87,9 @@ export class PlayScene extends Phaser.Scene {
   private knockUntil = 0;
   private spiralAngle = 0;
   private telegraph: Telegraph | null = null;
+  private shotPose: BossPose | null = null;   // the arms stay in the shooting pose a moment after the shot
+  private shotPoseUntil = 0;
+  private shownPose: BossPose | null = null;  // what the boss sprite shows now (null = the idle loop)
   private slowUntil = 0;
   private paralyzedUntil = 0;
   private poisonUntil = 0;
@@ -135,6 +141,9 @@ export class PlayScene extends Phaser.Scene {
     this.knockUntil = 0;
     this.spiralAngle = 0;
     this.telegraph = null;
+    this.shotPose = null;
+    this.shotPoseUntil = 0;
+    this.shownPose = null;
     this.slowUntil = this.paralyzedUntil = this.poisonUntil = this.poisonNextTick = this.suckUntil = this.suckNextTick = 0;
     this.bossDead = false;
     this.ended = false;
@@ -397,10 +406,27 @@ export class PlayScene extends Phaser.Scene {
 
   // ---- boss --------------------------------------------------------------------------
 
-  private applyBossTexture() { this.boss.play(`boss_idle_${this.stage}`, true); }   // breathing loop of this stage
+  /** The pose his arms should be in now: from the warning before a shot, or just after one. */
+  private bossPose(): BossPose | null {
+    const t = this.telegraph;
+    if (t?.kind === 'ring') return 'spread';
+    if (t?.kind === 'aimed') return Math.cos(t.angle) < 0 ? 'aimL' : 'aimR';
+    return this.fightMs < this.shotPoseUntil ? this.shotPose : null;
+  }
+
+  /** Show the stage's idle loop, or hold a shooting pose. Also restores the sprite after a hit flash. */
+  private applyBossTexture() {
+    const pose = this.bossPose();
+    this.shownPose = pose;
+    if (pose) this.boss.stop().setTexture(`boss_${this.stage}_${pose}`);
+    else this.boss.play(`boss_idle_${this.stage}`, true);
+  }
+
+  private holdShotPose(pose: BossPose) { this.shotPose = pose; this.shotPoseUntil = this.fightMs + SHOT_POSE_MS; }
 
   private updateBoss() {
     const now = this.fightMs;
+    if (this.bossPose() !== this.shownPose) this.applyBossTexture();   // arms follow the attack
     const st = R.STAGES[this.stage];
     const body = this.boss.body as Body;
     if (now < this.knockUntil) return;                       // pushed: flying back
@@ -413,8 +439,13 @@ export class PlayScene extends Phaser.Scene {
       if (now < this.telegraph.fireAt) return;
       const t = this.telegraph;
       this.telegraph = null;
-      if (t.kind === 'aimed') for (const off of [-0.25, 0, 0.25]) this.bullet(this.boss.x, this.boss.y, t.angle + off, 85);
-      else if (t.kind === 'ring') for (let i = 0; i < 10; i++) this.bullet(this.boss.x, this.boss.y, (i / 10) * Math.PI * 2, 55);
+      if (t.kind === 'aimed') {
+        for (const off of [-0.25, 0, 0.25]) this.bullet(this.boss.x, this.boss.y, t.angle + off, 85);
+        this.holdShotPose(Math.cos(t.angle) < 0 ? 'aimL' : 'aimR');
+      } else if (t.kind === 'ring') {
+        for (let i = 0; i < 10; i++) this.bullet(this.boss.x, this.boss.y, (i / 10) * Math.PI * 2, 55);
+        this.holdShotPose('spread');
+      }
       else { body.setVelocity(Math.cos(t.angle) * 150, Math.sin(t.angle) * 150); this.dashUntil = now + 350; }
       return;
     }
@@ -433,6 +464,7 @@ export class PlayScene extends Phaser.Scene {
       else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350 };
       else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
         for (let i = 0; i < 4; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI) / 2, 70);
+        this.holdShotPose('spread');                           // four ways at once: arms out
         this.spiralAngle += 0.35;
       }
     }
