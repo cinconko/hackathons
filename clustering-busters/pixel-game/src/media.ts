@@ -14,7 +14,21 @@ export const SFX_KEYS = [
   'swing', 'shoot', 'hit', 'hurt', 'block', 'spell', 'ring', 'buy', 'stage', 'victory',
   'door', 'land', 'launch', 'bounce', 'splash', 'levelup',
 ] as const;
-export type MusicKey = (typeof MUSIC_KEYS)[number];
+/**
+ * The merchant's robe colours. Sprites merchant_<robe>_0/_1 and blanket_<robe>; each deal picks one
+ * (robeFor), the blanket matches. Missing files = the default merchant_0/_1 and blanket.
+ */
+export const ROBES = ['darkblue', 'gray', 'green', 'orange', 'red', 'special'] as const;
+export type Robe = (typeof ROBES)[number];
+
+/** The same cards always give the same robe, so it changes with every deal and survives a reload. */
+export function robeFor(cards: readonly string[]): Robe {
+  let h = 0;
+  for (const ch of cards.join(',')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return ROBES[h % ROBES.length];
+}
+
+export type MusicKey =(typeof MUSIC_KEYS)[number];
 export type SfxKey = (typeof SFX_KEYS)[number];
 
 /** What came from files and what the boot scene had to draw (for the checklist screen). */

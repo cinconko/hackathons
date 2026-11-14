@@ -83,8 +83,12 @@ export class IntroScene extends Phaser.Scene {
       caption: 'Nobody can walk into his lair. But the old catapult can throw you right in. Get the key. Bring the rings home.',
       build: (s) => {
         const g = s.add.graphics().setDepth(1);
-        g.fillStyle(0x87c4ff).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
-        g.fillStyle(0xbfe3ff).fillRect(PLAY.x, PLAY.y + 60, PLAY.width, 20);
+        const sky = s.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'sky').setOrigin(0).setDepth(0);
+        const clouds = [[60, 22, 1], [190, 14, 0.8], [270, 40, 0.6]].map(([x, y, a]) => {
+          const c = s.add.image(PLAY.x + x, PLAY.y + y, 'cloud').setAlpha(a).setDepth(0);
+          s.tweens.add({ targets: c, x: c.x + 14, duration: 9000, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' });  // drifting
+          return c;
+        });
         g.fillStyle(0x3f8a3a).fillRect(PLAY.x, PLAY.y + 100, PLAY.width, PLAY.height - 100);
         g.fillStyle(0x2f6b2f).fillRect(PLAY.x, PLAY.y + 100, PLAY.width, 3);
         g.fillStyle(0x5a6a4a).fillTriangle(WIDTH - 90, PLAY.y + 100, WIDTH - 40, PLAY.y + 40, WIDTH + 10, PLAY.y + 100); // the lair's mountain
@@ -92,7 +96,7 @@ export class IntroScene extends Phaser.Scene {
         const arm = s.add.image(WIDTH / 2 + 20, PLAY.y + 82, 'catapult_arm').setOrigin(0, 0.5).setScale(2).setRotation(Math.PI * 0.92).setDepth(11);
         const hero = s.add.image(WIDTH / 2 - 50, PLAY.y + 92, 'player').setScale(2).setDepth(12);
         s.tweens.add({ targets: hero, x: WIDTH / 2 - 22, duration: 1400, ease: 'Sine.easeOut' });
-        return [g, base, arm, hero];
+        return [sky, ...clouds, g, base, arm, hero];
       },
     },
   ];

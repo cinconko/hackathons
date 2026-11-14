@@ -54,6 +54,13 @@ export function writeSave(data: SaveData) {
   try { localStorage.setItem(KEY, JSON.stringify(data)); } catch { /* quota or blocked */ }
 }
 
+/** Start over: everything back to a new game. Only the mute setting stays. */
+export function resetSave(): SaveData {
+  const fresh = { ...defaults(), muted: loadSave().muted };
+  writeSave(fresh);
+  return fresh;
+}
+
 export function updateSave(change: (s: SaveData) => SaveData): SaveData {
   const next = change(loadSave());
   writeSave(next);

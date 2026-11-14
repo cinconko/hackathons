@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
 import { placeHandArt } from './handArt';
-import { loadSave, updateSave } from './save';
+import { loadSave, resetSave, updateSave } from './save';
 import { BootScene } from './scenes/boot';
 import { MediaScene } from './scenes/media';
 import { PreloadScene } from './scenes/preload';
@@ -23,6 +23,10 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.NONE,            // we size the canvas ourselves, in whole multiples (see fitCanvas)
   },
   physics: { default: 'arcade', arcade: { debug: false } },
+  // Real-time speed at any frame rate. Phaser's delta smoothing reported 16.7 ms frames on a
+  // 30 fps machine, so the whole game (movement, bullets, cooldowns, timers) ran at half speed.
+  // min 20 fps = one frame never counts for more than 50 ms (no tunnelling through walls).
+  fps: { smoothStep: false, min: 20 },
   scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, MediaScene],
 });
 
@@ -46,6 +50,16 @@ window.addEventListener('keydown', (e) => {
   game.sound.mute = !game.sound.mute;
   updateSave((s) => ({ ...s, muted: game.sound.mute }));
 });
+
+// R (local dev only, never in the deployed build): erase the save and start over as a new player.
+// Only the mute setting stays. A reload drops every running scene, so nothing old lingers.
+if (import.meta.env.DEV) {
+  window.addEventListener('keydown', (e) => {
+    if ((e.key !== 'r' && e.key !== 'R') || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
+    resetSave();
+    window.location.reload();
+  });
+}
 
 // F toggles real fullscreen (browsers only allow it after a key press or click).
 window.addEventListener('keydown', (e) => {

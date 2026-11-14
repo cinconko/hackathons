@@ -3,6 +3,7 @@ import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import * as R from '../game/rules';
+import { Combat, SPELL_SPEED } from '../combat';
 import { addKeys, near, steer, type Keys } from '../player';
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
@@ -16,8 +17,7 @@ import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, wallet
 //   catapult ─► landing ─► fight (weapons: Q, specials: 1-8) ─► boss dies, drops the key
 //   ─► take the key ─► hidden door in the west wall ─► treasury
 //   lose ─► Mossback smashes you ─► you bounce back to the village (no death screen)
-//   training (data.training) ─► the same fight against a straw dummy: no attacks, no drops,
-//     no stages; a damage meter instead of the boss bar; Esc back to the village
+//   your weapons (aim, attacks, shots, the bomb): combat.ts, shared with the village training yard
 //
 // Every timer runs on fightMs, which stops while the shop is open and during hit-stop.
 //
@@ -31,19 +31,15 @@ import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, wallet
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
-interface Dir { x: number; y: number }
-export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean; training?: boolean }
+export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
 
 const FISHER_X = WIDTH / 2;
 const FISHER_Y = PLAY.y + PLAY.height - 26;
 const WALL = 8;                                              // the west wall's thickness
 const DOOR = { x: PLAY.x + WALL / 2 + 2, y: PLAY.y + PLAY.height / 2 };
 const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'] as const;
-const SWING_MS = 140;
-const SPELL_SPEED = 180;
 
 const asSprite = (o: unknown) => o as Sprite;
-const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
 
 interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number }
 
@@ -54,14 +50,11 @@ export class PlayScene extends Phaser.Scene {
   private fisher!: Phaser.GameObjects.Image;
   private fisherPrompt!: Phaser.GameObjects.Text;
   private bullets!: Phaser.Physics.Arcade.Group;   // his
-  private shots!: Phaser.Physics.Arcade.Group;     // yours: arrows, stones, spells
+  private combat!: Combat;                         // your weapons, aim and shots
   private pickups!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Graphics;
-  private aimG!: Phaser.GameObjects.Graphics;
   private tgG!: Phaser.GameObjects.Graphics;
   private fxG!: Phaser.GameObjects.Graphics;
-  private crosshair!: Phaser.GameObjects.Image;
-  private held!: Phaser.GameObjects.Image;
   private door!: Phaser.GameObjects.Image;
   private keyIcon!: Phaser.GameObjects.Image;
   private specialIcons: Phaser.GameObjects.Image[] = [];
@@ -78,16 +71,9 @@ export class PlayScene extends Phaser.Scene {
   private hp = R.PLAYER_HP;
   private wallet: R.Wallet = R.emptyWallet();
   private rings: R.Rarity[] = [];                // found this run
-  private wIndex = 0;                            // which of kit.weapons is in hand
   private buffs = { damage: 0, speed: 0 };       // the fisherman's supplies, this fight only
-  private facing: Dir = { x: 1, y: 0 };
-  private aimMouse = false;
-  private nextAttackAt = 0;
-  private swingUntil = 0;
-  private swingKind: 'sweep' | 'jab' | 'recoil' = 'sweep';
-  private swingAngle = 0;
+  private immuneNoteAt = 0;                                       // "immune" feedback, at most every 300 ms
   private invulnUntil = 0;
-  private readyAt: Partial<Record<R.SpecialId, number>> = {};
   private shieldUntil = 0;
   private bossHp = R.BOSS_MAX_HP;
   private stage: R.Stage = 1;
@@ -119,11 +105,6 @@ export class PlayScene extends Phaser.Scene {
   private inHitStop = false;
   private drinkNote = '';     // the bar drink kicking in, shown on landing
   private villageLvl = 1;     // the bigger the village, the more rings Mossback drops
-  private training = false;   // the training ground: a dummy instead of Mossback
-  private hits: { t: number; dmg: number }[] = [];   // training: recent hits, for damage per second
-  private totalDmg = 0;
-  private bestHit = 0;
-  private home = { x: 0, y: 0 };                     // training: where the dummy stands
 
   constructor() { super('play'); }
 
@@ -131,13 +112,8 @@ export class PlayScene extends Phaser.Scene {
     const save = loadSave();
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
     // the bar's drink is drunk now: it lasts this fight only
-    this.training = !!data.training;
-    // the bar's drink is drunk at a real fight only (not at training)
-    const drink = save.drink && !this.training ? R.DRINKS[save.drink] : null;
+    const drink = save.drink ? R.DRINKS[save.drink] : null;
     if (drink) updateSave((s) => ({ ...s, drink: null }));
-    this.hits = [];
-    this.totalDmg = 0;
-    this.bestHit = 0;
     const base = R.loadout(save.inventory);
     this.kit = { ...base, maxHp: base.maxHp + (drink?.hp ?? 0) };
     this.drinkNote = drink ? `${drink.name}: ${drink.desc}` : '';
@@ -146,14 +122,9 @@ export class PlayScene extends Phaser.Scene {
     this.hp = this.kit.maxHp;
     this.wallet = { ...save.wallet };
     this.rings = [];
-    this.wIndex = this.kit.weapons.length > 1 ? 1 : 0;      // your melee weapon if you have one
     this.buffs = { damage: drink?.damage ?? 0, speed: drink?.speed ?? 0 };
-    this.facing = { x: 1, y: 0 };
-    this.aimMouse = false;
-    this.nextAttackAt = 0;
-    this.swingUntil = 0;
+    this.immuneNoteAt = 0;
     this.invulnUntil = 0;
-    this.readyAt = {};
     this.shieldUntil = 0;
     this.stage = startStage;
     this.bossHp = R.stageStartHp(startStage);
@@ -186,34 +157,38 @@ export class PlayScene extends Phaser.Scene {
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
-    this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, this.training ? 'dummy' : `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
-    this.home = { x: this.boss.x, y: this.boss.y };
+    this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
     (this.boss.body as Body).setCircle(10, 2, 2);
 
     this.bullets = this.physics.add.group();
-    this.shots = this.physics.add.group();
     this.pickups = this.physics.add.group();
     this.physics.add.overlap(this.player, this.bullets, (_p, b) => { asSprite(b).destroy(); this.hurtPlayer(R.BULLET_DMG); });
     this.physics.add.overlap(this.player, this.boss, () => this.hurtPlayer(R.CONTACT_DMG));
-    this.physics.add.overlap(this.boss, this.shots, (_b, s) => this.shotHit(asSprite(s)));
     this.physics.add.overlap(this.player, this.pickups, (_p, item) => this.collect(asSprite(item)));
 
-    this.keys = addKeys(this);
-    this.input.on('pointermove', () => { this.aimMouse = true; });
-    this.input.on('pointerdown', () => {
-      if (this.shop || this.ended || !this.landed) return;
-      this.aimMouse = true;
-      this.attack(this.aimDir());
+    this.combat = new Combat(this, {
+      player: this.player,
+      kit: this.kit,
+      now: () => this.fightMs,
+      area: { x: PLAY.x + WALL, y: PLAY.y, width: PLAY.width - WALL, height: PLAY.height },
+      damageMul: () => this.damageMul(),
+      target: {
+        sprite: this.boss,
+        alive: () => !this.bossDead,
+        hit: (dmg) => this.damageBoss(dmg),
+        effect: (e) => {
+          if (e === 'freeze') { this.slowUntil = this.fightMs + R.SPECIAL.freezeSlowMs; this.floatText(this.boss.x, this.boss.y - 22, 'SLOWED', '#9fe8ff'); }
+          else { this.poisonUntil = this.fightMs + R.SPECIAL.poisonMs; this.poisonNextTick = this.fightMs + 1000; this.floatText(this.boss.x, this.boss.y - 22, 'POISONED', '#6fd13a'); }
+        },
+      },
     });
+    this.keys = addKeys(this);
     // the custom crosshair replaces the system cursor, only in the arena
     this.input.setDefaultCursor('none');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.input.setDefaultCursor('default'); hideHandArt(); });
 
     this.tgG = this.add.graphics().setDepth(7);
-    this.aimG = this.add.graphics().setDepth(8);
     this.fxG = this.add.graphics().setDepth(12);
-    this.held = this.add.image(0, 0, 'held_fists').setDepth(11).setVisible(false);
-    this.crosshair = this.add.image(0, 0, 'crosshair').setDepth(990).setVisible(false);
 
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
@@ -241,10 +216,7 @@ export class PlayScene extends Phaser.Scene {
     playMusic(this, 'arena');
     if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
     if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
-    if (this.training) {
-      this.cameras.main.fadeIn(400);
-      this.banner('TRAINING GROUND', 'Hit the dummy as hard as you can. Esc: back to the village.');
-    } else if (data.landing) this.land();
+    if (data.landing) this.land();
     else if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3');
   }
 
@@ -276,7 +248,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number) {
-    this.drawAim();
+    this.combat.drawAim(this.landed && !this.ended && !this.shop);
     if (this.ended) { this.endHitStop(); this.drawFx(); return; }
     if (this.shop) { this.shopKeys(); return; }
     if (!this.landed) { this.drawHud(); return; }
@@ -284,10 +256,9 @@ export class PlayScene extends Phaser.Scene {
     this.fightMs += delta;
     this.movePlayer();
     this.actionKeys();
-    if (this.training) this.updateDummy();
-    else if (!this.bossDead) this.updateBoss();
+    if (!this.bossDead) this.updateBoss();
     if (!this.bossDead) this.updateEffects();
-    if (!this.training) this.updateRetailer();
+    this.updateRetailer();
     this.cleanupProjectiles();
     if (this.bossDead) {
       this.pickups.getChildren().forEach((c) => { if ((c as Sprite).getData('kind') !== 'key') this.physics.moveToObject(c, this.player, 150); });
@@ -329,153 +300,33 @@ export class PlayScene extends Phaser.Scene {
   private damageMul() { return 1 + this.buffs.damage; }
 
   private movePlayer() {
-    const dir = steer(this.player, this.keys, 1 + this.buffs.speed);
-    if (dir) this.facing = dir;
-    // face the aim: up, down or sideways (flipped for left)
-    const a = this.aimDir();
-    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) this.player.setTexture(a.y < 0 ? 'player_up' : 'player').setFlipX(false);
-    else this.player.setTexture('player_side').setFlipX(a.x < 0);
+    this.combat.face(steer(this.player, this.keys, 1 + this.buffs.speed));   // faces the aim
   }
 
   private actionKeys() {
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    if (JD(k.SPACE) || JD(k.J)) this.attack(this.aimDir());
-    if (JD(k.Q)) this.wIndex = (this.wIndex + 1) % this.kit.weapons.length;
+    this.combat.keys(k);   // attack (press or hold), Q: next weapon
     this.kit.specials.forEach((id, i) => { if (JD(k[SPECIAL_KEYS[i]])) this.cast(id); });
     if (JD(k.E) && this.nearFisher()) this.openShop();
-    if (this.training && JD(k.ESC)) { this.ended = true; fadeToScene(this, 'village', { fromTraining: true }, 400); }
-  }
-
-  private currentWeapon(): R.Weapon { return R.weapon(this.kit.weapons[this.wIndex]); }
-
-  // ---- aiming ------------------------------------------------------------------------
-
-  /** Where the hero aims: at the cursor once the mouse is used, else the way he walks. */
-  private aimDir(): Dir {
-    if (!this.aimMouse) return this.facing;
-    const p = this.input.activePointer;
-    const dx = p.worldX - this.player.x;
-    const dy = p.worldY - this.player.y;
-    const len = Math.hypot(dx, dy);
-    return len < 1 ? this.facing : { x: dx / len, y: dy / len };
-  }
-
-  /**
-   * Shows the aim every frame: the weapon in hand points at it (and sweeps / jabs / recoils
-   * when used), the weapon's reach is drawn on the ground, and the crosshair turns red when an
-   * attack right now would hit Mossback. Dim = still recharging.
-   */
-  private drawAim() {
-    const g = this.aimG.clear();
-    const show = this.landed && !this.ended && !this.shop;
-    this.held.setVisible(show);
-    this.crosshair.setVisible(show);
-    if (!show) return;
-    const p = this.player;
-    const d = this.aimDir();
-    const a = Math.atan2(d.y, d.x);
-    const w = this.currentWeapon();
-    const ready = this.fightMs >= this.nextAttackAt;
-    const boss = this.boss;
-    let hits = false;
-
-    if (w.kind === 'melee') {
-      const reach = w.reach * 0.6;
-      hits = !this.bossDead && Phaser.Math.Distance.Between(p.x + d.x * reach, p.y + d.y * reach, boss.x, boss.y) < 11 + reach;
-      g.fillStyle(hits ? 0xff5a5a : 0xffffff, ready ? 0.22 : 0.08);
-      g.slice(p.x, p.y, w.reach + 3, a - 0.75, a + 0.75, false).fillPath();
-    } else {
-      const along = (boss.x - p.x) * d.x + (boss.y - p.y) * d.y;
-      const off = Math.abs((boss.x - p.x) * d.y - (boss.y - p.y) * d.x);
-      hits = !this.bossDead && along > 0 && off < 11;
-      g.fillStyle(hits ? 0xff5a5a : 0xffffff, ready ? 0.7 : 0.25);
-      for (let i = 1; i <= 12; i++) g.fillRect(Math.round(p.x + d.x * (6 + i * 6)), Math.round(p.y + d.y * (6 + i * 6)), 1, 1);
-    }
-
-    // the weapon in his hand: points at the aim, animated while attacking
-    let rot = a;
-    let dist = 6;
-    const left = this.swingUntil - this.fightMs;
-    if (left > 0) {
-      const t = 1 - left / SWING_MS;
-      if (this.swingKind === 'sweep') rot = this.swingAngle - 0.9 + 1.8 * easeOut(t);
-      else if (this.swingKind === 'jab') dist = 6 + 7 * Math.sin(Math.PI * t);
-      else dist = 6 - 3 * (1 - t);
-    }
-    const up = Math.abs(d.y) > Math.abs(d.x) * 1.2 && d.y < 0;
-    this.held.setTexture(`held_${w.id}`).setPosition(p.x + Math.cos(rot) * dist, p.y + Math.sin(rot) * dist + 1)
-      .setRotation(rot).setFlipY(Math.cos(rot) < 0).setDepth(up ? 9 : 11);   // behind him when aiming up
-
-    // the crosshair: at the mouse, or (keyboard) a little ahead of the hero
-    const cx = this.aimMouse ? this.input.activePointer.worldX : p.x + d.x * 24;
-    const cy = this.aimMouse ? this.input.activePointer.worldY : p.y + d.y * 24;
-    this.crosshair.setTexture(hits ? 'crosshair_hot' : 'crosshair')
-      .setPosition(Math.round(Phaser.Math.Clamp(cx, PLAY.x, PLAY.x + PLAY.width)), Math.round(Phaser.Math.Clamp(cy, PLAY.y, PLAY.y + PLAY.height)))
-      .setAlpha(ready ? 1 : 0.45);
-  }
-
-  // ---- attacking ---------------------------------------------------------------------
-
-  private attack(dir: Dir) {
-    const w = this.currentWeapon();
-    if (this.fightMs < this.nextAttackAt) return;
-    this.nextAttackAt = this.fightMs + w.cooldownMs;
-    const dmg = R.hitDamage(w.damage, this.damageMul());
-    this.swingAngle = Math.atan2(dir.y, dir.x);
-    this.swingUntil = this.fightMs + SWING_MS;
-    if (w.kind === 'melee') {
-      this.swingKind = w.id === 'fists' ? 'jab' : 'sweep';
-      sfx(this, 'swing', 0.4);
-      this.melee(dir, w, dmg);
-    } else {
-      this.swingKind = 'recoil';
-      sfx(this, 'shoot', 0.5);
-      this.projectile(`proj_${w.id}`, dir, w.speed, dmg);
-    }
-  }
-
-  private melee(dir: Dir, w: R.Weapon, dmg: number) {
-    const reach = w.reach * 0.6;
-    const cx = this.player.x + dir.x * reach;
-    const cy = this.player.y + dir.y * reach;
-    const fx = this.add.image(cx, cy, w.id === 'fists' ? 'punch' : 'slash').setRotation(Math.atan2(dir.y, dir.x)).setDepth(11).setScale(Math.max(0.7, w.reach / 16));
-    this.tweens.add({ targets: fx, alpha: 0, duration: 160, onComplete: () => fx.destroy() });
-    if (!this.bossDead && Phaser.Math.Distance.Between(cx, cy, this.boss.x, this.boss.y) < 11 + reach) this.damageBoss(dmg);
-  }
-
-  /** Your projectiles: weapon shots and spells. `effect` is what a spell does on hit. */
-  private projectile(texture: string, dir: Dir, speed: number, dmg: number, effect: '' | 'freeze' | 'poison' = '') {
-    const s = asSprite(this.shots.create(this.player.x, this.player.y, texture));
-    s.setRotation(Math.atan2(dir.y, dir.x)).setDepth(11).setData('dmg', dmg).setData('effect', effect).setData('dies', this.fightMs + 2000);
-    (s.body as Body).setVelocity(dir.x * speed, dir.y * speed);
-  }
-
-  private shotHit(s: Sprite) {
-    if (!s.active) return;
-    const dmg = s.getData('dmg') as number;
-    const effect = s.getData('effect') as string;
-    s.destroy();
-    this.damageBoss(dmg);
-    if (effect === 'freeze') { this.slowUntil = this.fightMs + R.SPECIAL.freezeSlowMs; this.floatText(this.boss.x, this.boss.y - 22, 'SLOWED', '#9fe8ff'); }
-    if (effect === 'poison') { this.poisonUntil = this.fightMs + R.SPECIAL.poisonMs; this.poisonNextTick = this.fightMs + 1000; this.floatText(this.boss.x, this.boss.y - 22, 'POISONED', '#6fd13a'); }
   }
 
   // ---- specials (number keys) --------------------------------------------------------
 
   private cast(id: R.SpecialId) {
     const it = R.item(id);
-    if (this.fightMs < (this.readyAt[id] ?? 0)) { this.floatText(this.player.x, this.player.y - 12, `${it.name} not ready`, '#888888'); return; }
-    const d = this.aimDir();
+    if (this.combat.specialLeft(id) > 0) { this.floatText(this.player.x, this.player.y - 12, `${it.name} not ready`, '#888888'); return; }
+    const c = this.combat;
+    const d = c.aimDir();
     const p = this.player;
     const boss = this.boss;
     const S = R.SPECIAL;
     let used = true;
     sfx(this, 'spell', 0.5);
     switch (id) {
-      case 'fireball': this.projectile('proj_fireball', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul())); break;
-      case 'freeze': this.projectile('proj_freeze', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul()), 'freeze'); break;
-      case 'poison': this.projectile('proj_poison', d, SPELL_SPEED - 20, R.hitDamage(it.damage ?? 0, this.damageMul()), 'poison'); break;
+      case 'fireball': c.projectile('proj_fireball', d, SPELL_SPEED, c.hitDamage(it.damage ?? 0)); break;
+      case 'freeze': c.projectile('proj_freeze', d, SPELL_SPEED, c.hitDamage(it.damage ?? 0), 'freeze'); break;
+      case 'poison': c.projectile('proj_poison', d, SPELL_SPEED - 20, c.hitDamage(it.damage ?? 0), 'poison'); break;
       case 'paralysis':
         if (this.bossDead) { used = false; break; }
         this.paralyzedUntil = this.fightMs + S.paralysisMs;
@@ -484,9 +335,9 @@ export class PlayScene extends Phaser.Scene {
         this.floatText(boss.x, boss.y - 22, 'PARALYSED', '#ffee44');
         break;
       case 'push': {
-        this.ring(p.x, p.y, S.pushRadius, 0xffffff);
+        c.ring(p.x, p.y, S.pushRadius, 0xffffff);
         if (this.bossDead || !near(p, boss.x, boss.y, S.pushRadius)) { this.floatText(p.x, p.y - 12, 'too far', '#888888'); break; }
-        this.damageBoss(R.hitDamage(it.damage ?? 0, this.damageMul()));
+        this.damageBoss(c.hitDamage(it.damage ?? 0));
         const ang = Phaser.Math.Angle.Between(p.x, p.y, boss.x, boss.y);
         const ms = 220;
         (boss.body as Body).setVelocity(Math.cos(ang) * S.pushDistance * (1000 / ms), Math.sin(ang) * S.pushDistance * (1000 / ms));
@@ -499,44 +350,16 @@ export class PlayScene extends Phaser.Scene {
         this.suckUntil = this.fightMs + S.suckMs;
         this.suckNextTick = this.fightMs + 500;
         break;
-      case 'bomb': this.throwBomb(d, it.damage ?? 0); break;
+      case 'bomb': c.throwBomb(d, it.damage ?? 0); break;
       case 'shield':
         this.shieldUntil = this.fightMs + S.shieldMs;
         this.floatText(p.x, p.y - 12, 'SHIELD', '#6aa8ff');
         break;
     }
-    if (used) this.readyAt[id] = this.fightMs + (it.cooldownMs ?? 0);
-  }
-
-  /** The bomb special: thrown toward the aim, blinks for its 2 s fuse, then a big blast. */
-  private throwBomb(d: Dir, damage: number) {
-    const S = R.SPECIAL;
-    const tx = Phaser.Math.Clamp(this.player.x + d.x * S.bombThrow, PLAY.x + WALL + 4, PLAY.x + PLAY.width - 4);
-    const ty = Phaser.Math.Clamp(this.player.y + d.y * S.bombThrow, PLAY.y + 4, PLAY.y + PLAY.height - 4);
-    const bomb = this.add.image(this.player.x, this.player.y, 'bomb').setDepth(11);
-    this.tweens.add({ targets: bomb, x: tx, y: ty, duration: 350, ease: 'Quad.easeOut' });
-    this.tweens.add({ targets: bomb, alpha: 0.3, yoyo: true, repeat: -1, duration: 150, delay: 350 });
-    const marker = this.add.circle(tx, ty, S.bombRadius).setStrokeStyle(1, 0xff5a5a, 0.6).setDepth(7);
-    this.time.delayedCall(S.bombFuseMs, () => {
-      bomb.destroy();
-      marker.destroy();
-      const blast = this.add.image(tx, ty, 'blast').setDepth(11).setScale(0.4);
-      this.tweens.add({ targets: blast, scale: 1.3, alpha: 0, duration: 320, onComplete: () => blast.destroy() });
-      this.cameras.main.shake(180, 0.015);
-      if (!this.bossDead && Phaser.Math.Distance.Between(tx, ty, this.boss.x, this.boss.y) < S.bombRadius + 10) this.damageBoss(R.hitDamage(damage, this.damageMul()));
-    });
+    if (used) c.usedSpecial(id);
   }
 
   /** Damage over time: poison ticks and the health suck. */
-  /** Training: the dummy never attacks; after a push it slides back to its post. */
-  private updateDummy() {
-    const body = this.boss.body as Body;
-    if (this.fightMs < this.knockUntil) return;
-    if (Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.home.x, this.home.y) > 2) this.physics.moveTo(this.boss, this.home.x, this.home.y, 40);
-    else body.setVelocity(0, 0);
-    this.telegraph = null;
-  }
-
   private updateEffects() {
     const S = R.SPECIAL;
     while (this.fightMs < this.poisonUntil && this.fightMs >= this.poisonNextTick) {
@@ -551,7 +374,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private hurtPlayer(raw: number) {
-    if (this.ended || this.bossDead || this.training || this.fightMs < this.invulnUntil) return;
+    if (this.ended || this.bossDead || this.fightMs < this.invulnUntil) return;
     const shielded = this.fightMs < this.shieldUntil;
     const dmg = R.damageTaken(raw, this.kit.armor, shielded);
     if (shielded) {
@@ -571,7 +394,7 @@ export class PlayScene extends Phaser.Scene {
 
   // ---- boss --------------------------------------------------------------------------
 
-  private applyBossTexture() { this.boss.setTexture(this.training ? 'dummy' : `boss_${this.stage}`); }
+  private applyBossTexture() { this.boss.setTexture(`boss_${this.stage}`); }
 
   private updateBoss() {
     const now = this.fightMs;
@@ -619,24 +442,14 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private damageBoss(dmg: number, opts: { hitStop?: boolean; drops?: boolean; color?: string } = {}) {
-    if (this.bossDead || this.fightMs < this.bossInvulnUntil) return;
+    if (this.bossDead) return;
+    if (this.fightMs < this.bossInvulnUntil) {     // changing stage: say so instead of silently ignoring the hit
+      if (this.fightMs >= this.immuneNoteAt) { this.floatText(this.boss.x, this.boss.y - 14, 'immune', '#888888'); this.immuneNoteAt = this.fightMs + 300; }
+      return;
+    }
     const { hitStop = true, drops = true, color = '#ffffff' } = opts;
     this.bossHp = Math.max(0, this.bossHp - dmg);
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
-    if (this.training) {             // the dummy: count the hit, no lasting damage, no drops, no stages
-      this.hits.push({ t: this.fightMs, dmg });
-      this.totalDmg += dmg;
-      this.bestHit = Math.max(this.bestHit, dmg);
-      this.bossHp = R.BOSS_MAX_HP;
-      if (hitStop) {
-        sfx(this, 'hit');
-        this.boss.setTexture('dummy_flash');
-        this.time.delayedCall(60, () => { if (this.boss.active) this.applyBossTexture(); });
-        this.tweens.add({ targets: this.boss, angle: { from: dmg >= 40 ? 18 : 9, to: 0 }, duration: 380, ease: 'Elastic.easeOut' });   // it wobbles
-        this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);
-      }
-      return;
-    }
     if (hitStop) {
       sfx(this, 'hit');
       this.boss.setTexture('boss_flash');
@@ -886,7 +699,7 @@ export class PlayScene extends Phaser.Scene {
     this.cdG.clear();
     this.specialIcons.forEach((icon, i) => {
       const id = this.kit.specials[i];
-      const left = (this.readyAt[id] ?? 0) - this.fightMs;
+      const left = this.combat.specialLeft(id);
       if (left > 0) {
         const frac = left / (R.item(id).cooldownMs ?? 1);
         this.cdG.fillStyle(0x000000, 0.7).fillRect(icon.x - 4, icon.y - 4, 9, Math.ceil(9 * frac));
@@ -897,14 +710,6 @@ export class PlayScene extends Phaser.Scene {
         icon.setAlpha(1);
       }
     });
-    if (this.training) {             // a damage meter instead of the boss bar
-      const spanMs = 5000;   // damage per second over the last 5 s
-      this.hits = this.hits.filter((h) => this.fightMs - h.t <= spanMs);
-      const dps = this.hits.reduce((sum, h) => sum + h.dmg, 0) / (spanMs / 1000);
-      this.texts.boss.setPosition(WIDTH / 2 + 14, PLAY.y + 2).setText(`${dps.toFixed(1)} dmg/s  total ${this.totalDmg}  best ${this.bestHit}`);   // where the boss bar would be
-      this.texts.retailer.setText('Esc: village');
-      return;
-    }
     // the boss bar
     const bw = 110;
     const bx = WIDTH / 2 - bw / 2;
@@ -919,10 +724,9 @@ export class PlayScene extends Phaser.Scene {
       .filter(Boolean).join(' ');
     this.texts.boss.setText(!this.bossDead ? `MOSSBACK ${this.stage}/3${status ? `  ${status}` : ''}` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
     if (this.hand.visible) {
-      const w = this.currentWeapon();
-      const readyFrac = Phaser.Math.Clamp(1 - (this.nextAttackAt - this.fightMs) / w.cooldownMs, 0, 1);
-      this.hand.update(this.kit.weapons, this.wIndex, readyFrac);
-      showHandArt(this, this.kit.weapons[this.wIndex], readyFrac);   // the big picture beside the game
+      const readyFrac = this.combat.readyFrac();
+      this.hand.update(this.kit.weapons, this.combat.wIndex, readyFrac);
+      showHandArt(this, this.kit.weapons[this.combat.wIndex], readyFrac);   // the big picture beside the game
     }
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
@@ -945,14 +749,9 @@ export class PlayScene extends Phaser.Scene {
     const pw = 52;
     const px = FISHER_X - pw / 2;
     const py = PLAY.y + PLAY.height - 16;
-    g.fillStyle(0x1e4f7a).fillRect(px, py, pw, 12);
-    g.fillStyle(0x2d6fa3).fillRect(px + 2, py, pw - 4, 1).fillRect(px + 8, py + 5, 6, 1).fillRect(px + 30, py + 8, 8, 1);
+    this.add.tileSprite(px, py, pw, 12, 'water').setOrigin(0).setDepth(0).setTilePosition(0, 16).setTint(0xb8c8d8);  // a lily pad in view, a bit darker for the lair
+    g.fillStyle(0x2d6fa3).fillRect(px, py - 1, pw, 1);                                               // the bank
     g.fillStyle(0x6b4a2b).fillRect(FISHER_X - 6, py - 2, 12, 3);
-  }
-
-  private ring(x: number, y: number, r: number, color: number) {
-    const c = this.add.circle(x, y, 4).setStrokeStyle(1, color, 0.9).setDepth(12);
-    this.tweens.add({ targets: c, radius: r, alpha: 0, duration: 300, onComplete: () => c.destroy() });
   }
 
   private banner(title: string, sub: string) { showBanner(this, title, sub); }
@@ -962,7 +761,7 @@ export class PlayScene extends Phaser.Scene {
   private cleanupProjectiles() {
     const out = (o: Sprite) => o.x < PLAY.x - 2 || o.x > PLAY.x + PLAY.width + 2 || o.y < PLAY.y - 2 || o.y > PLAY.y + PLAY.height + 2;
     for (const b of [...this.bullets.getChildren()] as Sprite[]) if (out(b)) b.destroy();
-    for (const s of [...this.shots.getChildren()] as Sprite[]) if (out(s) || this.fightMs > (s.getData('dies') as number)) s.destroy();
+    this.combat.cleanup();
   }
 
   /**
@@ -980,7 +779,7 @@ export class PlayScene extends Phaser.Scene {
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
     this.telegraph = null;
     this.bullets.clear(true, true);
-    this.shots.clear(true, true);
+    this.combat.clearShots();
     this.tweens.killTweensOf(this.player);
     this.player.setAlpha(1);
     this.fisherPrompt.setVisible(false);

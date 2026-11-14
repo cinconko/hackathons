@@ -20,6 +20,9 @@ export class MediaScene extends Phaser.Scene {
   constructor() { super('media'); }
 
   create() {
+    // ?scene=media&show=cart_0,cartf_0 : inspect sprites big (whole-step scale, side by side)
+    const show = new URLSearchParams(window.location.search).get('show');
+    if (show) { this.inspect(show.split(',').filter((k) => this.textures.exists(k))); return; }
     this.page = 0;
     const keys = new Set([...mediaStatus.placeholders.keys(), ...mediaStatus.fromFiles]);
     this.items = [...keys].sort().map((key) => {
@@ -41,6 +44,24 @@ export class MediaScene extends Phaser.Scene {
     console.table(this.items.filter((i) => !i.art).map((i) => ({ sprite: i.key, size: `${i.w}x${i.h}`, file: `public/media/sprites/${i.key}.png` })));
     drawFrame(this);
     this.render();
+  }
+
+  private inspect(keys: string[]) {
+    const gap = 8;
+    const sizes = keys.map((k) => this.textures.get(k).getSourceImage() as { width: number; height: number });
+    const totalW = sizes.reduce((w, z) => w + z.width, 0) + gap * (keys.length - 1);
+    const maxH = Math.max(1, ...sizes.map((z) => z.height));
+    const scale = Math.max(1, Math.floor(Math.min((PLAY.width - 16) / Math.max(1, totalW), (PLAY.height - 40) / maxH)));
+    let x = WIDTH / 2 - (totalW * scale) / 2;
+    keys.forEach((k, i) => {
+      const z = sizes[i];
+      this.add.image(x + (z.width * scale) / 2, PLAY.y + 18 + (maxH * scale) / 2, k).setScale(scale);
+      this.add.text(x + (z.width * scale) / 2, PLAY.y + 22 + maxH * scale + (i % 2) * 10, `${k} ${z.width}x${z.height}`, { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0);   // staggered: no overlap
+      x += (z.width + gap) * scale;
+    });
+    this.add.text(PLAY.x + 4, PLAY.y + 3, `INSPECT  x${scale}`, { ...FONT, color: '#ffcc44' });
+    this.cameras.main.setBackgroundColor('#3f6a34');
+    drawFrame(this);
   }
 
   private pages() { return Math.ceil(this.items.length / PER_PAGE) + 1; }   // + the sound page

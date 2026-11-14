@@ -8,7 +8,8 @@
     "build": "npm test && tsc --noEmit && vite build",
     "preview": "vite preview",
     "itch": "npm run build && rm -f pixel-game-itch.zip && cd dist && zip -qr ../pixel-game-itch.zip . && echo 'pixel-game-itch.zip ready for itch.io upload'",
-    "test": "node --test 'test/*.test.ts'"
+    "test": "node --test 'test/*.test.ts'",
+    "art": "tools/import-art.sh"
   },
   "dependencies": {
     "@vercel/functions": "^3.11.3",
