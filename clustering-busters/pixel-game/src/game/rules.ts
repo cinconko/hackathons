@@ -222,10 +222,10 @@ export const startingInventory = (): Inventory => ({ owned: [], melee: null, ran
 
 export type BuyResult = { ok: true; wallet: Wallet; inventory: Inventory } | { ok: false; reason: 'owned' | 'too poor' };
 
-/** Buy an item. A new weapon or armor is equipped at once (you just bought it). */
-export function buyItem(wallet: Wallet, inv: Inventory, id: CatalogId): BuyResult {
+/** Buy an item (at `price`, e.g. the special card's discount). A new weapon or armor is equipped at once. */
+export function buyItem(wallet: Wallet, inv: Inventory, id: CatalogId, price: number = item(id).price): BuyResult {
   if (inv.owned.includes(id)) return { ok: false, reason: 'owned' };
-  const paid = pay(wallet, item(id).price);
+  const paid = pay(wallet, price);
   if (!paid) return { ok: false, reason: 'too poor' };
   return { ok: true, wallet: paid, inventory: equip({ ...inv, owned: [...inv.owned, id] }, id) };
 }
@@ -242,14 +242,14 @@ export function equip(inv: Inventory, id: CatalogId): Inventory {
 
 // ---- The merchant's cards --------------------------------------------------------------
 
-export const CARD_COUNT = 3;
+export const CARD_COUNT = 4;   // random cards; plus one special card (see rollSpecial)
 
 /**
- * Deals the merchant's cards: random chart items you do not own yet (fewer when nearly
- * everything is bought). New cards every time you come back from the arena.
+ * Deals the merchant's random cards: chart items you do not own yet and that are not in
+ * `exclude` (the special card). Fewer when nearly everything is bought.
  */
-export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number = CARD_COUNT): CatalogId[] {
-  const pool = CATALOG.map((i) => i.id).filter((id) => !owned.includes(id));
+export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number = CARD_COUNT, exclude: readonly CatalogId[] = []): CatalogId[] {
+  const pool = CATALOG.map((i) => i.id).filter((id) => !owned.includes(id) && !exclude.includes(id));
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     const t = pool[i];
@@ -257,6 +257,37 @@ export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number =
     pool[j] = t;
   }
   return pool.slice(0, count);
+}
+
+/** The special card: one of the chart's best items, at a discount. */
+export interface SpecialOffer { id: CatalogId; price: number; discount: number }
+/** "Really good" = the chart's top items: 200 rings and up. */
+export const SPECIAL_MIN_PRICE = 200;
+export const SPECIAL_DISCOUNTS: readonly number[] = [0.25, 0.3, 0.35, 0.4];
+
+/** The discounted price, rounded down to whole classic rings (a multiple of 5). */
+export function discountedPrice(price: number, discount: number): number {
+  const unit = RINGS.classic.value;
+  return Math.floor((price * (1 - discount)) / unit) * unit;
+}
+
+/**
+ * The special card: a random top item you do not own, at a random discount. If you own all the
+ * top items, the most expensive thing you do not own yet; if you own everything, none.
+ */
+export function rollSpecial(rng: Rng, owned: readonly CatalogId[]): SpecialOffer | null {
+  const left = CATALOG.filter((i) => !owned.includes(i.id));
+  if (!left.length) return null;
+  const top = left.filter((i) => i.price >= SPECIAL_MIN_PRICE);
+  const pick = top.length ? top[Math.floor(rng() * top.length)] : [...left].sort((a, b) => b.price - a.price)[0];
+  const discount = SPECIAL_DISCOUNTS[Math.floor(rng() * SPECIAL_DISCOUNTS.length)];
+  return { id: pick.id, price: discountedPrice(pick.price, discount), discount };
+}
+
+/** A full deal: the special card first (so it is never also a random card), then the random ones. */
+export function dealMerchant(rng: Rng, owned: readonly CatalogId[]): { cards: CatalogId[]; special: SpecialOffer | null } {
+  const special = rollSpecial(rng, owned);
+  return { cards: rollCards(rng, owned, CARD_COUNT, special ? [special.id] : []), special };
 }
 
 // ---- The bar: one drink for the next fight ---------------------------------------------

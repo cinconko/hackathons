@@ -16,6 +16,8 @@ import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, wallet
 //   catapult ─► landing ─► fight (weapons: Q, specials: 1-8) ─► boss dies, drops the key
 //   ─► take the key ─► hidden door in the west wall ─► treasury
 //   lose ─► Mossback smashes you ─► you bounce back to the village (no death screen)
+//   training (data.training) ─► the same fight against a straw dummy: no attacks, no drops,
+//     no stages; a damage meter instead of the boss bar; Esc back to the village
 //
 // Every timer runs on fightMs, which stops while the shop is open and during hit-stop.
 //
@@ -30,7 +32,7 @@ import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, wallet
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
 interface Dir { x: number; y: number }
-export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
+export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean; training?: boolean }
 
 const FISHER_X = WIDTH / 2;
 const FISHER_Y = PLAY.y + PLAY.height - 26;
@@ -117,6 +119,11 @@ export class PlayScene extends Phaser.Scene {
   private inHitStop = false;
   private drinkNote = '';     // the bar drink kicking in, shown on landing
   private villageLvl = 1;     // the bigger the village, the more rings Mossback drops
+  private training = false;   // the training ground: a dummy instead of Mossback
+  private hits: { t: number; dmg: number }[] = [];   // training: recent hits, for damage per second
+  private totalDmg = 0;
+  private bestHit = 0;
+  private home = { x: 0, y: 0 };                     // training: where the dummy stands
 
   constructor() { super('play'); }
 
@@ -124,8 +131,13 @@ export class PlayScene extends Phaser.Scene {
     const save = loadSave();
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
     // the bar's drink is drunk now: it lasts this fight only
-    const drink = save.drink ? R.DRINKS[save.drink] : null;
-    if (save.drink) updateSave((s) => ({ ...s, drink: null }));
+    this.training = !!data.training;
+    // the bar's drink is drunk at a real fight only (not at training)
+    const drink = save.drink && !this.training ? R.DRINKS[save.drink] : null;
+    if (drink) updateSave((s) => ({ ...s, drink: null }));
+    this.hits = [];
+    this.totalDmg = 0;
+    this.bestHit = 0;
     const base = R.loadout(save.inventory);
     this.kit = { ...base, maxHp: base.maxHp + (drink?.hp ?? 0) };
     this.drinkNote = drink ? `${drink.name}: ${drink.desc}` : '';
@@ -174,7 +186,8 @@ export class PlayScene extends Phaser.Scene {
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
-    this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
+    this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, this.training ? 'dummy' : `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
+    this.home = { x: this.boss.x, y: this.boss.y };
     (this.boss.body as Body).setCircle(10, 2, 2);
 
     this.bullets = this.physics.add.group();
@@ -228,7 +241,10 @@ export class PlayScene extends Phaser.Scene {
     playMusic(this, 'arena');
     if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
     if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
-    if (data.landing) this.land();
+    if (this.training) {
+      this.cameras.main.fadeIn(400);
+      this.banner('TRAINING GROUND', 'Hit the dummy as hard as you can. Esc: back to the village.');
+    } else if (data.landing) this.land();
     else if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3');
   }
 
@@ -268,8 +284,10 @@ export class PlayScene extends Phaser.Scene {
     this.fightMs += delta;
     this.movePlayer();
     this.actionKeys();
-    if (!this.bossDead) { this.updateBoss(); this.updateEffects(); }
-    this.updateRetailer();
+    if (this.training) this.updateDummy();
+    else if (!this.bossDead) this.updateBoss();
+    if (!this.bossDead) this.updateEffects();
+    if (!this.training) this.updateRetailer();
     this.cleanupProjectiles();
     if (this.bossDead) {
       this.pickups.getChildren().forEach((c) => { if ((c as Sprite).getData('kind') !== 'key') this.physics.moveToObject(c, this.player, 150); });
@@ -326,6 +344,7 @@ export class PlayScene extends Phaser.Scene {
     if (JD(k.Q)) this.wIndex = (this.wIndex + 1) % this.kit.weapons.length;
     this.kit.specials.forEach((id, i) => { if (JD(k[SPECIAL_KEYS[i]])) this.cast(id); });
     if (JD(k.E) && this.nearFisher()) this.openShop();
+    if (this.training && JD(k.ESC)) { this.ended = true; fadeToScene(this, 'village', { fromTraining: true }, 400); }
   }
 
   private currentWeapon(): R.Weapon { return R.weapon(this.kit.weapons[this.wIndex]); }
@@ -509,6 +528,15 @@ export class PlayScene extends Phaser.Scene {
   }
 
   /** Damage over time: poison ticks and the health suck. */
+  /** Training: the dummy never attacks; after a push it slides back to its post. */
+  private updateDummy() {
+    const body = this.boss.body as Body;
+    if (this.fightMs < this.knockUntil) return;
+    if (Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.home.x, this.home.y) > 2) this.physics.moveTo(this.boss, this.home.x, this.home.y, 40);
+    else body.setVelocity(0, 0);
+    this.telegraph = null;
+  }
+
   private updateEffects() {
     const S = R.SPECIAL;
     while (this.fightMs < this.poisonUntil && this.fightMs >= this.poisonNextTick) {
@@ -523,7 +551,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private hurtPlayer(raw: number) {
-    if (this.ended || this.bossDead || this.fightMs < this.invulnUntil) return;
+    if (this.ended || this.bossDead || this.training || this.fightMs < this.invulnUntil) return;
     const shielded = this.fightMs < this.shieldUntil;
     const dmg = R.damageTaken(raw, this.kit.armor, shielded);
     if (shielded) {
@@ -543,7 +571,7 @@ export class PlayScene extends Phaser.Scene {
 
   // ---- boss --------------------------------------------------------------------------
 
-  private applyBossTexture() { this.boss.setTexture(`boss_${this.stage}`); }
+  private applyBossTexture() { this.boss.setTexture(this.training ? 'dummy' : `boss_${this.stage}`); }
 
   private updateBoss() {
     const now = this.fightMs;
@@ -595,6 +623,20 @@ export class PlayScene extends Phaser.Scene {
     const { hitStop = true, drops = true, color = '#ffffff' } = opts;
     this.bossHp = Math.max(0, this.bossHp - dmg);
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
+    if (this.training) {             // the dummy: count the hit, no lasting damage, no drops, no stages
+      this.hits.push({ t: this.fightMs, dmg });
+      this.totalDmg += dmg;
+      this.bestHit = Math.max(this.bestHit, dmg);
+      this.bossHp = R.BOSS_MAX_HP;
+      if (hitStop) {
+        sfx(this, 'hit');
+        this.boss.setTexture('dummy_flash');
+        this.time.delayedCall(60, () => { if (this.boss.active) this.applyBossTexture(); });
+        this.tweens.add({ targets: this.boss, angle: { from: dmg >= 40 ? 18 : 9, to: 0 }, duration: 380, ease: 'Elastic.easeOut' });   // it wobbles
+        this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);
+      }
+      return;
+    }
     if (hitStop) {
       sfx(this, 'hit');
       this.boss.setTexture('boss_flash');
@@ -855,6 +897,14 @@ export class PlayScene extends Phaser.Scene {
         icon.setAlpha(1);
       }
     });
+    if (this.training) {             // a damage meter instead of the boss bar
+      const spanMs = 5000;   // damage per second over the last 5 s
+      this.hits = this.hits.filter((h) => this.fightMs - h.t <= spanMs);
+      const dps = this.hits.reduce((sum, h) => sum + h.dmg, 0) / (spanMs / 1000);
+      this.texts.boss.setPosition(WIDTH / 2 + 14, PLAY.y + 2).setText(`${dps.toFixed(1)} dmg/s  total ${this.totalDmg}  best ${this.bestHit}`);   // where the boss bar would be
+      this.texts.retailer.setText('Esc: village');
+      return;
+    }
     // the boss bar
     const bw = 110;
     const bx = WIDTH / 2 - bw / 2;

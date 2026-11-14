@@ -4,7 +4,7 @@ import {
   addRings, bossStage, buyItem, CATALOG, countRings, damageTaken, deathDrop, emptyWallet, equip, formatTime, hitDamage,
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
-  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck,
+  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck, dealMerchant, rollSpecial, discountedPrice, SPECIAL_MIN_PRICE,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -157,7 +157,7 @@ test('time format', () => {
   assert.equal(formatTime(83_400), '1:23');
 });
 
-test('merchant cards: 3 different chart items you do not own; fewer when nearly all bought', () => {
+test('merchant cards: 4 different chart items you do not own; fewer when nearly all bought', () => {
   for (let seed = 0; seed < 100; seed++) {
     const owned: CatalogId[] = ['sword', 'bow', 'leather'];
     const cards = rollCards(seededRng(seed), owned);
@@ -167,6 +167,7 @@ test('merchant cards: 3 different chart items you do not own; fewer when nearly 
   }
   const allButTwo = CATALOG.slice(2).map((i) => i.id);
   assert.equal(rollCards(seededRng(1), allButTwo).length, 2);
+  assert.ok(!rollCards(seededRng(3), [], 4, ['spear']).includes('spear'));
   assert.notDeepEqual(rollCards(seededRng(1), []), rollCards(seededRng(2), []));
 });
 
@@ -218,4 +219,38 @@ test('a bigger village: Mossback drops more rings (+15% per level, capped at lev
   assert.ok(Math.abs(rate(6) - 0.2625) < 0.012);
   // the rare guarantees still hold at every level
   for (let l = 1; l <= 6; l++) assert.ok(stageDrop(seededRng(l), l).rings.some((r) => r !== 'classic'));
+});
+
+test('the special card: a top item you do not own, 25-40% off, never also a random card', () => {
+  for (let seed = 0; seed < 300; seed++) {
+    const owned: CatalogId[] = ['spear', 'sword'];
+    const { cards, special } = dealMerchant(seededRng(seed), owned);
+    assert.ok(special);
+    if (!special) continue;
+    const full = item(special.id).price;
+    assert.ok(full >= SPECIAL_MIN_PRICE, `${special.id} is not a top item`);
+    assert.ok(!owned.includes(special.id));
+    assert.ok(!cards.includes(special.id), 'special is also a random card');
+    assert.equal(cards.length, 4);
+    assert.ok(special.discount >= 0.25 && special.discount <= 0.4);
+    assert.ok(special.price < full && special.price % 5 === 0);
+    assert.equal(special.price, discountedPrice(full, special.discount));
+  }
+  assert.equal(discountedPrice(250, 0.3), 175);
+  assert.equal(discountedPrice(350, 0.35), 225);   // 227.5 rounded down to whole classic rings
+});
+
+test('the special card falls back to the best item left, and disappears when you own everything', () => {
+  const top = CATALOG.filter((i) => i.price >= SPECIAL_MIN_PRICE).map((i) => i.id);
+  const s = rollSpecial(seededRng(1), top);
+  assert.ok(s);
+  const left = CATALOG.filter((i) => !top.includes(i.id));
+  assert.equal(item(s!.id).price, Math.max(...left.map((i) => i.price)));
+  assert.equal(rollSpecial(seededRng(1), CATALOG.map((i) => i.id)), null);
+});
+
+test('buying the special card charges the discounted price', () => {
+  const r = buyItem({ classic: 0, rare: 0, superRare: 2 }, startingInventory(), 'spear', 175);
+  assert.ok(r.ok);
+  if (r.ok) assert.equal(walletValue(r.wallet), 200 - 175);
 });

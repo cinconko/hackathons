@@ -3,15 +3,16 @@ import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import {
-  addRings, buyItem, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, rollCards, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
+  addRings, buyItem, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, CARD_COUNT, dealMerchant, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
   type CatalogId, type CatalogItem, type ItemKind, type Rarity,
 } from '../game/rules';
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
+import { NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
-import { banner, floatText, FONT, walletHud } from '../ui';
+import { banner, fadeToScene, floatText, FONT, walletHud } from '../ui';
 
 // The hub between fights:
 //   ring merchant  three random cards from the weapons chart, dealt again after every run
@@ -19,6 +20,9 @@ import { banner, floatText, FONT, walletHud } from '../ui';
 //   well           step into it and you fall in (sometimes there is a ring at the bottom)
 //   catapult       flies you into Mossback's arena
 //   growth         rings spent here build it out: camp, tents, village, fountains, rich town, city
+//   people         Elder Mira, Tobi the kid, Sergeant Brann: walk up, E to talk
+//   training       the gate at the west end of the road: a dummy to try your weapons on
+//   carts (city)   deliver to the nearest shop you are not standing at, unload, drive on
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Panel = 'cards' | 'gear' | 'bar';
@@ -28,6 +32,14 @@ const BAR = { x: PLAY.x + 222, y: PLAY.y + 38 };
 const BAR_DOOR = { x: BAR.x, y: BAR.y + 20 };
 const WELL = { x: PLAY.x + 70, y: PLAY.y + 142 };
 const CATAPULT = { x: PLAY.x + PLAY.width - 40, y: PLAY.y + 104 };   // pivot of the arm
+const GATE = { x: PLAY.x + 8, y: PLAY.y + 110 };                    // the training ground, west end of the road
+const ROAD_Y = PLAY.y + 112;
+/** Where carts deliver: a shop front off the road. minLvl = the shop exists from that stage. */
+const SHOPS = [
+  { id: 'merchant', x: STALL.x, stopY: PLAY.y + 70, minLvl: 1 },
+  { id: 'bar', x: BAR_DOOR.x, stopY: PLAY.y + 66, minLvl: 1 },
+  { id: 'fruit', x: PLAY.x + 40, stopY: PLAY.y + 132, minLvl: 4 },
+];
 const ARM_REST = Math.PI * 0.92;     // arm lying back, bucket near the ground
 const ARM_FIRE = -Math.PI * 0.35;    // arm after the throw
 const ARM_LEN = 24;
@@ -68,7 +80,7 @@ const PARTS: readonly Part[] = [
   { lvl: 3, key: 'mug', x: 252, y: 30, depth: 8, swing: true },
   { lvl: 3, key: 'barkeeper_0', anim: 'barkeeper', x: 241, y: 58, depth: 6 },
   { lvl: 3, key: 'stall', x: 120, y: 50, depth: 7, solid: [40, 8, 6] },
-  ...[30, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern', x, y: 97 })),
+  ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern', x, y: 97 })),
   { lvl: 3, key: 'flowers', x: 70, y: 89 },
   { lvl: 3, key: 'flowers', x: 188, y: 85 },
   // 4 Fountain square: fountains (the big one where the campfire was), market (+ bunting, drawn)
@@ -89,7 +101,15 @@ const PARTS: readonly Part[] = [
 
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 
-export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean }
+export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; fromTraining?: boolean; kept?: number; openShop?: boolean }
+
+interface Cart {
+  sprite: Phaser.GameObjects.Sprite;
+  dir: 1 | -1;                                   // along the road
+  state: 'road' | 'in' | 'unload' | 'out';
+  shop: (typeof SHOPS)[number] | null;
+  until: number;                                  // unloading ends
+}
 
 export class VillageScene extends Phaser.Scene {
   private player!: Sprite;
@@ -108,7 +128,10 @@ export class VillageScene extends Phaser.Scene {
   private layers = new Set<number>();    // drawn layers already there (cobbles 3, bunting 4, wall 5)
   private villagers: Phaser.GameObjects.Image[] = [];
   private nobles: Phaser.GameObjects.Image[] = [];
-  private carts: Phaser.GameObjects.Sprite[] = [];
+  private carts: Cart[] = [];
+  private shopBusyUntil = new Map<string, number>();   // a shop that just got a delivery waits a while
+  private npcs: { id: NpcId; sprite: Phaser.GameObjects.Image; mark: Phaser.GameObjects.Text; walk?: Phaser.Tweens.Tween }[] = [];
+  private dialog: { box: Phaser.GameObjects.Container; lines: string[]; i: number; typing: Phaser.Time.TimerEvent | null; text: Phaser.GameObjects.Text } | null = null;
   private dealCards = false;             // deal the cards with a flip when the shop opens
   private popCard = -1;                  // the card just bought: pop it
   private pour = false;                  // a drink was just bought: pour it
@@ -128,6 +151,9 @@ export class VillageScene extends Phaser.Scene {
     this.villagers = [];
     this.nobles = [];
     this.carts = [];
+    this.shopBusyUntil = new Map();
+    this.npcs = [];
+    this.dialog = null;
     this.placed = new Map();
     this.layers = new Set();
     this.pendingGrow = false;
@@ -138,9 +164,10 @@ export class VillageScene extends Phaser.Scene {
 
     // the merchant deals new cards every time you come back from the arena (and on a first visit)
     const save = loadSave();
-    if (data.bouncedBack || data.fromRun || save.merchantCards.length === 0) {
-      const cards = rollCards(Math.random, save.inventory.owned);
-      updateSave((s) => ({ ...s, merchantCards: cards }));
+    // 4 random cards + 1 special (a top item at a discount); old 3-card saves get a fresh deal too
+    if (data.bouncedBack || data.fromRun || save.merchantCards.length !== CARD_COUNT) {
+      const deal = dealMerchant(Math.random, save.inventory.owned);
+      updateSave((s) => ({ ...s, merchantCards: deal.cards, merchantSpecial: deal.special }));
     }
 
     this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
@@ -153,8 +180,11 @@ export class VillageScene extends Phaser.Scene {
     this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
     this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
     this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 30, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
+    this.add.image(GATE.x, GATE.y - 6, 'gate').setDepth(6);
+    this.add.text(GATE.x + 16, GATE.y - 22, 'TRAINING', { ...FONT, color: '#ff9a6a' }).setOrigin(0.5).setDepth(8);
+    this.addPeople();
 
-    this.player = this.physics.add.sprite(PLAY.x + 30, PLAY.y + 112, 'player').setCollideWorldBounds(true).setDepth(10);
+    this.player = this.physics.add.sprite(PLAY.x + (data.fromTraining ? 24 : 44), PLAY.y + 112, 'player').setCollideWorldBounds(true).setDepth(10);
     this.physics.add.collider(this.player, solids);
     this.keys = addKeys(this);
 
@@ -193,7 +223,10 @@ export class VillageScene extends Phaser.Scene {
     if (data.openShop) this.openPanel('cards'); // dev hook
   }
 
-  update() {
+  update(_t: number, delta: number) {
+    this.updateCarts(delta);
+    this.updateMarks();
+    if (this.dialog) { this.dialogKeys(); return; }
     if (this.locked) return;
     if (this.panel) { this.panelKeys(); return; }
     const k = this.keys;
@@ -203,12 +236,18 @@ export class VillageScene extends Phaser.Scene {
     const atShop = near(this.player, STALL.x, STALL.y + 16, 22);
     const atBar = near(this.player, BAR_DOOR.x, BAR_DOOR.y, 16);
     const atCatapult = near(this.player, CATAPULT.x - 8, CATAPULT.y + 6, 22);
-    if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
+    const atGate = near(this.player, GATE.x + 4, GATE.y, 14);
+    const person = this.npcs.find((n) => near(this.player, n.sprite.x, n.sprite.y, 14));
+    if (person) this.prompt.setText(`E: talk to ${NPCS[person.id].name}`).setPosition(person.sprite.x, person.sprite.y - 16).setVisible(true);
+    else if (atGate) this.prompt.setText('E: training ground').setPosition(GATE.x + 26, GATE.y + 14).setVisible(true);
+    else if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
     else if (atBar) this.prompt.setText('E: bar').setPosition(BAR_DOOR.x, BAR_DOOR.y + 10).setVisible(true);
     else if (atCatapult) this.prompt.setText('E: launch!').setPosition(CATAPULT.x - 6, CATAPULT.y + 20).setVisible(true);
     else this.prompt.setVisible(false);
     if (JD(k.E) || JD(k.ENTER)) {
-      if (atShop) this.openPanel('cards');
+      if (person) this.startTalk(person.id);
+      else if (atGate) this.enterTraining();
+      else if (atShop) this.openPanel('cards');
       else if (atBar) this.openPanel('bar');
       else if (atCatapult) this.launch();
     }
@@ -221,7 +260,7 @@ export class VillageScene extends Phaser.Scene {
     this.mode = mode;
     this.sel = 0;
     this.note = '';
-    this.dealCards = mode === 'cards';
+    this.dealCards = mode === 'cards' && !new URLSearchParams(window.location.search).has('nodeal');   // &nodeal: dev hook, no deal animation
     this.render();
   }
 
@@ -245,7 +284,7 @@ export class VillageScene extends Phaser.Scene {
   private panelKeys() {
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    const count = this.mode === 'cards' ? loadSave().merchantCards.length : this.mode === 'gear' ? loadSave().inventory.owned.length : DRINK_ORDER.length;
+    const count = this.mode === 'cards' ? this.offers().length : this.mode === 'gear' ? loadSave().inventory.owned.length : DRINK_ORDER.length;
     const prev = JD(k.A) || JD(k.LEFT) || JD(k.W) || JD(k.UP);
     const next = JD(k.D) || JD(k.RIGHT) || JD(k.S) || JD(k.DOWN);
     if (count > 0 && (prev || next)) { this.sel = (this.sel + (next ? 1 : count - 1)) % count; this.note = ''; this.render(); }
@@ -257,15 +296,16 @@ export class VillageScene extends Phaser.Scene {
   private choose() {
     const s = loadSave();
     if (this.mode === 'cards') {
-      const id = s.merchantCards[this.sel];
-      if (!id) return;
+      const offer = this.offers()[this.sel];
+      if (!offer) return;
+      const { id, price } = offer;
       const it = item(id);
       if (s.inventory.owned.includes(id)) { this.note = `${it.name} is already yours.`; this.render(); return; }
-      const r = buyItem(s.wallet, s.inventory, id);
-      if (!r.ok) this.note = `${it.name} costs ${it.price} rings. You have ${walletValue(s.wallet)}.`;
+      const r = buyItem(s.wallet, s.inventory, id, price);
+      if (!r.ok) this.note = `${it.name} costs ${price} rings. You have ${walletValue(s.wallet)}.`;
       else {
         sfx(this, 'buy');
-        const after = updateSave((x) => ({ ...x, wallet: r.wallet, inventory: r.inventory, spent: x.spent + it.price }));
+        const after = updateSave((x) => ({ ...x, wallet: r.wallet, inventory: r.inventory, spent: x.spent + price }));
         this.wallet.update(r.wallet);
         this.spentChanged(after.spent, after.villageSeen);
         this.note = it.kind === 'special' ? `Bought ${it.name}: a number key in the fight.` : `Bought and equipped: ${it.name}.`;
@@ -324,46 +364,80 @@ export class VillageScene extends Phaser.Scene {
     else this.renderBar();
   }
 
-  /** Three cards on the merchant's table: dealt with a flip when the shop opens, a bought one pops. */
+  /** The merchant's offers: the 4 random cards, then the special card (a top item at a discount). */
+  private offers(): { id: CatalogId; price: number; full: number; discount: number; special: boolean }[] {
+    const s = loadSave();
+    const list = s.merchantCards.map((id) => ({ id, price: item(id).price, full: item(id).price, discount: 0, special: false }));
+    const sp = s.merchantSpecial;
+    if (sp) list.push({ id: sp.id, price: sp.price, full: item(sp.id).price, discount: sp.discount, special: true });
+    return list;
+  }
+
+  /**
+   * Five cards on the merchant's table: four random ones and the special one (gold, shimmering,
+   * old price crossed out). Dealt with a flip when the shop opens; a bought one pops.
+   */
   private renderCards() {
     const s = loadSave();
-    const { c, x, y, w, h } = this.frame('THE RING MERCHANT', '"Three today. New ones when you come back."', 'merchant', 0x8a5fc0, 272, 164);
-    const cw = 80;
-    const ch = 104;
-    const gap = 8;
-    const cx0 = x + (w - (3 * cw + 2 * gap)) / 2;
-    const cy = y + 26;
+    const offers = this.offers();
+    const { c, x, y, w, h } = this.frame('THE RING MERCHANT', '"Four today, and one special. New ones next time."', 'merchant', 0x8a5fc0, 308, 170);
+    const cw = 58;
+    const ch = 112;
+    const gap = 3;
+    const cx0 = x + (w - (offers.length * cw + (offers.length - 1) * gap)) / 2;
+    const cy = y + 25;
     const money = walletValue(s.wallet);
-    if (!s.merchantCards.length) c.add(this.add.text(x + w / 2, cy + 40, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
-    s.merchantCards.forEach((id, i) => {
-      const it = item(id);
-      const sold = s.inventory.owned.includes(id);
+    if (!offers.length) c.add(this.add.text(x + w / 2, cy + 40, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
+    offers.forEach((o, i) => {
+      const it = item(o.id);
+      const sold = s.inventory.owned.includes(o.id);
       const picked = i === this.sel;
-      const col = KIND_COLORS[it.kind];
+      const col = o.special ? 0xc89a1a : KIND_COLORS[it.kind];
       // each card is its own container, centred, so it can flip and pop
       const card = this.add.container(cx0 + i * (cw + gap) + cw / 2, cy + ch / 2 - (picked ? 4 : 0));
       const L = -cw / 2;
       const T = -ch / 2;
       const g = this.add.graphics();
-      g.fillStyle(sold ? 0x1e1e24 : 0x2a2238).fillRect(L, T, cw, ch);
+      g.fillStyle(sold ? 0x1e1e24 : o.special ? 0x3a2a14 : 0x2a2238).fillRect(L, T, cw, ch);
       g.fillStyle(picked ? 0xffffff : col).fillRect(L, T, cw, 2).fillRect(L, T + ch - 2, cw, 2).fillRect(L, T, 2, ch).fillRect(L + cw - 2, T, 2, ch);
       g.fillStyle(col, 0.85).fillRect(L + 2, T + 2, cw - 4, 10);
       card.add(g);
-      card.add(this.add.text(0, T + 3, KIND_NAMES[it.kind], { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
-      const ic = this.add.image(0, T + 28, it.kind === 'melee' || it.kind === 'range' ? `held_${id}` : `icon_${id}`);
-      ic.setScale(Math.min(2, 30 / Math.max(ic.width, ic.height)));
+      card.add(this.add.text(0, T + 3, o.special ? 'BEST DEAL' : KIND_NAMES[it.kind], { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
+      if (o.special && !sold) {
+        // a shimmering gold frame and a discount badge
+        const shine = this.add.graphics();
+        shine.lineStyle(1, 0xffe27a, 1).strokeRect(L + 2, T + 2, cw - 4, ch - 4);
+        card.add(shine);
+        this.tweens.add({ targets: shine, alpha: 0.15, yoyo: true, repeat: -1, duration: 500 });
+        // under the header: the old price crossed out (left) and the discount badge (right)
+        const old = this.add.text(L + 4, T + 14, `${o.full}`, { ...FONT, color: '#9a9aa8' });
+        card.add(old);
+        const marks = this.add.graphics();
+        marks.fillStyle(0xd83a3a).fillRect(L + 3, T + 18, old.width + 2, 1);
+        marks.fillStyle(0xd83a3a).fillRect(L + cw - 25, T + 14, 22, 9);
+        card.add(marks);
+        card.add(this.add.text(L + cw - 14, T + 14, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
+      }
+      const ic = this.add.image(0, T + 32, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : `icon_${o.id}`);
+      ic.setScale(Math.min(2, 24 / Math.max(ic.width, ic.height)));
       if (sold) ic.setAlpha(0.35);
       card.add(ic);
-      card.add(this.add.text(0, T + 44, it.name, { ...FONT, color: sold ? '#666666' : '#ffffff' }).setOrigin(0.5, 0));
-      card.add(this.add.text(L + 5, T + 56, this.cardStats(it), { ...FONT, color: sold ? '#555555' : '#c8b8e8', wordWrap: { width: cw - 10 }, lineSpacing: 1 }));
-      card.add(this.add.text(0, T + ch - 12, sold ? 'SOLD' : `${it.price} rings`, { ...FONT, color: sold ? '#6fd13a' : money >= it.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(0.5, 0));
+      // long names ("Hand cannon") wrap onto two lines; the stats follow below them
+      const name = this.add.text(0, T + 47, it.name, { ...FONT, color: sold ? '#666666' : o.special ? '#ffe27a' : '#ffffff', align: 'center', wordWrap: { width: cw - 6 } }).setOrigin(0.5, 0);
+      card.add(name);
+      card.add(this.add.text(L + 4, name.y + name.height + 3, this.cardStats(it), { ...FONT, color: sold ? '#555555' : '#c8b8e8', wordWrap: { width: cw - 8 }, lineSpacing: 1 }));
+      if (sold) {
+        card.add(this.add.text(0, T + ch - 12, 'SOLD', { ...FONT, color: '#6fd13a' }).setOrigin(0.5, 0));
+      } else {
+        card.add(this.add.text(0, T + ch - 12, `${o.price} rings`, { ...FONT, color: money >= o.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(0.5, 0));
+      }
       c.add(card);
       if (this.dealCards) {          // dealt from the merchant: slides in face down, flips over
         const tx = card.x;
         const ty = card.y;
         card.setPosition(x + 14, y + 12).setScale(0.2, 0.2).setAlpha(0);
-        this.tweens.add({ targets: card, x: tx, y: ty, scaleY: 1, alpha: 1, duration: 260, delay: i * 140, ease: 'Quad.easeOut' });
-        this.tweens.add({ targets: card, scaleX: 1, duration: 200, delay: i * 140 + 200, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: card, x: tx, y: ty, scaleY: 1, alpha: 1, duration: 260, delay: i * 120, ease: 'Quad.easeOut' });
+        this.tweens.add({ targets: card, scaleX: 1, duration: 200, delay: i * 120 + 200, ease: 'Back.easeOut' });
       }
       if (i === this.popCard) {      // just bought: a happy pop with sparkles
         this.tweens.add({ targets: card, scale: 1.12, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
@@ -381,10 +455,11 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private cardStats(it: CatalogItem): string {
-    const cd = it.cooldownMs ? `cooldown ${it.cooldownMs / 1000}s` : '';
-    if (it.kind === 'armor') return `${it.desc}\nworn in every fight`;
+    // short: five cards share the window (weapons: numbers only; specials need their effect)
+    const cd = it.cooldownMs ? `cd ${it.cooldownMs / 1000}s` : '';
+    if (it.kind === 'armor') return `${it.desc}\nalways worn`;
     if (it.kind === 'special') return `${it.desc}\n${cd}`;
-    return `${it.damage} damage\n${cd}\n${it.desc}`;
+    return `${it.damage} dmg\n${cd}`;
   }
 
   /** Everything you own: equip a different weapon or armor. */
@@ -598,19 +673,13 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** Horse carts (stage 6): drive along the road one way and the other, fading out at the ends. */
+  /** Horse carts (stage 6): they deliver to the shops (see updateCarts). */
   private addCarts(count: number) {
     while (this.carts.length < count) {
       const i = this.carts.length;
-      const left = PLAY.x - 22;
-      const right = PLAY.x + 248;
-      const toRight = i === 0;
-      const c = this.add.sprite(toRight ? left : right, PLAY.y + (toRight ? 113 : 108), 'cart_0').play('cart').setDepth(9).setFlipX(!toRight);
-      this.tweens.add({
-        targets: c, x: toRight ? right : left, duration: 9000, repeat: -1, delay: i * 4500,
-        onUpdate: () => c.setAlpha(Phaser.Math.Clamp(Math.min(c.x - left, right - c.x) / 18, 0, 1)),
-      });
-      this.carts.push(c);
+      const dir: 1 | -1 = i === 0 ? 1 : -1;
+      const sprite = this.add.sprite(PLAY.x + (dir > 0 ? 30 : 230), ROAD_Y + (dir > 0 ? 1 : -4), 'cart_0').play('cart').setDepth(9).setFlipX(dir < 0);
+      this.carts.push({ sprite, dir, state: 'road', shop: null, until: 0 });
     }
   }
 
@@ -643,6 +712,176 @@ export class VillageScene extends Phaser.Scene {
       g.fillStyle(0x7a7a84).fillRect(PLAY.x + x, y, 5, 3).fillStyle(0x8a8a94).fillRect(PLAY.x + x + 3, y + 3, 5, 3);
     }
     return g;
+  }
+
+  // ---- people to talk to ----
+
+  private addPeople() {
+    const spot: Record<NpcId, { x: number; y: number }> = {
+      elder: { x: PLAY.x + 48, y: PLAY.y + 128 },     // by the well
+      kid: { x: PLAY.x + 140, y: PLAY.y + 128 },      // runs around the square
+      sergeant: { x: PLAY.x + 22, y: PLAY.y + 126 },  // at the training gate
+    };
+    const talked = loadSave().talkedTo;
+    (Object.keys(spot) as NpcId[]).forEach((id) => {
+      const sp = this.add.image(spot[id].x, spot[id].y, NPCS[id].sprite).setDepth(9);
+      const mark = this.add.text(sp.x, sp.y - 14, '!', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(12);
+      this.tweens.add({ targets: mark, y: mark.y - 2, yoyo: true, repeat: -1, duration: 350 });
+      mark.setVisible(!talked.includes(id));
+      let walk: Phaser.Tweens.Tween | undefined;
+      if (id === 'kid') {
+        walk = this.tweens.add({ targets: sp, x: PLAY.x + 205, duration: 4200, yoyo: true, repeat: -1, hold: 900, repeatDelay: 900, ease: 'Sine.easeInOut',
+          onYoyo: () => sp.setFlipX(true), onRepeat: () => sp.setFlipX(false) });
+        this.tweens.add({ targets: sp, y: sp.y - 2, yoyo: true, repeat: -1, duration: 160 });   // he skips
+      } else {
+        this.tweens.add({ targets: sp, scaleY: 1.04, yoyo: true, repeat: -1, duration: 900 + (id === 'elder' ? 300 : 0) });   // breathing
+      }
+      this.npcs.push({ id, sprite: sp, mark, walk });
+    });
+  }
+
+  /** The "!" follows the walking kid; shows while Tobi still has his ring to give. */
+  private updateMarks() {
+    const s = loadSave();
+    for (const n of this.npcs) {
+      n.mark.setPosition(n.sprite.x, n.mark.y);
+      n.mark.setVisible(n.id === 'kid' ? !s.kidGiftGiven || !s.talkedTo.includes('kid') : !s.talkedTo.includes(n.id));
+    }
+  }
+
+  private startTalk(id: NpcId) {
+    const s = loadSave();
+    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.prompt.setVisible(false);
+    const p = villageProgress(s.spent);
+    const kit = loadout(s.inventory);
+    const t = talk(id, {
+      wins: s.wins, villageLevel: p.level, villageName: p.name, hasWeapon: hasWeapon(kit.weapons),
+      ownsArmor: s.inventory.armor !== null, kidGiftGiven: s.kidGiftGiven,
+    }, Math.random);
+    updateSave((x) => ({ ...x, talkedTo: x.talkedTo.includes(id) ? x.talkedTo : [...x.talkedTo, id] }));
+    const npc = this.npcs.find((n) => n.id === id);
+    npc?.walk?.pause();
+    if (npc) npc.sprite.setFlipX(npc.sprite.x > this.player.x);   // turn to face you
+    if (t.giftRing) {
+      const after = updateSave((x) => ({ ...x, kidGiftGiven: true, wallet: addRings(x.wallet, ['classic']), lifetimeRings: addRings(x.lifetimeRings, ['classic']) }));
+      this.time.delayedCall(1200, () => { this.wallet.update(after.wallet); sfx(this, 'ring'); floatText(this, this.player.x, this.player.y - 12, '+1 classic ring', '#c8c8d0'); });
+    }
+    // the dialog box: portrait, name, typed text
+    const w = PLAY.width - 8;
+    const h = 38;
+    const x = PLAY.x + 4;
+    const y = PLAY.y + PLAY.height - h - 4;
+    const box = this.add.container(0, 0).setDepth(965);
+    const bg = this.add.graphics();
+    bg.fillStyle(0x000000, 0.85).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
+    box.add(bg);
+    box.add(this.add.image(x + 14, y + h / 2, NPCS[id].sprite).setScale(2));
+    box.add(this.add.text(x + 30, y + 4, NPCS[id].name, { ...FONT, color: '#ffcc44' }));
+    const text = this.add.text(x + 30, y + 14, '', { ...FONT, color: '#ffffff', wordWrap: { width: w - 40 } });
+    box.add(text);
+    box.add(this.add.text(x + w - 4, y + h - 10, 'Enter', { ...FONT, color: '#666666' }).setOrigin(1, 0));
+    this.dialog = { box, lines: t.lines, i: 0, typing: null, text };
+    this.typeLine();
+  }
+
+  private typeLine() {
+    const d = this.dialog;
+    if (!d) return;
+    const line = d.lines[d.i];
+    let n = 0;
+    d.text.setText('');
+    d.typing?.remove();
+    d.typing = this.time.addEvent({ delay: 22, repeat: line.length - 1, callback: () => { n++; d.text.setText(line.slice(0, n)); if (n >= line.length) d.typing = null; } });
+  }
+
+  private dialogKeys() {
+    const d = this.dialog;
+    if (!d) return;
+    const JD = Phaser.Input.Keyboard.JustDown;
+    const k = this.keys;
+    if (!(JD(k.ENTER) || JD(k.SPACE) || JD(k.E) || JD(k.ESC))) return;
+    if (d.typing) { d.typing.remove(); d.typing = null; d.text.setText(d.lines[d.i]); return; }   // finish the line first
+    d.i++;
+    if (d.i < d.lines.length) { this.typeLine(); return; }
+    d.box.destroy();
+    this.dialog = null;
+    this.npcs.forEach((n) => n.walk?.resume());
+  }
+
+  // ---- the training ground ----
+
+  private enterTraining() {
+    this.locked = true;
+    this.prompt.setVisible(false);
+    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.tweens.add({ targets: this.player, x: GATE.x - 6, alpha: 0, duration: 350 });
+    fadeToScene(this, 'play', { training: true }, 400);
+  }
+
+  // ---- delivery carts (Ringfall City) ----
+
+  /** The shops a cart could deliver to now: built, not where you stand, not just delivered to. */
+  private freeShops() {
+    const level = villageLevel(loadSave().spent);
+    const now = this.time.now;
+    const taken = new Set(this.carts.map((c) => c.shop?.id).filter(Boolean));
+    return SHOPS.filter((s) => s.minLvl <= level && !taken.has(s.id) && (this.shopBusyUntil.get(s.id) ?? 0) <= now
+      && !near(this.player, s.x, s.stopY, 34));
+  }
+
+  private updateCarts(delta: number) {
+    const dt = delta / 1000;
+    const speed = 28;
+    const left = PLAY.x + 14;
+    const right = PLAY.x + 248;
+    for (const c of this.carts) {
+      const sp = c.sprite;
+      if (c.state === 'road') {
+        if (!c.shop) {
+          // the nearest free shop ahead (in the direction it drives)
+          const ahead = this.freeShops().filter((s) => (s.x - sp.x) * c.dir > 2).sort((a, b) => Math.abs(a.x - sp.x) - Math.abs(b.x - sp.x));
+          c.shop = ahead[0] ?? null;
+        }
+        if (c.shop && near(this.player, c.shop.x, c.shop.stopY, 34)) c.shop = null;   // you went there: pick another shop
+        sp.x += c.dir * speed * dt;
+        if (c.shop && Math.abs(sp.x - c.shop.x) < 1.5) {
+          sp.x = c.shop.x;
+          c.state = 'in';
+          sp.setFlipX(false).setRotation(c.shop.stopY < ROAD_Y ? -Math.PI / 2 : Math.PI / 2);   // turn off the road
+        } else if (sp.x <= left || sp.x >= right) {
+          c.dir = (sp.x <= left ? 1 : -1);                 // end of the road: turn around
+          sp.x = Phaser.Math.Clamp(sp.x, left, right);
+          sp.setFlipX(c.dir < 0);
+        }
+      } else if (c.state === 'in' && c.shop) {
+        const toward = Math.sign(c.shop.stopY - sp.y);
+        sp.y += toward * speed * dt;
+        if (Math.abs(sp.y - c.shop.stopY) < 1.5) {
+          sp.y = c.shop.stopY;
+          c.state = 'unload';
+          c.until = this.time.now + 2600;
+          sp.anims.pause();
+          this.tweens.add({ targets: sp, scaleY: 0.92, yoyo: true, repeat: 3, duration: 160 });   // unloading bounce
+          floatText(this, sp.x, sp.y - 12, 'delivery!', '#ffd27a');
+        }
+      } else if (c.state === 'unload' && c.shop) {
+        if (this.time.now >= c.until || near(this.player, c.shop.x, c.shop.stopY, 30)) {   // done, or you came: leave
+          this.shopBusyUntil.set(c.shop.id, this.time.now + 9000);
+          c.state = 'out';
+          sp.anims.resume();
+          sp.setRotation(c.shop.stopY < ROAD_Y ? Math.PI / 2 : -Math.PI / 2);
+        }
+      } else if (c.state === 'out' && c.shop) {
+        sp.y += Math.sign(ROAD_Y + (c.dir > 0 ? 1 : -4) - sp.y) * speed * dt;
+        if (Math.abs(sp.y - (ROAD_Y + (c.dir > 0 ? 1 : -4))) < 1.5) {
+          sp.y = ROAD_Y + (c.dir > 0 ? 1 : -4);
+          sp.setRotation(0).setFlipX(c.dir < 0);
+          c.state = 'road';
+          c.shop = null;
+        }
+      }
+    }
   }
 
   // ---- the well ----
