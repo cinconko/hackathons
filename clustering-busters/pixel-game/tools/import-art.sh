@@ -8,6 +8,7 @@
 # One line per sprite:  <source in art/>  <key>  <width>x<height>  <mode>
 #   cut   a cutout: trim the empty border, shrink, hard edges (alpha is either on or off)
 #   tile  a texture the game repeats (grass, water, planks): shrink the whole picture
+#   ttile like tile, but trim the empty border first (a tile drawn on a bigger canvas)
 #   cover fill exactly that size, cropping what sticks out (backgrounds)
 #   bob   like cut, but the figure sits 1 pixel lower (frame 2 of an idle animation)
 set -euo pipefail
@@ -22,6 +23,7 @@ make() {
     bob)   magick "$src" -trim +repage -filter Box -resize "${w}x$((h - 1))!" -channel A -threshold 50% +channel \
              -background none -gravity south -extent "$size" "$OUT/$key.png" ;;
     tile)  magick "$src" -filter Box -resize "${size}!" "$OUT/$key.png" ;;
+    ttile) magick "$src" -trim +repage -filter Box -resize "${size}!" "$OUT/$key.png" ;;
     cover) magick "$src" -filter Box -resize "${size}^" -gravity center -extent "$size" "$OUT/$key.png" ;;
   esac
   echo "  $key  $size  <- $1"
@@ -39,6 +41,10 @@ make Grass.png            grass           32x32   tile
 make Water_LilyPad.avif   water           37x37   tile
 make WoodenFloor.jpg      floor_wood      64x36   tile
 make WoodenWall.png       wall_wood       30x20   tile
+# Paths: dirt (camp), cobblestone (village), stone brick (town); the village paves as it grows
+make Path_1.png           path_dirt       32x32   ttile
+make Path_2.png           path_cobble     40x40   ttile
+make Path_3.png           path_brick      40x40   ttile
 make Sky03.avif           sky             312x172 cover
 
 # The merchant: one robe colour per deal, the blanket matches. merchant_0/1 + blanket = default.

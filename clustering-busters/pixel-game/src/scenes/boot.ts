@@ -231,6 +231,10 @@ export class BootScene extends Phaser.Scene {
     bush('bush_mid_berry', 23, 10, true);
     // textures the game repeats: village grass, arena pond water, treasury planks
     tex('grass', 8, 8, () => { px(0x4f8a3a, 0, 0, 8, 8); px(0x5c9a44, 1, 2); px(0x5c9a44, 5, 5); px(0x3f7a30, 6, 1); });
+    // village paths: dirt, then cobblestone, then stone brick as the village grows
+    tex('path_dirt', 8, 8, () => { px(0xc8a86a, 0, 0, 8, 8); px(0xb8985a, 1, 2, 2, 1); px(0xb8985a, 5, 6, 2, 1); px(0xd8bc80, 4, 3); });
+    tex('path_cobble', 8, 8, () => { px(0x3a3a3a, 0, 0, 8, 8); px(0x8a8a8a, 0, 0, 3, 3); px(0x7a7a7a, 4, 0, 4, 3); px(0x7a7a7a, 0, 4, 4, 4); px(0x8a8a8a, 5, 4, 3, 4); });
+    tex('path_brick', 8, 8, () => { px(0x4a4a55, 0, 0, 8, 8); px(0x8a8a99, 0, 0, 7, 3); px(0x8a8a99, 0, 4, 3, 3); px(0x8a8a99, 4, 4, 4, 3); });
     tex('water', 8, 8, () => { px(0x1e4f7a, 0, 0, 8, 8); px(0x2d6fa3, 1, 2, 3, 1); px(0x2d6fa3, 4, 6, 3, 1); });
     tex('floor_wood', 8, 8, () => { px(0x8a6040, 0, 0, 8, 8); px(0x6b4a2b, 3, 0, 1, 8); px(0x6b4a2b, 7, 0, 1, 8); px(0x5a3a1a, 0, 5, 3, 1); });
     tex('wall_wood', 8, 8, () => { px(0x7a5230, 0, 0, 8, 8); px(0x5a3a1a, 0, 3, 8, 1); px(0x5a3a1a, 0, 7, 8, 1); });

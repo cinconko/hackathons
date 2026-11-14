@@ -153,6 +153,7 @@ export class VillageScene extends Phaser.Scene {
   private pour = false;                  // a drink was just bought: pour it
   private hand!: ReturnType<typeof handHud>;
   private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
+  private paths: Phaser.GameObjects.TileSprite[] = [];   // the road and the side paths (paved as the village grows)
   private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text; luck: Phaser.GameObjects.Text };
   private pendingGrow = false;  // a purchase raised the level: build when the shop closes
   private combat!: Combat;      // your weapons, out only in the training yard
@@ -180,6 +181,7 @@ export class VillageScene extends Phaser.Scene {
     this.dialog = null;
     this.afterBounce = [];
     this.grandpa = null;
+    this.paths = [];
     this.placed = new Map();
     this.layers = new Set();
     this.pendingGrow = false;
@@ -589,6 +591,7 @@ export class VillageScene extends Phaser.Scene {
    * dust), then the new parts are built (spring up, sparkle). animate = false: just place them.
    */
   private applyLevel(level: number, animate: boolean) {
+    this.pave(level);
     const shown = (p: Part) => p.lvl <= level && level < (p.until ?? 99);
     let gone = 0;
     for (const [p, e] of [...this.placed]) {
@@ -1258,13 +1261,20 @@ export class VillageScene extends Phaser.Scene {
     return p;
   }
 
+  /** The paths are paved as the village grows: dirt in the camp, cobblestone from level 3, stone brick from level 5. */
+  private pave(level: number) {
+    const key = level >= 5 ? 'path_brick' : level >= 3 ? 'path_cobble' : 'path_dirt';
+    for (const p of this.paths) if (p.texture.key !== key) p.setTexture(key);
+  }
+
   private drawVillage(): Phaser.Physics.Arcade.StaticGroup {
     this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'grass').setOrigin(0).setDepth(0);   // the ground
     const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0xc8a86a).fillRect(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);                     // main road
-    g.fillStyle(0xb8985a).fillRect(PLAY.x, PLAY.y + 104, PLAY.width - 48, 1).fillRect(PLAY.x, PLAY.y + 119, PLAY.width - 48, 1);
-    g.fillStyle(0xc8a86a).fillRect(STALL.x - 6, STALL.y + 14, 12, 90);                              // path to the stall
-    g.fillStyle(0xc8a86a).fillRect(BAR_DOOR.x - 6, BAR_DOOR.y - 2, 12, 104 - (BAR_DOOR.y - PLAY.y) + 2); // path to the bar
+    const path = (x: number, y: number, w: number, h: number) =>
+      this.paths.push(this.add.tileSprite(x, y, w, h, 'path_dirt').setOrigin(0).setDepth(0).setTilePosition(x, y));
+    path(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);                                          // main road
+    path(STALL.x - 6, STALL.y + 14, 12, 90);                                                   // path to the stall
+    path(BAR_DOOR.x - 6, BAR_DOOR.y - 2, 12, 104 - (BAR_DOOR.y - PLAY.y) + 2);                 // path to the bar
     // the well: stone rim, dark water, two posts and a crossbeam with a rope
     g.fillStyle(0x6a6a6a).fillCircle(WELL.x, WELL.y, 9);
     g.fillStyle(0x8a8a8a).fillCircle(WELL.x, WELL.y - 1, 8);
