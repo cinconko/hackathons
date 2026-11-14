@@ -4,6 +4,7 @@ import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import * as R from '../game/rules';
 import { addKeys, near, steer, type Keys } from '../player';
+import { playMusic, sfx } from '../media';
 import { loadSave, updateSave } from '../save';
 import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
 
@@ -211,6 +212,7 @@ export class PlayScene extends Phaser.Scene {
     this.walletUi.update(this.wallet);
 
     drawFrame(this);
+    playMusic(this, 'arena');
     if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
     if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
     if (data.landing) this.land();
@@ -233,6 +235,7 @@ export class PlayScene extends Phaser.Scene {
         shadow.destroy();
         this.player.setVisible(true);
         this.cameras.main.shake(260, 0.02);
+        sfx(this, 'land');
         dustPuff(this, x, y, 8, 16);
         this.landed = true;
         this.nextShotAt = this.fightMs + 1500;
@@ -389,9 +392,11 @@ export class PlayScene extends Phaser.Scene {
     this.swingUntil = this.fightMs + SWING_MS;
     if (w.kind === 'melee') {
       this.swingKind = w.id === 'fists' ? 'jab' : 'sweep';
+      sfx(this, 'swing', 0.4);
       this.melee(dir, w, dmg);
     } else {
       this.swingKind = 'recoil';
+      sfx(this, 'shoot', 0.5);
       this.projectile(`proj_${w.id}`, dir, w.speed, dmg);
     }
   }
@@ -432,6 +437,7 @@ export class PlayScene extends Phaser.Scene {
     const boss = this.boss;
     const S = R.SPECIAL;
     let used = true;
+    sfx(this, 'spell', 0.5);
     switch (id) {
       case 'fireball': this.projectile('proj_fireball', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul())); break;
       case 'freeze': this.projectile('proj_freeze', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul()), 'freeze'); break;
@@ -508,9 +514,11 @@ export class PlayScene extends Phaser.Scene {
     if (shielded) {
       this.invulnUntil = this.fightMs + 300;
       this.floatText(this.player.x, this.player.y - 12, 'BLOCKED', '#6aa8ff');
+      sfx(this, 'block');
       return;
     }
     this.hp = Math.max(0, this.hp - dmg);
+    sfx(this, 'hurt');
     this.invulnUntil = this.fightMs + R.INVULN_MS;
     this.cameras.main.shake(100, 0.008);
     this.floatText(this.player.x, this.player.y - 12, `-${dmg}`, '#ff6a6a');
@@ -573,6 +581,7 @@ export class PlayScene extends Phaser.Scene {
     this.bossHp = Math.max(0, this.bossHp - dmg);
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
     if (hitStop) {
+      sfx(this, 'hit');
       this.boss.setTexture('boss_flash');
       this.time.delayedCall(60, () => { if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
       this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
@@ -594,6 +603,7 @@ export class PlayScene extends Phaser.Scene {
     this.drop(R.stageDrop(this.rng));
     this.cameras.main.shake(200, 0.015);
     this.tweens.add({ targets: this.boss, alpha: 0.3, yoyo: true, repeat: 5, duration: 100, onComplete: () => this.boss.setAlpha(1) });
+    sfx(this, 'stage');
     this.banner(`STAGE ${next}`, R.STAGES[next].name);
   }
 
@@ -609,6 +619,7 @@ export class PlayScene extends Phaser.Scene {
     const key = asSprite(this.pickups.create(this.boss.x, this.boss.y + 8, 'key'));
     key.setData('kind', 'key').setDepth(7).setCollideWorldBounds(true);
     this.tweens.add({ targets: key, y: key.y - 3, yoyo: true, repeat: -1, duration: 350 });
+    sfx(this, 'victory');
     this.banner('MOSSBACK FALLS', 'The key fell from his neck. Take it!');
   }
 
@@ -635,6 +646,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private addRing(rarity: R.Rarity) {
+    sfx(this, 'ring', 0.4);
     this.rings.push(rarity);
     this.wallet = R.addRings(this.wallet, [rarity]);
     this.walletUi.update(this.wallet);
@@ -659,6 +671,7 @@ export class PlayScene extends Phaser.Scene {
       this.tweens.add({ targets: sp, alpha: 0, y: sp.y - 8, duration: 900, delay: i * 120, onComplete: () => sp.destroy() });
     }
     this.time.delayedCall(400, () => this.door.setTexture('door_open'));
+    sfx(this, 'door');
     this.banner('A HIDDEN DOOR!', 'West wall. The treasury is behind it.');
   }
 
@@ -728,6 +741,7 @@ export class PlayScene extends Phaser.Scene {
     this.walletUi.update(this.wallet);
     this.sold.add(i);
     this.shopNote = `Bought: ${s.name}.`;
+    sfx(this, 'buy');
     if (id === 'potion') this.hp = Math.min(this.kit.maxHp, this.hp + 30);
     else if (id === 'bigPotion') this.hp = this.kit.maxHp;
     else if (id === 'whetstone') this.buffs.damage += 0.2;
@@ -905,7 +919,7 @@ export class PlayScene extends Phaser.Scene {
         bounce(this, p, [
           { x: clampX(p.x + dir * 45), y: p.y, h: 30, ms: 420 },
           { x: clampX(p.x + dir * 75), y: p.y, h: 16, ms: 300 },
-        ], { spin: dir * Math.PI * 2, onLand: (x, y) => { dustPuff(this, x, y); this.cameras.main.shake(90, 0.01); } }, () => this.bounceOut());
+        ], { spin: dir * Math.PI * 2, onLand: (x, y) => { sfx(this, 'bounce'); dustPuff(this, x, y); this.cameras.main.shake(90, 0.01); } }, () => this.bounceOut());
       },
     });
   }

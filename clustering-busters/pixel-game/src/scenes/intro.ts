@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic } from '../media';
 import { HEIGHT, PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { updateSave } from '../save';
@@ -49,6 +50,7 @@ export class IntroScene extends Phaser.Scene {
 
     this.cameras.main.fadeIn(600);
     this.next();
+    playMusic(this, 'intro');
   }
 
   private readonly shots: Shot[] = [

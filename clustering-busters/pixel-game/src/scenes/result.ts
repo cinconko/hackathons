@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic } from '../media';
 import { HEIGHT, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { addRings, countRings, formatTime, RARITY_ORDER, RINGS, walletValue, type FightResult } from '../game/rules';
@@ -39,6 +40,7 @@ export class ResultScene extends Phaser.Scene {
 
     drawFrame(this);
     this.cameras.main.fadeIn(500);
+    playMusic(this, 'victory');
     const back = () => fadeToScene(this, 'village', { fromRun: true });   // the merchant deals new cards
     this.time.delayedCall(500, () => {   // a short pause so a held attack key does not skip this screen
       this.input.keyboard?.once('keydown-ENTER', back);

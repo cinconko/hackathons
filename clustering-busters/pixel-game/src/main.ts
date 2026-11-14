@@ -1,6 +1,9 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
+import { loadSave, updateSave } from './save';
 import { BootScene } from './scenes/boot';
+import { MediaScene } from './scenes/media';
+import { PreloadScene } from './scenes/preload';
 import { IntroScene } from './scenes/intro';
 import { MenuScene } from './scenes/menu';
 import { PlayScene } from './scenes/play';
@@ -19,7 +22,7 @@ const game = new Phaser.Game({
     mode: Phaser.Scale.NONE,            // we size the canvas ourselves, in whole multiples (see fitCanvas)
   },
   physics: { default: 'arcade', arcade: { debug: false } },
-  scene: [BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene],
+  scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, MediaScene],
 });
 
 // Largest whole-number zoom that fits the window. Every game pixel becomes an exact
@@ -33,6 +36,14 @@ function fitCanvas() {
 }
 fitCanvas();
 window.addEventListener('resize', fitCanvas);
+
+// M mutes all sound (remembered).
+game.sound.mute = loadSave().muted;
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'm' && e.key !== 'M') return;
+  game.sound.mute = !game.sound.mute;
+  updateSave((s) => ({ ...s, muted: game.sound.mute }));
+});
 
 // F toggles real fullscreen (browsers only allow it after a key press or click).
 window.addEventListener('keydown', (e) => {

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic, sfx } from '../media';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { addRings, RINGS, TREASURY, walletValue, type FightResult, type Rarity, type Wallet } from '../game/rules';
@@ -52,6 +53,7 @@ export class TreasuryScene extends Phaser.Scene {
     this.counter = this.add.text(PLAY.x + 4, PLAY.y + 4, '', { ...FONT, color: '#ffcc44' }).setDepth(950);
     drawFrame(this);
     this.cameras.main.fadeIn(500);
+    playMusic(this, 'treasury');
     banner(this, 'THE TREASURY', 'Open the chests. Then walk out the door.');
   }
 
@@ -71,6 +73,7 @@ export class TreasuryScene extends Phaser.Scene {
     const c = this.chests[i];
     c.open = true;
     c.img.setTexture('chest_open');
+    sfx(this, 'door');
     this.cameras.main.shake(120, 0.006);
     TREASURY[i].forEach((rarity, n) => {
       const r = this.loot.create(c.img.x, c.img.y - 4, `ring_${rarity}`) as Sprite;
@@ -84,6 +87,7 @@ export class TreasuryScene extends Phaser.Scene {
   private collect(r: Sprite) {
     if (!r.active || !r.getData('magnet')) return;
     const rarity = r.getData('rarity') as Rarity;
+    sfx(this, 'ring', 0.4);
     this.rings.push(rarity);
     this.wallet = addRings(this.wallet, [rarity]);
     if (rarity !== 'classic') {

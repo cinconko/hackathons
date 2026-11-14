@@ -270,6 +270,34 @@ export const DRINKS: Readonly<Record<DrinkId, Drink>> = {
 };
 export const DRINK_ORDER: readonly DrinkId[] = ['ale', 'mead', 'cider'];
 
+// ---- The village grows: rings spent in the village build it out ----------------------
+
+export interface VillageLevel { readonly name: string; readonly at: number }
+/** Total rings spent at the merchant and the bar unlock the next level. */
+export const VILLAGE_LEVELS: readonly VillageLevel[] = [
+  { name: 'Camp', at: 0 },
+  { name: 'Hamlet', at: 150 },
+  { name: 'Village', at: 400 },
+  { name: 'Market town', at: 800 },
+  { name: 'Town', at: 1400 },
+  { name: 'Ringfall City', at: 2200 },
+];
+
+/** 1-based village level for this much spending. */
+export function villageLevel(spent: number): number {
+  let level = 1;
+  VILLAGE_LEVELS.forEach((l, i) => { if (spent >= l.at) level = i + 1; });
+  return level;
+}
+
+/** Where you are on the way to the next level (next = null at the top). */
+export function villageProgress(spent: number): { level: number; name: string; next: number | null; frac: number } {
+  const level = villageLevel(spent);
+  const cur = VILLAGE_LEVELS[level - 1];
+  const nxt = VILLAGE_LEVELS[level] ?? null;
+  return { level, name: cur.name, next: nxt ? nxt.at : null, frac: nxt ? (spent - cur.at) / (nxt.at - cur.at) : 1 };
+}
+
 // ---- The well --------------------------------------------------------------------------
 
 /** Chance of finding a ring at the bottom when you fall in (once per village visit). */
