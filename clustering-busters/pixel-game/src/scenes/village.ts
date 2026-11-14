@@ -926,9 +926,10 @@ export class VillageScene extends Phaser.Scene {
         },
       },
     });
-    // the damage meter: under the fence while you train (the top of the screen is the HUD's)
-    this.trainText = this.add.text(x + w / 2, y + h + 2, '', { ...FONT, color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 2, y: 0 } })
-      .setOrigin(0.5, 0).setDepth(950).setVisible(false);
+    // the damage meter: bottom right, in place of the "WASD move  E use" hint (hidden while you train),
+    // clear of the hand HUD bottom left and inside the frame
+    this.trainText = this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, '', { ...FONT, color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 2, y: 0 } })
+      .setOrigin(1, 0).setDepth(950).setVisible(false);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.input.setDefaultCursor('default'));
   }
 
