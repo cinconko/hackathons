@@ -11,7 +11,7 @@ import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { MERCHANT_ROBES, playMusic, sfx } from '../media';
 import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs';
-import { addKeys, near, steer, type Keys } from '../player';
+import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, TITLE_FONT, walletHud } from '../ui';
 
@@ -232,6 +232,7 @@ export class VillageScene extends Phaser.Scene {
 
     const start = data.inYard ? { x: YARD.x + 20, y: YARD.y + 18 } : { x: PLAY.x + 44, y: PLAY.y + 112 };   // inYard: dev hook
     this.player = this.physics.add.sprite(start.x, start.y, 'player').setCollideWorldBounds(true).setDepth(10);
+    this.dressHero();
     this.physics.add.collider(this.player, solids);
     this.keys = addKeys(this);
     this.addYard();
@@ -368,6 +369,7 @@ export class VillageScene extends Phaser.Scene {
         this.note = it.kind === 'special' ? `Bought ${it.name}: a number key in the fight.` : `Bought and equipped: ${it.name}.`;
         this.popCard = this.sel;
         this.refreshHand();
+        this.dressHero();
         if ((it.kind === 'melee' || it.kind === 'range') && !after.handRevealed) {
           this.revealHand = true;
           this.note = `${this.note} Check your hand when you leave!`;
@@ -378,7 +380,7 @@ export class VillageScene extends Phaser.Scene {
       if (!id) return;
       const it = item(id);
       if (it.kind === 'special') this.note = `${it.name} is always ready: a number key in the fight.`;
-      else { updateSave((x) => ({ ...x, inventory: equip(x.inventory, id) })); this.note = `Equipped: ${it.name}.`; this.refreshHand(); }
+      else { updateSave((x) => ({ ...x, inventory: equip(x.inventory, id) })); this.note = `Equipped: ${it.name}.`; this.refreshHand(); this.dressHero(); }
     } else {
       const id = DRINK_ORDER[this.sel];
       const d = DRINKS[id];
@@ -625,6 +627,9 @@ export class VillageScene extends Phaser.Scene {
   }
 
   // ---- what's in hand ----
+
+  /** The hero in the armor he wears (iron: the knight). Again after buying or equipping armor. */
+  private dressHero() { dress(this.player, heroLook(this, loadSave().inventory.armor)); }
 
   /** The indicator shows your equipped weapons; in the village the melee (or ranged) one is "in hand". */
   private refreshHand() {
@@ -986,7 +991,7 @@ export class VillageScene extends Phaser.Scene {
       } else {
         this.combat.drawAim(false);
         this.combat.clearShots();
-        this.player.setTexture('player');
+        this.dressHero();
         this.refreshHand();
       }
     }

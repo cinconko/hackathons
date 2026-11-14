@@ -3,7 +3,7 @@ import { playMusic, sfx } from '../media';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { addRings, RINGS, TREASURY, walletValue, type FightResult, type Rarity, type Wallet } from '../game/rules';
-import { addKeys, near, steer, type Keys } from '../player';
+import { addKeys, dress, heroLook, near, steer, type Keys } from '../player';
 import { loadSave } from '../save';
 import { banner, fadeToScene, FONT, hex } from '../ui';
 
@@ -46,6 +46,7 @@ export class TreasuryScene extends Phaser.Scene {
     this.add.image(DOOR.x, DOOR.y, 'door_open').setDepth(3);
     this.chests = CHESTS.map((c) => ({ img: this.add.image(c.x, c.y, 'chest').setDepth(5), open: false }));
     this.player = this.physics.add.sprite(DOOR.x + 16, DOOR.y + 4, 'player').setCollideWorldBounds(true).setDepth(10);
+    dress(this.player, heroLook(this, loadSave().inventory.armor));
     this.loot = this.physics.add.group();
     this.physics.add.overlap(this.player, this.loot, (_p, r) => this.collect(r as Sprite));
     this.keys = addKeys(this);

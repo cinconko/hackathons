@@ -1,6 +1,6 @@
 // Hero movement shared by the village, the arena and the treasury.
 import Phaser from 'phaser';
-import { PLAYER_SPEED } from './game/rules';
+import { PLAYER_SPEED, type ArmorId } from './game/rules';
 
 export type Keys = Record<string, Phaser.Input.Keyboard.Key>;
 
@@ -22,3 +22,29 @@ export function steer(player: Phaser.Physics.Arcade.Sprite, keys: Keys, speedMul
 }
 
 export const near = (a: { x: number; y: number }, x: number, y: number, r: number) => Phaser.Math.Distance.Between(a.x, a.y, x, y) < r;
+
+// ---- How the hero looks: some armor changes him ----
+
+/** Armor with its own drawing: wearing it, the hero is that sprite (front view, used for every direction). */
+const ARMOR_LOOKS: Partial<Record<ArmorId, string>> = { iron: 'hero_iron' };
+
+export interface HeroLook { down: string; up: string; side: string }
+const PLAIN: HeroLook = { down: 'player', up: 'player_up', side: 'player_side' };
+
+export function heroLook(scene: Phaser.Scene, armor: ArmorId | null): HeroLook {
+  const key = armor ? ARMOR_LOOKS[armor] : undefined;
+  return key && scene.textures.exists(key) ? { down: key, up: key, side: key } : PLAIN;
+}
+
+/** The look the hero wears now (set by dress). */
+export const lookOf = (p: Phaser.GameObjects.Sprite): HeroLook => (p.getData('look') as HeroLook | undefined) ?? PLAIN;
+
+/**
+ * Dresses the hero. His hitbox stays the plain hero's 8x10, at his feet: a bigger drawing
+ * (the iron knight is 16x22) is not a bigger target and still fits through the gaps.
+ */
+export function dress(p: Phaser.Physics.Arcade.Sprite, look: HeroLook) {
+  p.setData('look', look).setTexture(look.down).setFlipX(false);
+  const body = p.body as Phaser.Physics.Arcade.Body | null;
+  body?.setSize(8, 10, false).setOffset((p.width - 8) / 2, p.height - 10);
+}
