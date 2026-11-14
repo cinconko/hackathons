@@ -6,9 +6,14 @@ import { RARITY_ORDER, RINGS, walletValue, type Wallet } from './game/rules';
 export const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#ffffff' };
 export const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 
+const shownBanners = new WeakMap<Phaser.Scene, Phaser.GameObjects.Text[]>();
+
+/** A big centred title with a line under it. A new banner replaces the one still showing. */
 export function banner(scene: Phaser.Scene, title: string, sub: string, y = PLAY.y + 46) {
+  shownBanners.get(scene)?.forEach((o) => { scene.tweens.killTweensOf(o); o.destroy(); });
   const t = scene.add.text(WIDTH / 2, y, title, { fontFamily: 'monospace', fontSize: '16px', color: '#ffffff' }).setOrigin(0.5).setDepth(955);
   const s = scene.add.text(WIDTH / 2, y + 14, sub, { ...FONT, color: '#cccccc' }).setOrigin(0.5).setDepth(955);
+  shownBanners.set(scene, [t, s]);
   scene.tweens.add({ targets: [t, s], alpha: 0, delay: 1800, duration: 500, onComplete: () => { t.destroy(); s.destroy(); } });
 }
 

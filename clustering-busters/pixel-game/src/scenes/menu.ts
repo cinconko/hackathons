@@ -16,7 +16,8 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(WIDTH / 2, 64, 'Mossback stole the treasury. Fly in. Take the key. Bring the rings home.', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
     const prompt = this.add.text(WIDTH / 2, 88, save.seenIntro ? 'Enter: to the village' : 'Press Enter or click to start', { fontFamily: 'monospace', fontSize: '10px', color: '#ffcc44' }).setOrigin(0.5);
     if (save.seenIntro) this.add.text(WIDTH / 2, 100, 'C: watch the story again', FONT).setOrigin(0.5);
-    this.add.text(WIDTH / 2, 116, 'WASD move   Space/click attack   Q or 1-4 weapon   E use   F fullscreen', FONT).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 112, 'WASD move   mouse aim   click/Space attack   Q switch weapon', FONT).setOrigin(0.5);
+    this.add.text(WIDTH / 2, 122, '1-8 specials   E use / shop   F fullscreen', FONT).setOrigin(0.5);
 
     this.add.text(WIDTH / 2, HEIGHT - 24, `Wallet: ${walletValue(save.wallet)} rings   Brought home in total: ${walletValue(save.lifetimeRings)}`, FONT).setOrigin(0.5);
     this.add.text(WIDTH / 2, HEIGHT - 14, `Treasuries recovered: ${save.wins}   Best time: ${save.bestTimeMs ? formatTime(save.bestTimeMs) : '-'}`, FONT).setOrigin(0.5);

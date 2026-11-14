@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
-import { RINGS, RARITY_ORDER, STAGES } from '../game/rules';
-import { updateSave } from '../save';
+import { CATALOG, RINGS, RARITY_ORDER, STAGES, type CatalogId } from '../game/rules';
+import { loadSave, updateSave } from '../save';
 
 // Generates all sprites in code (no art files yet). Real art goes in public/media/ (see its
 // README): load it under the same texture key and delete the matching tex(...) call.
@@ -14,6 +14,8 @@ import { updateSave } from '../save';
 //     &dead          the boss is already beaten: the key is on the floor
 //     &lose          lose at once: watch Mossback bounce you back to the village
 //   &wallet=10,2,1   put rings in the wallet (classic, rare, super rare). Writes the save!
+//   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
+//   ?scene=village&merchant   open the ring merchant's shop at once
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
 
@@ -27,6 +29,16 @@ export class BootScene extends Phaser.Scene {
     tex('player', 8, 10, () => {
       px(0x5a3a1a, 1, 0, 6, 2); px(0xf2c79a, 1, 2, 6, 3); px(0x000000, 2, 3); px(0x000000, 5, 3);
       px(0x3a7bd5, 1, 5, 6, 3); px(0x6b4a2b, 1, 7, 6, 1); px(0x2b2b3a, 1, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
+    });
+    // Facing directions (the arena picks one from the aim): 'player' faces down,
+    // 'player_up' shows the back of his head, 'player_side' is a profile facing right.
+    tex('player_up', 8, 10, () => {
+      px(0x5a3a1a, 1, 0, 6, 5);
+      px(0x3a7bd5, 1, 5, 6, 3); px(0x6b4a2b, 1, 7, 6, 1); px(0x2b2b3a, 1, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
+    });
+    tex('player_side', 8, 10, () => {
+      px(0x5a3a1a, 1, 0, 6, 2); px(0x5a3a1a, 1, 2, 2, 2); px(0xf2c79a, 3, 2, 4, 3); px(0x000000, 5, 3);
+      px(0x3a7bd5, 2, 5, 5, 3); px(0x6b4a2b, 2, 7, 5, 1); px(0x2b2b3a, 2, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
     });
 
     // Boss 24x24, one sprite per stage colour, with the treasury key on a cord around his neck.
@@ -55,7 +67,60 @@ export class BootScene extends Phaser.Scene {
     tex('blast', 48, 48, () => { g.fillStyle(0xffaa33, 0.9).fillCircle(24, 24, 22); g.fillStyle(0xffffff, 0.8).fillCircle(24, 24, 11); });
     tex('slash', 20, 20, () => { g.lineStyle(3, 0xffffff, 1).beginPath().arc(10, 10, 8, -1.1, 1.1).strokePath(); });
     tex('punch', 8, 8, () => { g.fillStyle(0xffffff, 0.9).fillCircle(4, 4, 3); });
-    tex('coin', 5, 5, () => { px(0xb8860b, 0, 0, 5, 5); px(GOLD, 1, 0, 3, 5); px(GOLD, 0, 1, 5, 3); px(0xfff1a8, 1, 1); });
+
+    // Aim: a crosshair (white; red when an attack now would hit), and each weapon held in hand,
+    // drawn pointing right so rotating it points it at the cursor.
+    const cross = (key: string, c: number) => tex(key, 9, 9, () => {
+      px(0x000000, 3, 0, 3, 9, 0.6); px(0x000000, 0, 3, 9, 3, 0.6);      // dark outline: readable on any ground
+      px(c, 4, 0, 1, 3); px(c, 4, 6, 1, 3); px(c, 0, 4, 3, 1); px(c, 6, 4, 3, 1);
+      px(c, 4, 4);
+    });
+    cross('crosshair', 0xffffff);
+    cross('crosshair_hot', 0xff5a5a);
+    // Each weapon held in hand, drawn pointing right: rotating it points it at the cursor.
+    const WOOD = 0x8a6a3a;
+    const DARKWOOD = 0x6b4a2b;
+    const STEEL = 0xdddddd;
+    const IRON = 0x9a9aa8;
+    tex('held_fists', 4, 4, () => { px(0xf2c79a, 0, 0, 4, 4); px(0xd9a87a, 0, 3, 4, 1); });
+    tex('held_dagger', 8, 3, () => { px(DARKWOOD, 0, 1, 2, 1); px(GOLD, 2, 0, 1, 3); px(STEEL, 3, 1, 4, 1); px(0xffffff, 7, 1); });
+    tex('held_sword', 12, 3, () => { px(DARKWOOD, 0, 1, 3, 1); px(GOLD, 3, 0, 1, 3); px(STEEL, 4, 1, 7, 1); px(0xffffff, 11, 1); px(0xaaaaaa, 4, 2, 7, 1, 0.6); });
+    tex('held_axe', 12, 7, () => { px(WOOD, 0, 3, 9, 1); px(IRON, 8, 0, 3, 7); px(STEEL, 11, 1, 1, 5); });
+    tex('held_mace', 12, 7, () => { px(WOOD, 0, 3, 8, 1); g.fillStyle(IRON).fillCircle(9, 3, 3); px(STEEL, 9, 0); px(STEEL, 9, 6); px(STEEL, 12 - 1, 3); });
+    tex('held_warHammer', 14, 8, () => { px(WOOD, 0, 3, 10, 2); px(IRON, 9, 0, 5, 8); px(STEEL, 13, 1, 1, 6); });
+    tex('held_spear', 22, 3, () => { px(WOOD, 0, 1, 17, 1); px(STEEL, 17, 0, 3, 3); px(0xffffff, 20, 1, 2, 1); });
+    tex('held_sling', 7, 5, () => { px(DARKWOOD, 0, 2, 3, 1); px(0xc8a86a, 3, 0, 1, 5); px(0x888888, 4, 1, 3, 3); });
+    tex('held_javelin', 16, 3, () => { px(WOOD, 0, 1, 12, 1); px(STEEL, 12, 0, 3, 3); px(0xffffff, 15, 1); });
+    tex('held_bow', 5, 10, () => { px(WOOD, 0, 0, 2, 1); px(WOOD, 2, 1, 1, 2); px(WOOD, 3, 3, 1, 4); px(WOOD, 2, 7, 1, 2); px(WOOD, 0, 9, 2, 1); px(0xeeeeee, 0, 1, 1, 8, 0.8); });
+    tex('held_crossbow', 10, 9, () => { px(DARKWOOD, 0, 4, 9, 1); px(WOOD, 7, 0, 1, 9); px(0xeeeeee, 6, 1, 1, 7, 0.8); px(IRON, 9, 3, 1, 3); });
+    tex('held_handCannon', 12, 5, () => { px(WOOD, 0, 2, 4, 2); px(0x555560, 4, 1, 8, 3); px(0x333338, 11, 1, 1, 3); px(0xffaa33, 5, 0); });
+
+    // Projectiles (drawn flying right).
+    tex('proj_sling', 3, 3, () => { px(0x999999, 0, 0, 3, 3); px(0xcccccc, 0, 0); });
+    tex('proj_javelin', 12, 3, () => { px(WOOD, 0, 1, 9, 1); px(STEEL, 9, 0, 3, 3); });
+    tex('proj_bow', 8, 3, () => { px(0xd9c08c, 1, 1, 5, 1); px(0xe0e0e0, 6, 0, 2, 3); px(0xff4444, 0, 0, 1, 3); });
+    tex('proj_crossbow', 7, 3, () => { px(0x8a6a3a, 0, 1, 5, 1); px(IRON, 5, 0, 2, 3); });
+    tex('proj_handCannon', 4, 4, () => { g.fillStyle(0x222228).fillCircle(2, 2, 2); px(0x777788, 1, 1); });
+    tex('proj_fireball', 7, 7, () => { g.fillStyle(0xff5a1a).fillCircle(3, 3, 3); g.fillStyle(0xffcc44).fillCircle(4, 3, 2); px(0xffffff, 4, 3); });
+    tex('proj_freeze', 7, 7, () => { px(0x9fe8ff, 3, 0, 1, 7); px(0x9fe8ff, 0, 3, 7, 1); px(0xffffff, 3, 3); px(0x9fe8ff, 1, 1); px(0x9fe8ff, 5, 5); px(0x9fe8ff, 1, 5); px(0x9fe8ff, 5, 1); });
+    tex('proj_poison', 6, 6, () => { g.fillStyle(0x6fd13a).fillCircle(3, 3, 3); px(0xc8ff88, 2, 1); px(0x2f6b2f, 4, 4); });
+
+    // Special icons 9x9 (HUD and shop).
+    const icon = (key: string, bg: number, draw: () => void) => tex(key, 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(bg, 1, 1, 7, 7); draw(); });
+    icon('icon_fireball', 0x5a1a0a, () => { g.fillStyle(0xff5a1a).fillCircle(4, 5, 2); px(0xffcc44, 4, 2); px(0xffcc44, 3, 3); });
+    icon('icon_freeze', 0x0a2a3a, () => { px(0x9fe8ff, 4, 1, 1, 7); px(0x9fe8ff, 1, 4, 7, 1); px(0xffffff, 4, 4); });
+    icon('icon_poison', 0x1a3a0a, () => { px(0x6fd13a, 3, 2, 3, 5); px(0x6fd13a, 2, 4, 5, 2); px(0xc8ff88, 3, 3); });
+    icon('icon_paralysis', 0x3a3a0a, () => { px(0xffee44, 5, 1, 2, 1); px(0xffee44, 4, 2, 2, 2); px(0xffee44, 3, 4, 3, 1); px(0xffee44, 3, 5, 2, 2); px(0xffee44, 2, 7, 1, 1); });
+    icon('icon_push', 0x1a1a3a, () => { px(0xffffff, 1, 4, 5, 1); px(0xffffff, 5, 2, 1, 5); px(0xffffff, 6, 3, 1, 3); px(0xffffff, 7, 4); });
+    icon('icon_healthSuck', 0x3a0a14, () => { px(0xe03a4a, 2, 2, 2, 2); px(0xe03a4a, 5, 2, 2, 2); px(0xe03a4a, 2, 4, 5, 2); px(0xe03a4a, 3, 6, 3, 1); px(0x6fd13a, 4, 1, 1, 6); });
+    icon('icon_bomb', 0x2a1a0a, () => { g.fillStyle(0x222233).fillCircle(4, 5, 3); px(0xffaa33, 6, 1); px(0x666688, 3, 4); });
+    icon('icon_shield', 0x0a1a3a, () => { px(0x6aa8ff, 2, 1, 5, 4); px(0x6aa8ff, 3, 5, 3, 2); px(0x6aa8ff, 4, 7); px(0xffffff, 4, 2, 1, 3); });
+
+    // Armor icons: a chest plate in the metal's colour.
+    const ARMOR_COLORS: Record<string, number> = { leather: 0x8a5a2b, copper: 0xc87533, bronze: 0xcd9b4a, chainmail: 0xa0a0a8, iron: 0x7a7a84, steel: 0xd8dde6, magnetite: 0x3a3a50 };
+    for (const [id, c] of Object.entries(ARMOR_COLORS)) {
+      tex(`icon_${id}`, 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(c, 1, 1, 2, 2); px(c, 6, 1, 2, 2); px(c, 2, 2, 5, 6); px(0x000000, 4, 3, 1, 4, 0.3); px(0xffffff, 3, 3, 1, 1, 0.5); });
+    }
     tex('dust', 4, 4, () => { g.fillStyle(0xd8d0c0, 0.9).fillCircle(2, 2, 2); });
     tex('shadow', 10, 4, () => { g.fillStyle(0x000000, 0.45).fillEllipse(5, 2, 10, 4); });
     tex('sparkle', 5, 5, () => { px(0xffffff, 2, 0, 1, 5); px(0xffffff, 0, 2, 5, 1); px(GOLD, 2, 2); });
@@ -107,11 +172,14 @@ export class BootScene extends Phaser.Scene {
     if (wallet && wallet.length === 3 && wallet.every((n) => Number.isFinite(n) && n >= 0)) {
       updateSave((s) => ({ ...s, wallet: { classic: wallet[0], rare: wallet[1], superRare: wallet[2] } }));
     }
+    if (q.get('kit') === 'all') {
+      updateSave((s) => ({ ...s, inventory: { owned: CATALOG.map((i) => i.id as CatalogId), melee: 'sword', range: 'bow', armor: 'steel' } }));
+    }
     const scene = q.get('scene');
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
     } else if (scene && ['intro', 'village', 'treasury', 'menu'].includes(scene)) {
-      this.scene.start(scene, scene === 'treasury' ? { rings: [], coins: 0, timeMs: 60_000 } : {});
+      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant') });
     } else {
       this.scene.start('menu');
     }

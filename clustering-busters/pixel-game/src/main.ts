@@ -27,8 +27,9 @@ const game = new Phaser.Game({
 // space is black, never a blurry half pixel.
 function fitCanvas() {
   const zoom = Math.max(1, Math.floor(Math.min(window.innerWidth / WIDTH, window.innerHeight / HEIGHT)));
-  game.canvas.style.width = `${WIDTH * zoom}px`;
-  game.canvas.style.height = `${HEIGHT * zoom}px`;
+  // setZoom (not CSS sizes): it also updates the pointer mapping, so the mouse lands on the
+  // right game pixel. With CSS-only sizing, Scale.NONE never learns the canvas grew.
+  game.scale.setZoom(zoom);
 }
 fitCanvas();
 window.addEventListener('resize', fitCanvas);

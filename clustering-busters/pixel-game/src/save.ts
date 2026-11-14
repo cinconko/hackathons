@@ -1,32 +1,41 @@
 // Typed localStorage save. Missing or corrupt data falls back to defaults.
-import { emptyWallet, noUpgrades, type Upgrades, type Wallet } from './game/rules';
+import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, type Inventory, type Wallet } from './game/rules';
 
 export interface SaveData {
   muted: boolean;
   seenIntro: boolean;      // the opening cutscene plays once, then it is in the menu
-  wallet: Wallet;          // rings you can spend in the village
-  upgrades: Upgrades;      // what the village sold you (kept between runs)
-  lifetimeRings: Wallet;   // every ring ever brought home
+  wallet: Wallet;          // all your rings: the only money (village and fisherman)
+  inventory: Inventory;    // what the village sold you and what you wear (kept between runs)
+  lifetimeRings: Wallet;   // every ring ever found
   wins: number;
   bestTimeMs: number;      // fastest win, 0 = no win yet
 }
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: emptyWallet(), upgrades: noUpgrades(), lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
+
+/** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */
+function migrateUpgrades(up: Record<string, number> | undefined): Inventory {
+  let inv = startingInventory();
+  const add = (id: CatalogId) => { inv = equip({ ...inv, owned: [...inv.owned, id] }, id); };
+  if (up?.bow) add('bow');
+  if (up?.bombs) add('bomb');
+  return inv;
+}
 
 export function loadSave(): SaveData {
   const d = defaults();
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return d;
-    const p = JSON.parse(raw) as Partial<SaveData> & { rings?: Wallet };
+    const p = JSON.parse(raw) as Partial<SaveData> & { rings?: Wallet; upgrades?: Record<string, number> };
     const legacy = p.rings; // saves before rings were money: their rings become the wallet
     return {
       ...d, ...p,
-      wallet: { ...d.wallet, ...(p.wallet ?? legacy ?? {}) },
-      upgrades: { ...d.upgrades, ...(p.upgrades ?? {}) },
+      wallet: { ...emptyWallet(), ...(p.wallet ?? legacy ?? d.wallet) },
+      inventory: p.inventory ? { ...d.inventory, ...p.inventory } : migrateUpgrades(p.upgrades),
       lifetimeRings: { ...d.lifetimeRings, ...(p.lifetimeRings ?? legacy ?? {}) },
     };
   } catch { /* private mode or corrupt JSON */ }

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
-import { buyUpgrade, VILLAGE_ITEMS, VILLAGE_ORDER, type UpgradeId } from '../game/rules';
+import { buyItem, equip, ITEM_KINDS, itemsOfKind, KIND_NAMES, walletValue, type CatalogItem, type Inventory } from '../game/rules';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
 import { dustPuff, bounce } from '../fx';
@@ -27,11 +27,13 @@ export class VillageScene extends Phaser.Scene {
   private wallet!: ReturnType<typeof walletHud>;
   private shop: Phaser.GameObjects.Container | null = null;
   private shopNote = '';
+  private tab = 0;        // which chart section the merchant shows
+  private row = 0;        // the selected item in it
   private launching = false;
 
   constructor() { super('village'); }
 
-  create(data: { fromIntro?: boolean; bouncedBack?: boolean; kept?: number } = {}) {
+  create(data: { fromIntro?: boolean; bouncedBack?: boolean; kept?: number; openShop?: boolean } = {}) {
     this.shop = null;
     this.launching = false;
     this.shopNote = '';
@@ -61,6 +63,7 @@ export class VillageScene extends Phaser.Scene {
       this.cameras.main.fadeIn(data.fromIntro ? 900 : 500);
       banner(this, 'RINGFALL VILLAGE', 'Rings buy gear here. The catapult is east.');
     }
+    if (data.openShop) this.openShop(); // dev hook
   }
 
   /** Bounced back by Mossback: comes bouncing in along the road from the east, skids, lies dizzy, gets up. */
@@ -113,11 +116,7 @@ export class VillageScene extends Phaser.Scene {
     if (this.launching) return;
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    if (this.shop) {
-      VILLAGE_ORDER.forEach((id, i) => { if (JD(k[['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE'][i]])) this.buy(id); });
-      if (JD(k.E) || JD(k.ESC)) this.closeShop();
-      return;
-    }
+    if (this.shop) { this.shopKeys(); return; }
     steer(this.player, k, 1);
     const atShop = near(this.player, STALL.x, STALL.y + 16, 22);
     const atCatapult = near(this.player, CATAPULT.x - 8, CATAPULT.y + 6, 22);
@@ -130,7 +129,7 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  // ---- shop ----
+  // ---- shop: the team's weapons chart, in four tabs ----
 
   private openShop() {
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
@@ -140,46 +139,96 @@ export class VillageScene extends Phaser.Scene {
 
   private closeShop() { this.shop?.destroy(); this.shop = null; this.prompt.setVisible(false); }
 
-  private buy(id: UpgradeId) {
+  private shopKeys() {
+    const k = this.keys;
+    const JD = Phaser.Input.Keyboard.JustDown;
+    const rows = itemsOfKind(ITEM_KINDS[this.tab]).length;
+    let moved = false;
+    if (JD(k.A) || JD(k.LEFT)) { this.tab = (this.tab + ITEM_KINDS.length - 1) % ITEM_KINDS.length; this.row = 0; moved = true; }
+    if (JD(k.D) || JD(k.RIGHT)) { this.tab = (this.tab + 1) % ITEM_KINDS.length; this.row = 0; moved = true; }
+    if (JD(k.W) || JD(k.UP)) { this.row = (this.row + rows - 1) % rows; moved = true; }
+    if (JD(k.S) || JD(k.DOWN)) { this.row = (this.row + 1) % rows; moved = true; }
+    if (moved) { this.shopNote = ''; this.renderShop(); }
+    if (JD(k.ENTER) || JD(k.SPACE)) this.choose(itemsOfKind(ITEM_KINDS[this.tab])[this.row]);
+    if (JD(k.E) || JD(k.ESC)) this.closeShop();
+  }
+
+  /** Enter on an item: buy it, or equip it if you already own it. */
+  private choose(it: CatalogItem) {
     const s = loadSave();
-    const r = buyUpgrade(s.wallet, s.upgrades, id);
-    const item = VILLAGE_ITEMS[id];
-    if (!r.ok) {
-      this.shopNote = r.reason === 'maxed' ? `${item.name}: you have all of them.` : `${item.name} costs ${item.price} rings. Beat Mossback for more.`;
+    if (s.inventory.owned.includes(it.id)) {
+      if (it.kind === 'special') this.shopNote = `${it.name}: yours. Use it with a number key in the fight.`;
+      else {
+        updateSave((x) => ({ ...x, inventory: equip(x.inventory, it.id) }));
+        this.shopNote = `Equipped: ${it.name}.`;
+      }
     } else {
-      updateSave((x) => ({ ...x, wallet: r.wallet, upgrades: r.upgrades }));
-      this.wallet.update(r.wallet);
-      this.shopNote = `Bought: ${item.name}.`;
+      const r = buyItem(s.wallet, s.inventory, it.id);
+      if (!r.ok) this.shopNote = `${it.name} costs ${it.price} rings. You have ${walletValue(s.wallet)}.`;
+      else {
+        updateSave((x) => ({ ...x, wallet: r.wallet, inventory: r.inventory }));
+        this.wallet.update(r.wallet);
+        this.shopNote = `Bought${it.kind === 'special' ? '' : ' and equipped'}: ${it.name}.`;
+      }
     }
     this.renderShop();
+  }
+
+  private status(it: CatalogItem, inv: Inventory): string {
+    const worn = inv.melee === it.id || inv.range === it.id || inv.armor === it.id;
+    if (worn) return 'EQUIPPED';
+    if (inv.owned.includes(it.id)) return it.kind === 'special' ? 'OWNED' : 'owned';
+    return `${it.price}r`;
+  }
+
+  private stats(it: CatalogItem): string {
+    if (it.kind === 'armor') return it.desc;
+    const cd = it.cooldownMs ? `${it.cooldownMs / 1000}s` : '';
+    if (it.kind === 'special') return `${it.desc}  cd ${cd}`;
+    return `${it.damage} dmg  ${cd}  ${it.desc}`;
   }
 
   private renderShop() {
     this.shop?.destroy();
     const s = loadSave();
-    const w = 240;
-    const h = 112;
+    const w = 290;
+    const h = 156;
     const x = (WIDTH - w) / 2;
-    const y = PLAY.y + 24;
+    const y = PLAY.y + 8;
     const c = this.add.container(0, 0).setDepth(960);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y + 14, PLAY.width, PLAY.height - 14);
+    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
     bg.fillStyle(0x1e1430).fillRect(x, y, w, h);
     bg.fillStyle(0x8a5fc0).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
-    c.add(this.add.image(x + 12, y + 14, 'merchant'));
-    c.add(this.add.text(x + 24, y + 5, 'THE RING MERCHANT', { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 24, y + 15, '"Rings only. Classic 1, rare 5, super rare 20."', { ...FONT, color: '#c9a8ff' }));
-    VILLAGE_ORDER.forEach((id, i) => {
-      const item = VILLAGE_ITEMS[id];
-      const lvl = s.upgrades[id];
-      const maxed = lvl >= item.max;
-      const color = maxed ? '#666666' : '#ffffff';
-      const line = `${i + 1} ${item.name.padEnd(12)} ${maxed ? ' MAX' : `${item.price}`.padStart(4)}  ${`${lvl}/${item.max}`}  ${item.desc}`;
-      c.add(this.add.text(x + 8, y + 32 + i * 11, line, { ...FONT, color }));
+    c.add(this.add.image(x + 10, y + 11, 'merchant'));
+    c.add(this.add.text(x + 20, y + 4, 'THE RING MERCHANT', { ...FONT, color: '#ffcc44' }));
+    c.add(this.add.text(x + w - 6, y + 4, `${walletValue(s.wallet)} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
+    // tabs
+    ITEM_KINDS.forEach((kind, i) => {
+      const tx = x + 20 + i * 62;
+      const on = i === this.tab;
+      if (on) bg.fillStyle(0x8a5fc0).fillRect(tx - 2, y + 15, 56, 10);
+      c.add(this.add.text(tx, y + 16, KIND_NAMES[kind], { ...FONT, color: on ? '#ffffff' : '#9a88b8' }));
     });
-    if (this.shopNote) c.add(this.add.text(x + 8, y + 88, this.shopNote, { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 8, y + h - 11, '1-5: buy (price in rings)    E / Esc: leave', { ...FONT, color: '#888888' }));
+    // rows
+    itemsOfKind(ITEM_KINDS[this.tab]).forEach((it, i) => {
+      const ry = y + 30 + i * 12;
+      const sel = i === this.row;
+      if (sel) bg.fillStyle(0x3a2a5a).fillRect(x + 3, ry - 2, w - 6, 12);
+      const owned = s.inventory.owned.includes(it.id);
+      const st = this.status(it, s.inventory);
+      const affordable = owned || walletValue(s.wallet) >= it.price;
+      const iconKey = it.kind === 'melee' || it.kind === 'range' ? `held_${it.id}` : `icon_${it.id}`;
+      const ic = this.add.image(x + 12, ry + 3, iconKey);
+      if (ic.width > 14) ic.setScale(14 / ic.width);
+      c.add(ic);
+      c.add(this.add.text(x + 22, ry, `${sel ? '>' : ' '}${it.name}`, { ...FONT, color: affordable ? '#ffffff' : '#887799' }));
+      c.add(this.add.text(x + 96, ry, this.stats(it), { ...FONT, color: '#b8a8d8' }));
+      c.add(this.add.text(x + w - 6, ry, st, { ...FONT, color: st === 'EQUIPPED' ? '#6fd13a' : owned ? '#9fd3ff' : affordable ? '#ffcc44' : '#ff8888' }).setOrigin(1, 0));
+    });
+    if (this.shopNote) c.add(this.add.text(x + 8, y + h - 22, this.shopNote, { ...FONT, color: '#ffcc44' }));
+    c.add(this.add.text(x + 8, y + h - 11, 'A/D tab  W/S choose  Enter buy / equip  E leave', { ...FONT, color: '#888888' }));
     this.shop = c;
   }
 

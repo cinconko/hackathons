@@ -5,7 +5,7 @@ import { PLAYER_SPEED } from './game/rules';
 export type Keys = Record<string, Phaser.Input.Keyboard.Key>;
 
 export function addKeys(scene: Phaser.Scene): Keys {
-  return scene.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,J,Q,E,ESC,ENTER,ONE,TWO,THREE,FOUR,FIVE') as Keys;
+  return scene.input.keyboard!.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT,SPACE,J,Q,E,ESC,ENTER,ONE,TWO,THREE,FOUR,FIVE,SIX,SEVEN,EIGHT') as Keys;
 }
 
 /** WASD / arrows. Sets the velocity; returns the direction when moving, else null. */

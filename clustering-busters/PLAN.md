@@ -19,13 +19,15 @@ Arena: boss in 3 stages -> key drops from his neck -> hidden door opens -> Treas
 | Part | How it works |
 |---|---|
 | Cutscene | 4 shots with typed captions in letterbox bars; the bars slide away into a title card and a fade to the village |
-| Village | Walk around; the ring merchant sells permanent upgrades; the catapult throws you into the arena |
-| Rings = money | Classic 1, rare 5, super rare 20. Paying uses the cheapest rings first and gives change in classic rings. Kept between runs |
-| Upgrades | Bow, bombs, heart charm (+1 heart, x3), sharp edge (+15% damage, x3), swift boots (+10% speed, x2) |
-| Boss | Mossback, 3 stages by HP thirds: green fires bullet rings, orange fires aimed bursts, red fires spirals and dashes. Drops a ring on every stage change |
-| Key + treasury | The key hangs on his neck and drops when he dies. Taking it reveals a hidden door in the west wall; behind it, 3 chests worth 50 rings |
-| Fisherman | Comes to the arena pond every 30 s for 10 s and sells 3 things for coins (coins drop when you hit the boss); the fight pauses while you shop |
-| Weapons | Fists and sword (melee), bow (shooting), bombs (thrown) |
+| Village | Walk around; the ring merchant sells the team's weapons chart; the catapult throws you into the arena |
+| Rings = the only money | Classic 5, rare 25, super rare 100 (every chart price is a multiple of 5, so change always works). One wallet for the village and the fight. A new game starts with 100 |
+| Weapons chart | From the team's chart: 5 ranged (sling to hand cannon), 6 melee (dagger to spear), 8 specials, 7 armors (-5% to -75% damage). Buy once, equip; melee ~15 dmg/s and ranged ~10 dmg/s across the board |
+| Fight controls | Mouse aims; click/Space attacks; Q switches fists / melee / ranged; 1-8 cast the specials you own (each with its own cooldown) |
+| Boss | Mossback, 600 HP, 3 stages: green fires a bullet ring (red circle warning), orange fires aimed bursts (red line warning), red fires fast spirals and dashes (thick red line warning) |
+| Key + treasury | The key hangs on his neck and drops when he dies. Taking it reveals a hidden door in the west wall; behind it, 3 chests worth 330 rings |
+| Fisherman | Comes to the arena pond every 30 s for 10 s and sells 3 supplies for rings (potion, big potion, whetstone, boots); the fight pauses while you shop |
+| Feel | Crosshair (red = would hit), held weapon points at it and sweeps / jabs / recoils, reach drawn on the ground, hit-stop on hits, hero faces up / down / sideways |
+| Losing | No death screen: Mossback smashes you, you bounce back into the village and get up. You keep the rings you picked up |
 | Screen | 320x180 pixel grid scaled in whole steps (exact 6x = full HD), pixel frame, F for fullscreen |
 
 All numbers (odds, prices, timings, damage) are in [`pixel-game/src/game/rules.ts`](pixel-game/src/game/rules.ts).
