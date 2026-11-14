@@ -259,6 +259,13 @@ export class BootScene extends Phaser.Scene {
       px(0x6b4a2b, 10, 16, 1, 6); px(0x6b4a2b, 40, 16, 1, 6);
     });
     tex('barkeeper', 10, 14, () => { px(0x3a2418, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3); px(0x5a3a2a, 2, 5, 6, 1); px(0x8a3a3a, 1, 6, 8, 8); px(0xeeeeee, 3, 7, 4, 7); });
+    // the bar's big mugs (the team's art replaces them): full, half poured, knocked over
+    const glass = (key: string, h: number, beer: number) => tex(key, 21, h, () => {
+      px(0xdddddd, 0, 0, 16, h); px(0x2a2a2a, 1, 1, 14, h - 2); px(0xd89a2a, 1, h - 1 - beer, 14, beer); px(0xdddddd, 16, 6, 4, 9); px(0x2a2a2a, 17, 8, 2, 5);
+    });
+    glass('beer_full', 24, 18);
+    glass('beer_half', 21, 9);
+    tex('beer_spilled', 26, 16, () => { px(0xdddddd, 0, 2, 20, 12); px(0x2a2a2a, 1, 3, 18, 10); px(0xd89a2a, 14, 13, 12, 3); });
     tex('mug', 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(0xc89a3a, 2, 3, 4, 5); px(0xffffff, 2, 2, 4, 2); px(0xc89a3a, 6, 4, 1, 3); px(0x8a6a2a, 2, 7, 4, 1); });
     tex('drop', 2, 2, () => { px(0x6ab8ff, 0, 0, 2, 2); });
     // ---- what the village builds as it grows ----
@@ -494,7 +501,7 @@ export class BootScene extends Phaser.Scene {
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
     } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
-      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), inYard: q.has('yard') });
+      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), openBar: q.has('bar'), inYard: q.has('yard') });
     } else {
       this.scene.start('menu');
     }
