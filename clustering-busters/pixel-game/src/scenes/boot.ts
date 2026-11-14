@@ -14,9 +14,10 @@ import { loadSave, updateSave } from '../save';
 //     &shop          open the fisherman's shop as soon as he is there
 //     &dead          the boss is already beaten: the key is on the floor
 //     &lose          lose at once: watch Mossback bounce you back to the village
+//     &training      the training ground (a dummy instead of Mossback)
 //   &wallet=10,2,1   put rings in the wallet (classic, rare, super rare). Writes the save!
 //   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
-//   ?scene=village&merchant   open the ring merchant's shop at once
+//   ?scene=village&merchant   open the ring merchant's shop at once (&nodeal: cards already on the table)
 //   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
@@ -286,6 +287,25 @@ export class BootScene extends Phaser.Scene {
       px(0x5a3a1a, 23 + a, 12, 2, 5); px(0x5a3a1a, 31 - a, 12, 2, 5); px(0x5a3a1a, 26 - a, 12, 2, 5 - a); px(0x5a3a1a, 29 + a, 12, 2, 5 - a);
     });
 
+    // ---- the training ground and the people you can talk to ----
+    const dummy = (key: string, flash: boolean) => tex(key, 16, 26, () => {
+      const straw = flash ? 0xffffff : 0xd8b860;
+      px(flash ? 0xffffff : 0x6b4a2b, 7, 12, 2, 14);                       // post
+      px(straw, 4, 0, 8, 7); px(flash ? 0xffffff : 0x8a3a3a, 4, 7, 8, 1);  // sack head, rope
+      px(straw, 2, 8, 12, 8); px(straw, 0, 9, 16, 3);                      // body, arms
+      if (!flash) { px(0x000000, 6, 3); px(0x000000, 9, 3); px(0xd83a3a, 6, 11, 4, 4); px(0xffffff, 7, 12, 2, 2); }   // face, target
+    });
+    dummy('dummy', false);
+    dummy('dummy_flash', true);
+    tex('gate', 14, 24, () => { px(0x6b4a2b, 0, 4, 3, 20); px(0x6b4a2b, 11, 4, 3, 20); px(0x8a6a3a, 0, 2, 14, 3); px(0x8a6a3a, 0, 9, 14, 2); px(0xd83a3a, 4, 0, 6, 2); });
+    const person = (key: string, hair: number, top: number, extra: () => void, h = 12) => tex(key, 10, h, () => {
+      px(hair, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3);
+      px(top, 1, 6, 8, h - 8); px(0x2b2b3a, 2, h - 2, 2, 2); px(0x2b2b3a, 6, h - 2, 2, 2); extra();
+    });
+    person('elder', 0xdddddd, 0x6a6a8a, () => { px(0xdddddd, 3, 5, 4, 2); px(0x8a6a3a, 9, 2, 1, 10); });          // white hair + beard, staff
+    person('kid', 0xd8823a, 0x4ab84a, () => { px(0xffcc44, 0, 6, 1, 1); }, 9);                                         // small, freckled
+    person('sergeant', 0x5a5a64, 0x7a7a84, () => { px(0x9a9aa8, 1, 0, 8, 2); px(0xd83a3a, 4, 7, 2, 3); px(0xdddddd, 9, 4, 1, 7); });   // helmet, armor, spear
+
     tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
     tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
     g.destroy();
@@ -317,7 +337,7 @@ export class BootScene extends Phaser.Scene {
     }
     const scene = q.get('scene');
     if (q.has('play')) {
-      this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
+      this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), training: q.has('training'), landing: false });
     } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
       this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant') });
     } else {
