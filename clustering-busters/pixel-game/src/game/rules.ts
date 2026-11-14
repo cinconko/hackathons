@@ -242,7 +242,31 @@ export function equip(inv: Inventory, id: CatalogId): Inventory {
 
 // ---- The merchant's cards --------------------------------------------------------------
 
-export const CARD_COUNT = 4;   // random cards; plus one special card (see rollSpecial)
+// Six merchants take turns visiting the village; his robe tells you what he mainly sells.
+// The five classic ones bring 3 cards and come equally often; the special merchant (10%) brings
+// 5: one card of each kind + the BEST DEAL (a top item at a discount).
+//
+//   merchant   robe       his 3 cards
+//   ranger     dark blue  2 range   + 1 of another kind
+//   smith      red        2 melee   + 1 of another kind
+//   armorer    gray       2 armor   + 1 of another kind
+//   alchemist  green      2 special + 1 of another kind
+//   peddler    orange     3 cards, each a different kind
+//   special    gold       4 cards, one of each kind, + the best deal
+export type MerchantKind = 'ranger' | 'smith' | 'armorer' | 'alchemist' | 'peddler' | 'special';
+export const CLASSIC_MERCHANTS: readonly MerchantKind[] = ['ranger', 'smith', 'armorer', 'alchemist', 'peddler'];
+/** What each one mainly sells (null: a bit of everything). */
+export const MERCHANT_SELLS: Readonly<Record<MerchantKind, ItemKind | null>> = {
+  ranger: 'range', smith: 'melee', armorer: 'armor', alchemist: 'special', peddler: null, special: null,
+};
+export const MERCHANT_NAMES: Readonly<Record<MerchantKind, string>> = {
+  ranger: 'Ranger', smith: 'Smith', armorer: 'Armorer', alchemist: 'Alchemist', peddler: 'Peddler', special: 'Special merchant',
+};
+export const CLASSIC_CARDS = 3;
+export const SPECIAL_CARDS = 5;              // including the best deal
+export const SPECIAL_MERCHANT_CHANCE = 0.1;
+export const CARD_COUNT = SPECIAL_CARDS - 1; // the most random cards one merchant deals
+const KINDS: readonly ItemKind[] = ['range', 'melee', 'armor', 'special'];
 
 /**
  * Deals the merchant's random cards: chart items you do not own yet and that are not in
@@ -284,10 +308,69 @@ export function rollSpecial(rng: Rng, owned: readonly CatalogId[]): SpecialOffer
   return { id: pick.id, price: discountedPrice(pick.price, discount), discount };
 }
 
-/** A full deal: the special card first (so it is never also a random card), then the random ones. */
-export function dealMerchant(rng: Rng, owned: readonly CatalogId[]): { cards: CatalogId[]; special: SpecialOffer | null } {
-  const special = rollSpecial(rng, owned);
-  return { cards: rollCards(rng, owned, CARD_COUNT, special ? [special.id] : []), special };
+export interface MerchantDeal { kind: MerchantKind; cards: CatalogId[]; special: SpecialOffer | null }
+
+/** One card slot: an item of `kind`, or of any kind but `not`, or of any kind at all. */
+interface Slot { kind?: ItemKind; not?: ItemKind }
+
+function shuffled<T>(rng: Rng, list: readonly T[]): T[] {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * Fill the slots with chart items you do not own (never twice, never one in `exclude`). A slot
+ * that cannot be filled (you own every bow) takes any item left, so the table is only short
+ * when nearly everything is bought.
+ */
+export function fillSlots(rng: Rng, owned: readonly CatalogId[], slots: readonly Slot[], exclude: readonly CatalogId[] = []): CatalogId[] {
+  const pool = shuffled(rng, CATALOG.filter((i) => !owned.includes(i.id) && !exclude.includes(i.id)));
+  const used = new Set<CatalogId>();
+  const take = (ok: (i: CatalogItem) => boolean) => {
+    const hit = pool.find((i) => !used.has(i.id) && ok(i));
+    if (hit) used.add(hit.id);
+    return hit;
+  };
+  const cards: CatalogId[] = [];
+  let missing = 0;
+  for (const s of slots) {
+    const hit = take((i) => (!s.kind || i.kind === s.kind) && (!s.not || i.kind !== s.not));
+    if (hit) cards.push(hit.id); else missing++;
+  }
+  for (; missing > 0; missing--) {
+    const hit = take(() => true);
+    if (hit) cards.push(hit.id);
+  }
+  return cards;
+}
+
+/** Each merchant's table, as slots (see the chart above). */
+function merchantSlots(rng: Rng, kind: MerchantKind): Slot[] {
+  const main = MERCHANT_SELLS[kind];
+  if (main) return [{ kind: main }, { kind: main }, { not: main }];
+  if (kind === 'peddler') return shuffled(rng, KINDS).slice(0, CLASSIC_CARDS).map((k) => ({ kind: k }));
+  return shuffled(rng, KINDS).map((k) => ({ kind: k }));   // the special merchant: one of each kind
+}
+
+/**
+ * Who comes and what he brings: the special merchant 10% of the time, otherwise one of the five
+ * classic merchants, equally likely. The special merchant's best deal is picked first, so it is
+ * never also one of his other cards.
+ */
+export function dealMerchant(rng: Rng, owned: readonly CatalogId[]): MerchantDeal {
+  const kind: MerchantKind = rng() < SPECIAL_MERCHANT_CHANCE ? 'special' : CLASSIC_MERCHANTS[Math.floor(rng() * CLASSIC_MERCHANTS.length)];
+  const special = kind === 'special' ? rollSpecial(rng, owned) : null;
+  return { kind, cards: fillSlots(rng, owned, merchantSlots(rng, kind), special ? [special.id] : []), special };
+}
+
+/** Is a saved deal one a merchant could bring? (Older saves: everyone had 4 cards + a special.) */
+export function dealFits(d: MerchantDeal): boolean {
+  if (!(d.kind in MERCHANT_SELLS)) return false;
+  return d.kind === 'special' ? d.cards.length <= SPECIAL_CARDS - 1 : d.special === null && d.cards.length <= CLASSIC_CARDS;
 }
 
 // ---- The bar: one drink for the next fight ---------------------------------------------

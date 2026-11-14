@@ -4,7 +4,7 @@ import {
   addRings, bossStage, buyItem, CATALOG, countRings, damageTaken, deathDrop, emptyWallet, equip, formatTime, hitDamage,
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
-  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck, dealMerchant, rollSpecial, discountedPrice, SPECIAL_MIN_PRICE,
+  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck, dealMerchant, rollSpecial, discountedPrice, SPECIAL_MIN_PRICE, CLASSIC_CARDS, SPECIAL_CARDS, SPECIAL_MERCHANT_CHANCE, dealFits, CLASSIC_MERCHANTS, MERCHANT_SELLS, fillSlots,
   FINALE, finaleMove, staggers, rainSpots, STAGES,
   type CatalogId,
 } from '../src/game/rules.ts';
@@ -222,21 +222,25 @@ test('a bigger village: Mossback drops more rings (+15% per level, capped at lev
   for (let l = 1; l <= 6; l++) assert.ok(stageDrop(seededRng(l), l).rings.some((r) => r !== 'classic'));
 });
 
-test('the special card: a top item you do not own, 25-40% off, never also a random card', () => {
-  for (let seed = 0; seed < 300; seed++) {
+test('the special merchant\'s best deal: a top item you do not own, 25-40% off, never also a random card', () => {
+  let seen = 0;
+  for (let seed = 0; seed < 3000; seed++) {
     const owned: CatalogId[] = ['spear', 'sword'];
-    const { cards, special } = dealMerchant(seededRng(seed), owned);
+    const { kind, cards, special } = dealMerchant(seededRng(seed), owned);
+    if (kind !== 'special') continue;
+    seen++;
     assert.ok(special);
     if (!special) continue;
     const full = item(special.id).price;
     assert.ok(full >= SPECIAL_MIN_PRICE, `${special.id} is not a top item`);
     assert.ok(!owned.includes(special.id));
     assert.ok(!cards.includes(special.id), 'special is also a random card');
-    assert.equal(cards.length, 4);
+    assert.equal(cards.length + 1, SPECIAL_CARDS);
     assert.ok(special.discount >= 0.25 && special.discount <= 0.4);
     assert.ok(special.price < full && special.price % 5 === 0);
     assert.equal(special.price, discountedPrice(full, special.discount));
   }
+  assert.ok(seen > 100, `only ${seen} special merchants in 3000 deals`);
   assert.equal(discountedPrice(250, 0.3), 175);
   assert.equal(discountedPrice(350, 0.35), 225);   // 227.5 rounded down to whole classic rings
 });
@@ -282,4 +286,51 @@ test('every stage is faster than the one before: he walks faster and fires more 
   assert.ok(STAGES[1].speed < STAGES[2].speed && STAGES[2].speed < STAGES[3].speed);
   assert.ok(STAGES[1].shotEveryMs > STAGES[2].shotEveryMs && STAGES[2].shotEveryMs > STAGES[3].shotEveryMs);
   assert.ok(STAGES[2].ballSpeed > STAGES[1].ballSpeed, 'the aimed shotgun flies faster than the slow ring');
+});
+
+test('six merchants: the five classic ones equally often (3 cards), the special one 10% (5 cards)', () => {
+  const N = 6000;
+  const seen: Record<string, number> = {};
+  for (let seed = 0; seed < N; seed++) {
+    const d = dealMerchant(seededRng(seed), ['sword']);
+    seen[d.kind] = (seen[d.kind] ?? 0) + 1;
+    assert.ok(dealFits(d));
+    assert.equal(new Set(d.cards).size, d.cards.length, 'a card twice');
+    assert.ok(!d.cards.includes('sword'), 'offered something you own');
+    if (d.kind === 'special') {
+      assert.equal(d.cards.length + (d.special ? 1 : 0), SPECIAL_CARDS);
+      assert.equal(new Set(d.cards.map((id) => item(id).kind)).size, 4, 'the special merchant brings one of each kind');
+    } else {
+      assert.equal(d.cards.length, CLASSIC_CARDS);
+      assert.equal(d.special, null, 'only the special merchant brings a best deal');
+    }
+  }
+  assert.ok(Math.abs(seen.special / N - SPECIAL_MERCHANT_CHANCE) < 0.02, `special ${seen.special}`);
+  const each = (1 - SPECIAL_MERCHANT_CHANCE) / CLASSIC_MERCHANTS.length;
+  for (const m of CLASSIC_MERCHANTS) assert.ok(Math.abs(seen[m] / N - each) < 0.02, `${m} came ${seen[m]} of ${N}`);
+});
+
+test('a merchant mainly sells his kind: 2 of it + 1 other; the peddler 3 different kinds', () => {
+  for (let seed = 0; seed < 2000; seed++) {
+    const d = dealMerchant(seededRng(seed), []);
+    const kinds = d.cards.map((id) => item(id).kind);
+    const main = MERCHANT_SELLS[d.kind];
+    if (main) {
+      assert.equal(kinds.filter((k) => k === main).length, 2, `${d.kind}: ${kinds}`);
+    } else if (d.kind === 'peddler') {
+      assert.equal(new Set(kinds).size, 3, `peddler: ${kinds}`);
+    }
+  }
+});
+
+test('own every bow and the ranger still brings 3 cards (from other kinds)', () => {
+  const allRange = CATALOG.filter((i) => i.kind === 'range').map((i) => i.id);
+  const cards = fillSlots(seededRng(3), allRange, [{ kind: 'range' }, { kind: 'range' }, { not: 'range' }]);
+  assert.equal(cards.length, 3);
+  for (const id of cards) assert.notEqual(item(id).kind, 'range');
+});
+
+test('an old save (4 cards + a best deal for everyone) is dealt again', () => {
+  const old = { kind: 'classic' as unknown as 'peddler', cards: ['axe', 'bow', 'mace', 'sling'] as CatalogId[], special: { id: 'spear' as CatalogId, price: 175, discount: 0.3 } };
+  assert.equal(dealFits(old), false);
 });

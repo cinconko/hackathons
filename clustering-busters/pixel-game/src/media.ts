@@ -1,3 +1,4 @@
+import type { MerchantKind } from './game/rules';
 // Media orchestration at runtime: what to load from public/media, which sprites still use the
 // placeholder drawn in code, and the sound (music per scene, effects per event).
 //
@@ -21,12 +22,10 @@ export const SFX_KEYS = [
 export const ROBES = ['darkblue', 'gray', 'green', 'orange', 'red', 'special'] as const;
 export type Robe = (typeof ROBES)[number];
 
-/** The same cards always give the same robe, so it changes with every deal and survives a reload. */
-export function robeFor(cards: readonly string[]): Robe {
-  let h = 0;
-  for (const ch of cards.join(',')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return ROBES[h % ROBES.length];
-}
+/** Each merchant's robe tells you what he mainly sells (rules.ts MERCHANT_SELLS). */
+export const MERCHANT_ROBES: Readonly<Record<MerchantKind, Robe>> = {
+  ranger: 'darkblue', smith: 'red', armorer: 'gray', alchemist: 'green', peddler: 'orange', special: 'special',
+};
 
 export type MusicKey =(typeof MUSIC_KEYS)[number];
 export type SfxKey = (typeof SFX_KEYS)[number];
