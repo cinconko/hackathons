@@ -729,10 +729,10 @@ export class PlayScene extends Phaser.Scene {
       this.telegraph = null;
       if (t.kind === 'aimed') {
         const hand = this.throwHand(t.angle);                  // the balls leave from his fist
-        for (const off of [-0.25, 0, 0.25]) this.bullet(hand.x, hand.y, t.angle + off, 85);
+        for (const off of [-0.25, 0, 0.25]) this.bullet(hand.x, hand.y, t.angle + off, st.ballSpeed);
         this.kickBoss('throw', t.angle, 220);
       } else if (t.kind === 'ring') {
-        for (let i = 0; i < RING_BALLS; i++) this.bullet(this.boss.x, this.boss.y, (i / RING_BALLS) * Math.PI * 2, 55);
+        for (let i = 0; i < RING_BALLS; i++) this.bullet(this.boss.x, this.boss.y, (i / RING_BALLS) * Math.PI * 2, st.ballSpeed);
         this.kickBoss('slam', 0, 240);                         // the ball over his head, slammed down: it bursts
         this.cameras.main.shake(80, 0.006);
       }
@@ -754,7 +754,7 @@ export class PlayScene extends Phaser.Scene {
       if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS, from: now };
       else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350, from: now };
       else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
-        for (let i = 0; i < SPIRAL_ARMS; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, 70);
+        for (let i = 0; i < SPIRAL_ARMS; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, st.ballSpeed);
         this.kickBoss('flick', this.spiralAngle, 140);         // a quick throw, side to side as the spiral turns
         this.spiralAngle += SPIRAL_TURN;
       }

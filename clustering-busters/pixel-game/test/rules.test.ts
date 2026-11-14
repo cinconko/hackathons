@@ -5,7 +5,7 @@ import {
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
   rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck, dealMerchant, rollSpecial, discountedPrice, SPECIAL_MIN_PRICE,
-  FINALE, finaleMove, staggers, rainSpots,
+  FINALE, finaleMove, staggers, rainSpots, STAGES,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -276,4 +276,10 @@ test('rain falls inside the arena, never two drops on top of each other', () => 
     assert.ok(s.x >= area.x + 6 && s.x <= area.x + area.width - 6 && s.y >= area.y + 6 && s.y <= area.y + area.height - 6);
   }
   for (const a of spots) for (const b of spots) if (a !== b) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= FINALE.slam.dropGap - 1.5);   // rounding to whole pixels
+});
+
+test('every stage is faster than the one before: he walks faster and fires more often', () => {
+  assert.ok(STAGES[1].speed < STAGES[2].speed && STAGES[2].speed < STAGES[3].speed);
+  assert.ok(STAGES[1].shotEveryMs > STAGES[2].shotEveryMs && STAGES[2].shotEveryMs > STAGES[3].shotEveryMs);
+  assert.ok(STAGES[2].ballSpeed > STAGES[1].ballSpeed, 'the aimed shotgun flies faster than the slow ring');
 });

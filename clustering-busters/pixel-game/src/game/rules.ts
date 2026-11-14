@@ -361,13 +361,14 @@ export interface StageInfo {
   readonly color: number;
   readonly speed: number;
   readonly shotEveryMs: number;
+  readonly ballSpeed: number;   // px/s of his balls in this stage
   readonly pattern: Pattern;
   readonly dashEveryMs: number; // 0 = never dashes
 }
 export const STAGES: Readonly<Record<Stage, StageInfo>> = {
-  1: { name: 'Mossback', color: 0x5fbf4a, speed: 22, shotEveryMs: 1800, pattern: 'ring', dashEveryMs: 0 },
-  2: { name: 'Mossback, angry', color: 0xe08a2c, speed: 34, shotEveryMs: 1400, pattern: 'aimed', dashEveryMs: 0 },
-  3: { name: 'Mossback, furious', color: 0xd83a3a, speed: 46, shotEveryMs: 800, pattern: 'spiral', dashEveryMs: 3200 },
+  1: { name: 'Mossback', color: 0x5fbf4a, speed: 22, shotEveryMs: 1800, ballSpeed: 55, pattern: 'ring', dashEveryMs: 0 },
+  2: { name: 'Mossback, angry', color: 0xe08a2c, speed: 44, shotEveryMs: 950, ballSpeed: 130, pattern: 'aimed', dashEveryMs: 0 },
+  3: { name: 'Mossback, furious', color: 0xd83a3a, speed: 46, shotEveryMs: 800, ballSpeed: 70, pattern: 'spiral', dashEveryMs: 3200 },
 };
 
 // ---- the finale: stage 3's special moves, taking turns ----------------------------------
