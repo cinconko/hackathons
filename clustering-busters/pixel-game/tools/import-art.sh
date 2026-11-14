@@ -28,11 +28,12 @@ make() {
 }
 
 echo "art/ -> $OUT"
-make Tree.png             tree            20x21   cut
-make Bush_Big.png         bush_big        19x11   cut
-make Bush_Big_Berry.png   bush_big_berry  19x11   cut
-make Bush_Mid.png         bush_mid        23x10   cut
-make Bush_Mid_Berry.png   bush_mid_berry  23x10   cut
+make Tree.png                 tree            20x21   cut
+make Tree_v02_apple.png       tree_apple      20x21   cut
+make Bush_Big_Ver02.png       bush_big        19x11   cut
+make Bush_Big_Berry_Ver02.png bush_big_berry  19x11   cut
+make Bush_Mid_Ver02.png       bush_mid        23x10   cut
+make Bush_Mid_Berry_Ver02.png bush_mid_berry  23x10   cut
 make Puff.png             cloud           24x19   cut
 make Grass.png            grass           32x32   tile
 make Water_LilyPad.avif   water           37x37   tile

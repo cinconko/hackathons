@@ -57,10 +57,11 @@ const ARM_LEN = 24;
  * animation; swing = a hanging sign that sways.
  */
 interface Part { lvl: number; until?: number; key: string; x: number; y: number; solid?: [number, number, number]; anim?: string; depth?: number; swing?: boolean }
-const forest = (until: number, pts: [number, number][]): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key: 'tree', x, y, solid: [6, 6, 6] }));
+const forest = (until: number, pts: [number, number][], key = 'tree'): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key, x, y, solid: [6, 6, 6] }));
 const PARTS: readonly Part[] = [
   // trees that always stay
-  ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),   // clear of the HUD, the signs and the yard
+  ...forest(99, [[170, 20], [14, 82]]),                        // clear of the HUD, the signs and the yard
+  ...forest(99, [[62, 32], [280, 150]], 'tree_apple'),
   // the forest, cleared stage by stage
   ...forest(2, [[60, 66], [80, 78], [184, 64], [196, 80], [232, 140], [246, 152], [28, 36], [44, 46]]),
   ...forest(3, [[42, 92], [250, 86], [150, 68]]),   // clear of the merchant's blanket
