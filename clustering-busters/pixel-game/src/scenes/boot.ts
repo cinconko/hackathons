@@ -67,7 +67,7 @@ export class BootScene extends Phaser.Scene {
       px(GOLD, 10, 20, 4, 2); px(0x000000, 11, 20, 2, 1);              // key bow
       px(GOLD, 11, 22, 2, 2); px(0xfff1a8, 10, 20);                    // shaft + shine
     });
-    for (const s of [1, 2, 3] as const) { boss(`boss_${s}`, STAGES[s].color, false, true); boss(`boss_${s}_b`, STAGES[s].color, false, true); }
+    for (const s of [1, 2, 3] as const) for (const f of ['', '_1', '_2', '_3']) boss(`boss_${s}${f}`, STAGES[s].color, false, true);
     boss('boss_flash', 0xffffff, true, false);
     boss('boss_nokey', STAGES[3].color, false, false);
 
@@ -407,8 +407,8 @@ export class BootScene extends Phaser.Scene {
     };
     anim('campfire_wood', [['campfire_wood_0', 130], ['campfire_wood_1', 110], ['campfire_wood_2', 120]]);
     anim('campfire_stone', [['campfire_stone_0', 130], ['campfire_stone_1', 110], ['campfire_stone_2', 120]]);
-    // the boss breathes, faster the angrier he gets
-    for (const [s, ms] of [[1, 520], [2, 380], [3, 240]] as const) anim(`boss_idle_${s}`, [[`boss_${s}`, ms], [`boss_${s}_b`, ms]]);
+    // the boss flexes his arms, shifts from foot to foot and breathes: faster the angrier he gets
+    for (const [s, ms] of [[1, 230], [2, 170], [3, 110]] as const) anim(`boss_idle_${s}`, ['', '_1', '_2', '_3'].map((f) => [`boss_${s}${f}`, ms] as [string, number]));
     anim('fountain', [['fountain_0', 260], ['fountain_1', 260]]);
     anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
     anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
@@ -513,7 +513,8 @@ export class BootScene extends Phaser.Scene {
 
   /**
    * The team's boss (sprites/boss_art.png, 32x35, from art/Boss.png) -> every boss texture the game uses:
-   * boss_<stage> + boss_<stage>_b (idle: the upper body dips 1 px), stage 2/3 glow orange/red,
+   * boss_<stage> + boss_<stage>_1.._3 (idle cycle: arms flex in opposite pairs, the feet step in turn,
+   * the upper body dips 1 px), stage 2/3 glow orange/red,
    * the treasury key on a cord around his neck, boss_flash (white, on a hit), boss_nokey (dead).
    * Colours are baked in because the Canvas renderer ignores setTint.
    */
@@ -550,11 +551,42 @@ export class BootScene extends Phaser.Scene {
       out.data.fill(0, 0, row);
       return out;
     };
+    // Hands and feet: the picture is one piece, so each limb is a region of the 32x35 sprite.
+    // Arms are everything left / right of the body's columns, legs everything below the waist.
+    type Part = 'upL' | 'loL' | 'upR' | 'loR' | 'legL' | 'legR';
+    const partAt = (x: number, y: number): Part | null =>
+      y >= WAIST ? (x <= 14 ? 'legL' : 'legR')
+        : x <= 11 ? (y <= 12 ? 'upL' : 'loL')
+          : x >= 21 ? (y <= 12 ? 'upR' : 'loR')
+            : null;                                            // head, chest, belly: stay put
+    type Pose = Partial<Record<Part, [number, number]>>;
+    const pose = (img: ImageData, moves: Pose) => {
+      const out = new ImageData(w, h);
+      const src = img.data, d = out.data;
+      for (const pass of [0, 1]) {                             // the body first, moved limbs drawn over it
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+          const i = (y * w + x) * 4;
+          if (!src[i + 3]) continue;
+          const part = partAt(x, y);
+          const m = part ? moves[part] : undefined;
+          if ((pass === 0) === Boolean(m)) continue;
+          const nx = x + (m?.[0] ?? 0), ny = y + (m?.[1] ?? 0);
+          if (nx >= 0 && nx < w && ny >= 0 && ny < h) d.set(src.subarray(i, i + 4), (ny * w + nx) * 4);
+        }
+      }
+      return out;
+    };
+    // frame 1: left foot up, top arms tilt left-up / right-down, bottom arms swing out
+    // frame 2: breathe;  frame 3: the mirror of frame 1 (right foot up)
+    const STEP_L: Pose = { upL: [0, -1], upR: [0, 1], loL: [-1, 0], loR: [1, 0], legL: [0, -1] };
+    const STEP_R: Pose = { upL: [0, 1], upR: [0, -1], loL: [1, 0], loR: [-1, 0], legR: [0, -1] };
     const looks: Record<1 | 2 | 3, ImageData> = { 1: mix(0, 0), 2: mix(0xff8a2c, 0.25), 3: mix(0xff2a2a, 0.38) };
     for (const s of [1, 2, 3] as const) {
-      const img = withKey(looks[s]);
-      this.addPixels(`boss_${s}`, img);
-      this.addPixels(`boss_${s}_b`, dip(img));
+      const img = looks[s];
+      this.addPixels(`boss_${s}`, withKey(pose(img, {})));
+      this.addPixels(`boss_${s}_1`, withKey(pose(img, STEP_L)));
+      this.addPixels(`boss_${s}_2`, dip(withKey(pose(img, {}))));
+      this.addPixels(`boss_${s}_3`, withKey(pose(img, STEP_R)));
     }
     const flash = mix(0xffffff, 1);
     this.addPixels('boss_flash', flash);
