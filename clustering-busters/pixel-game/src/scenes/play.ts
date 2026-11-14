@@ -158,7 +158,10 @@ export class PlayScene extends Phaser.Scene {
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
     this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
-    (this.boss.body as Body).setCircle(10, 2, 2);
+    // the body is his chest and belly, not the arms: radius 11 centred at (16, 17) of the 32x35 sprite
+    const bw = this.boss.width, bh = this.boss.height, r = Math.min(11, Math.floor(Math.min(bw, bh) / 2) - 1);
+    (this.boss.body as Body).setCircle(r, bw / 2 - r, bh / 2 - r);
+    this.applyBossTexture();
 
     this.bullets = this.physics.add.group();
     this.pickups = this.physics.add.group();
@@ -394,7 +397,7 @@ export class PlayScene extends Phaser.Scene {
 
   // ---- boss --------------------------------------------------------------------------
 
-  private applyBossTexture() { this.boss.setTexture(`boss_${this.stage}`); }
+  private applyBossTexture() { this.boss.play(`boss_idle_${this.stage}`, true); }   // breathing loop of this stage
 
   private updateBoss() {
     const now = this.fightMs;
@@ -452,7 +455,7 @@ export class PlayScene extends Phaser.Scene {
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
     if (hitStop) {
       sfx(this, 'hit');
-      this.boss.setTexture('boss_flash');
+      this.boss.stop().setTexture('boss_flash');
       this.time.delayedCall(60, () => { if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
       this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
     }
@@ -486,7 +489,7 @@ export class PlayScene extends Phaser.Scene {
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
     this.cameras.main.shake(300, 0.02);
     this.tweens.add({ targets: this.boss, alpha: 0, scale: 1.6, duration: 900 });
-    this.boss.setTexture('boss_nokey');
+    this.boss.stop().setTexture('boss_nokey');
     const key = asSprite(this.pickups.create(this.boss.x, this.boss.y + 8, 'key'));
     key.setData('kind', 'key').setDepth(7).setCollideWorldBounds(true);
     this.tweens.add({ targets: key, y: key.y - 3, yoyo: true, repeat: -1, duration: 350 });

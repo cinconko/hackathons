@@ -38,9 +38,21 @@ page lists the music and sound effects. The browser console also prints a table 
 - **Draw at the game's real size** (the checklist shows it). The game is a 320x180 grid and
   scales up by whole steps itself: do not pre-scale.
 - **Weapons in hand point right**: the game rotates them toward the aim.
-- **The boss has one sprite per stage** (`boss_1` green, `boss_2` orange, `boss_3` red), plus
-  `boss_flash` (all white, shown for a frame when hit) and `boss_nokey` (after the key fell).
+- **The boss is one picture**: `art/Boss.png` -> `npm run art` -> `sprites/boss_art.png` (32x35).
+  The game makes the rest from it: stage 2 orange and stage 3 red glow, the key on his neck, the
+  breathing frame (`boss_<stage>_b`), `boss_flash` (white, when hit) and `boss_nokey`. A file named
+  like one of those keys still wins over the made one.
+- **Campfires**: `art/Campfire/Campfire_1.png` (wood, village level 1) and `Campfire_2.png` (stones,
+  levels 2-3) -> `campfire_wood.png` / `campfire_stone.png`; the game adds the flicker frames.
+- **Big source art goes in `art/`, not here**: everything in `public/` ships to players.
 - PNG or WebP for images; OGG first for sound, with an MP3 copy if it must play in Safari.
+
+## Weapons in hand
+
+Name the file after the weapon: `dagger`, `sword`, `axe`, `mace`, `warhammer`, `spear`, `slingshot`,
+`bow`, `crossbow`, `javelin`, `handcannon` (`.png`, in `sprites/`). Draw it upright or pointing right,
+on any canvas: the game trims the empty border and turns it to point right in the hero's hand. It is
+also the picture on the merchant's card and in the "in hand" slots.
 
 ## Weapon pictures (optional, big and detailed)
 
@@ -48,6 +60,12 @@ page lists the music and sound effects. The browser console also prints a table 
 big picture of the weapon in hand, shown in the black space beside the game. Any size, drawn as
 detailed as you like, transparent background, the weapon upright. Without it the game shows the
 small sprite blown up.
+
+## Fonts
+
+`fonts/<name>.ttf` (or `.otf`, `.woff`, `.woff2`) is loaded before the first screen under the
+family name `<name>`. Titles use `alagard` (Alagard by Hewett Tsoi, credit required, see
+`CREDITS.md`). It is a pixel font drawn for 16 px: use it at 16 or 32 px only.
 
 ## Music (one per scene)
 

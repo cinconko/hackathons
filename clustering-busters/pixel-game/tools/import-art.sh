@@ -50,3 +50,9 @@ for c in DarkBlue Gray Green Orange Red Special; do
   make "Merchant/Merchant_$c.png"              "merchant_${k}_1" 16x18 bob
   make "Merchant/Blanket/March_Blanket_$c.png" "blanket_$k"      36x18 cut
 done
+
+# The boss: one picture; boot makes the stage colours, the key, the breathing frame and the hit flash.
+make Boss.png                    boss_art        32x35 cut
+# Campfire: level 1 wood only, level 2 in a ring of stones (boot adds the flicker frames).
+make Campfire/Campfire_1.png     campfire_wood   18x17 cut
+make Campfire/Campfire_2.png     campfire_stone  16x18 cut

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { talk, type NpcId, type NpcState } from '../src/game/npcs.ts';
+import { bouncedBackLines, talk, type NpcId, type NpcState } from '../src/game/npcs.ts';
 import { seededRng } from '../src/game/rules.ts';
 
 const base: NpcState = { wins: 0, villageLevel: 1, villageName: 'Camp', hasWeapon: false, ownsArmor: false, kidGiftGiven: false };
@@ -27,4 +27,11 @@ test('the elder and the sergeant follow your progress', () => {
   assert.ok(talk('elder', { ...base, wins: 2 }, seededRng(1)).lines[0].includes('2 times'));
   assert.ok(talk('sergeant', base, seededRng(1)).lines.some((l) => l.includes('armor')));
   assert.ok(!talk('sergeant', { ...base, ownsArmor: true }, seededRng(1)).lines.some((l) => l.includes('No armor')));
+});
+
+test('Grandpa greets you when Mossback bounced you home, and counts the rings you kept', () => {
+  assert.equal(bouncedBackLines(0)[0], 'You have been bounced back!');
+  assert.match(bouncedBackLines(0)[1], /No rings/);
+  assert.match(bouncedBackLines(1)[1], /kept 1 ring\./);
+  assert.match(bouncedBackLines(3)[1], /kept 3 rings\./);
 });

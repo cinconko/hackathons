@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from '../config';
-import { mediaStatus, queueMedia } from '../media';
+import { loadFonts, mediaStatus, queueMedia } from '../media';
 import type { MediaManifest } from '../../tools/media-manifest';
 
 // First scene: reads media/manifest.json (made by the Vite plugin from public/media) and loads
@@ -18,6 +18,11 @@ export class PreloadScene extends Phaser.Scene {
     const m = this.cache.json.get('media-manifest') as MediaManifest | undefined;
     if (!m || typeof m !== 'object' || !m.sprites) { this.scene.start('boot'); return; }
     mediaStatus.manifest = m;
+    // fonts first (texts are painted once), then the art and sound
+    loadFonts(m).then(() => this.loadFiles(m));
+  }
+
+  private loadFiles(m: MediaManifest) {
     if (queueMedia(this.load, m) === 0) { this.scene.start('boot'); return; }
     const label = this.add.text(WIDTH / 2, HEIGHT / 2, 'loading media', { fontFamily: 'monospace', fontSize: '8px', color: '#888888' }).setOrigin(0.5);
     this.load.on(Phaser.Loader.Events.PROGRESS, (v: number) => label.setText(`loading media ${Math.round(v * 100)}%`));

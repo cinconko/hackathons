@@ -4,6 +4,7 @@
 //   Elder Mira       by the well: lore and tips that follow your progress
 //   Tobi (a kid)     wanders the square: jokes, dares; the first time, a ring from the well
 //   Sergeant Brann   at the training ground gate: weapons, armor, training
+//   Grandpa          only after Mossback bounced you home: hobbles over and tells you so
 
 export type NpcId = 'elder' | 'kid' | 'sergeant';
 
@@ -13,6 +14,17 @@ export const NPCS: Readonly<Record<NpcId, Npc>> = {
   kid: { name: 'Tobi', sprite: 'kid' },
   sergeant: { name: 'Sergeant Brann', sprite: 'sergeant' },
 };
+
+/** Grandpa is not one of the people you walk up to: he comes to you after a lost fight. */
+export const GRANDPA: Npc = { name: 'Grandpa', sprite: 'grandpa' };
+
+/** What Grandpa says when you land back in the village. kept = rings you brought home anyway. */
+export function bouncedBackLines(kept: number): string[] {
+  return [
+    'You have been bounced back!',
+    kept ? `At least you kept ${kept} ring${kept === 1 ? '' : 's'}. The merchant has new cards.` : 'No rings this time, eh? The merchant has new cards.',
+  ];
+}
 
 /** What a conversation can know about you. */
 export interface NpcState {
