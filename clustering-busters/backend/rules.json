@@ -1,0 +1,23 @@
+{
+  "signals": [
+    {"id": "urgency", "pattern": "(ihned|okam[zž]it[eě]|do 24 hodin|dnes do|posledn[ií] upozorn[eě]n[ií]|urgent|immediately)", "weight": 2, "reason": "Tlačí na rychlost. Podvodníci nechtějí, abyste si to rozmysleli."},
+    {"id": "account_blocked", "pattern": "(blokov|zablokov|pozastaven|suspend|locked)", "weight": 3, "reason": "Vyhrožuje zablokováním účtu nebo karty."},
+    {"id": "verify_login", "pattern": "(ov[eě][rř]te|ov[eě][rř]en[ií]|p[rř]ihla[sš]te se|aktualizujte [uú]daje|verify|confirm your)", "weight": 2, "reason": "Žádá ověření nebo přihlášení přes odkaz."},
+    {"id": "parcel_fee", "pattern": "(z[aá]silk|bal[ií][cč]ek|doplatek|clo |cla |poplatek za doru[cč]en|parcel|delivery fee)", "weight": 3, "reason": "Typický podvod se zásilkou a malým doplatkem."},
+    {"id": "new_number_family", "pattern": "(ahoj mami|ahoj tati|m[aá]m nov[eé] [cč][ií]slo|nov[eé] [cč][ií]slo|rozbil se mi telefon)", "weight": 4, "reason": "Typický podvod „Ahoj mami, mám nové číslo“."},
+    {"id": "money_request", "pattern": "(po[sš]li|pošlete|p[rř]eve[dď]|zapla[tť]|pot[rř]ebuju pen[ií]ze|send money|transfer)", "weight": 2, "reason": "Žádá peníze nebo platbu."},
+    {"id": "short_link", "pattern": "(bit\\.ly|tinyurl|t\\.co/|goo\\.gl|is\\.gd|cutt\\.ly|rb\\.gy)", "weight": 3, "reason": "Používá zkrácený odkaz, který skrývá skutečnou adresu."},
+    {"id": "link", "pattern": "(https?://|www\\.)", "weight": 1, "reason": "Obsahuje odkaz."},
+    {"id": "code_request", "pattern": "(sd[eě]lte (n[aá]m )?k[oó]d|po[sš]lete k[oó]d|p[rř]epi[sš]te k[oó]d|send (us )?the code)", "weight": 5, "reason": "Žádá o ověřovací kód. Ten nikdy nikomu neposílejte."},
+    {"id": "prize", "pattern": "(vyhr[aá]l|v[yý]hra|gratulujeme|winner|prize|d[aá]rek zdarma)", "weight": 2, "reason": "Slibuje výhru nebo dárek."},
+    {"id": "crypto_invest", "pattern": "(bitcoin|krypto|crypto|investice s v[yý]nosem|zaru[cč]en[yý] zisk|guaranteed return)", "weight": 3, "reason": "Láká na investici nebo kryptoměny se zaručeným ziskem."}
+  ],
+  "examples": [
+    {"text": "Vase zasilka ceka na doplatek 39 Kc. Zaplatte do 24 hodin: bit.ly/posta-cz", "label": "scam", "source": "seed"},
+    {"text": "Ahoj mami, rozbil se mi telefon, tohle je moje nove cislo. Muzes mi poslat penize?", "label": "scam", "source": "seed"},
+    {"text": "Vas ucet bude zablokovan. Overte sve udaje na www.bank-overeni.com", "label": "scam", "source": "seed"},
+    {"text": "Ahoj, v sobotu ve 3 u babicky, prines dort", "label": "safe", "source": "seed"},
+    {"text": "Vase objednavka byla odeslana a dorazi zitra mezi 8 a 12", "label": "safe", "source": "seed"},
+    {"text": "Pripominame termin u zubare v utery v 10:00", "label": "safe", "source": "seed"}
+  ]
+}
