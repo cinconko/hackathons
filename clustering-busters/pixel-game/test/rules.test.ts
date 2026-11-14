@@ -5,6 +5,7 @@ import {
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
   rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck, dealMerchant, rollSpecial, discountedPrice, SPECIAL_MIN_PRICE,
+  FINALE, finaleMove, staggers, rainSpots,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -253,4 +254,26 @@ test('buying the special card charges the discounted price', () => {
   const r = buyItem({ classic: 0, rare: 0, superRare: 2 }, startingInventory(), 'spear', 175);
   assert.ok(r.ok);
   if (r.ok) assert.equal(walletValue(r.wallet), 200 - 175);
+});
+
+// ---- the finale (stage 3 special moves) -------------------------------------------------
+
+test('the finale moves take turns, the giant ball first', () => {
+  assert.deepEqual([0, 1, 2, 3].map(finaleMove), ['giantBall', 'slamRain', 'giantBall', 'slamRain']);
+});
+
+test('he drops the giant ball only when you hit him hard enough while he charges', () => {
+  assert.equal(staggers(FINALE.ball.staggerDmg - 1), false);
+  assert.equal(staggers(FINALE.ball.staggerDmg), true);
+  assert.ok(FINALE.ball.staggerHit > 0 && FINALE.ball.chargeMs >= 2000, 'a real window to punish him');
+});
+
+test('rain falls inside the arena, never two drops on top of each other', () => {
+  const area = { x: 10, y: 4, width: 300, height: 170 };
+  const spots = rainSpots(seededRng(7), area, 15, FINALE.slam.dropGap);
+  assert.equal(spots.length, 15);
+  for (const s of spots) {
+    assert.ok(s.x >= area.x + 6 && s.x <= area.x + area.width - 6 && s.y >= area.y + 6 && s.y <= area.y + area.height - 6);
+  }
+  for (const a of spots) for (const b of spots) if (a !== b) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= FINALE.slam.dropGap - 1.5);   // rounding to whole pixels
 });

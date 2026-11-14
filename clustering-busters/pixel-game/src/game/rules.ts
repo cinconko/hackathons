@@ -370,6 +370,40 @@ export const STAGES: Readonly<Record<Stage, StageInfo>> = {
   3: { name: 'Mossback, furious', color: 0xd83a3a, speed: 46, shotEveryMs: 800, pattern: 'spiral', dashEveryMs: 3200 },
 };
 
+// ---- the finale: stage 3's special moves, taking turns ----------------------------------
+// Giant ball: he stops and grows a huge ball over his head. Deal staggerDmg before it is ready and he
+// drops it on himself (staggerHit damage, stunned); otherwise he throws it at you and it bursts.
+// Slam rain: he leaps out of sight, his shadow hunts you, locks, he slams down (shockwave), then balls
+// rain on marked spots.
+export type FinaleMove = 'giantBall' | 'slamRain';
+export const FINALE = {
+  firstAfterMs: 4000,          // after stage 3 starts
+  everyMs: 11000,              // from one move's start to the next
+  ball: { chargeMs: 2400, staggerDmg: 45, staggerHit: 80, stunMs: 1800, speed: 100, maxFlightMs: 1500, burst: 16, burstSpeed: 60, hitDmg: 25 },
+  slam: { riseMs: 500, huntMs: 1500, lockMs: 700, fallMs: 160, radius: 34, dmg: 30, rainMs: 3000, rainEveryMs: 200, rainWarnMs: 700, dropRadius: 7, dropGap: 18 },
+} as const;
+
+/** The moves take turns: the giant ball first, then the slam, then the ball again... */
+export function finaleMove(count: number): FinaleMove {
+  return count % 2 === 0 ? 'giantBall' : 'slamRain';
+}
+
+/** Does the damage dealt while he charges the giant ball make him drop it? */
+export function staggers(dealt: number): boolean {
+  return dealt >= FINALE.ball.staggerDmg;
+}
+
+/** Where the rain falls: `count` spots inside the area (margin 6), none closer than `gap` to another. */
+export function rainSpots(rng: Rng, area: { x: number; y: number; width: number; height: number }, count: number, gap: number): { x: number; y: number }[] {
+  const spots: { x: number; y: number }[] = [];
+  for (let tries = 0; spots.length < count && tries < count * 20; tries++) {
+    const x = area.x + 6 + rng() * (area.width - 12);
+    const y = area.y + 6 + rng() * (area.height - 12);
+    if (spots.every((s) => Math.hypot(s.x - x, s.y - y) >= gap)) spots.push({ x: Math.round(x), y: Math.round(y) });
+  }
+  return spots;
+}
+
 export function bossStage(hp: number, maxHp: number = BOSS_MAX_HP): Stage {
   if (hp > (maxHp * 2) / 3) return 1;
   if (hp > maxHp / 3) return 2;

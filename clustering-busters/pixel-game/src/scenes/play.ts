@@ -100,6 +100,13 @@ export class PlayScene extends Phaser.Scene {
   private telegraph: Telegraph | null = null;
   private bossView!: Phaser.GameObjects.Image;   // what you see; this.boss is the (invisible) body
   private heldBall!: Phaser.GameObjects.Image;   // the ball in his fist (or over his head) before he throws
+  // stage 3 finale (rules.ts FINALE): giant ball and slam rain, taking turns
+  private finale: { kind: R.FinaleMove; phase: 'charge' | 'rise' | 'hunt' | 'lock' | 'fall'; at: number; dealt: number; x: number; y: number } | null = null;
+  private finaleCount = 0;
+  private nextFinaleAt = Infinity;
+  private giant: { img: Phaser.GameObjects.Image; x0: number; y0: number; ang: number; start: number; flightMs: number; tx: number; ty: number } | null = null;
+  private rain: { x: number; y: number; at: number }[] = [];
+  private dark!: Phaser.GameObjects.Rectangle;    // the arena darkens while he charges the giant ball
   private bossHands = 'a';                        // which hand frame he shows (boot.ts HAND_FRAMES)
   private bossFlashing = false;                   // the white hit flash: the hands wait
   private bossKick: BossKick | null = null;
@@ -157,6 +164,11 @@ export class PlayScene extends Phaser.Scene {
     this.spiralAngle = 0;
     this.telegraph = null;
     this.bossKick = null;
+    this.finale = null;
+    this.finaleCount = 0;
+    this.nextFinaleAt = startStage === 3 ? this.fightMs + R.FINALE.firstAfterMs : Infinity;
+    this.giant = null;
+    this.rain = [];
     this.bossHands = 'a';
     this.bossFlashing = false;
     this.bossMotion = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
@@ -191,6 +203,7 @@ export class PlayScene extends Phaser.Scene {
     this.boss.setVisible(false);
     this.bossView = this.add.image(this.boss.x, this.boss.y, `boss_${startStage}`).setDepth(9);
     this.heldBall = this.add.image(0, 0, 'bullet').setDepth(10).setVisible(false);
+    this.dark = this.add.rectangle(PLAY.x + PLAY.width / 2, PLAY.y + PLAY.height / 2, PLAY.width, PLAY.height, 0x240008).setDepth(6).setAlpha(0);
 
     this.bullets = this.physics.add.group();
     this.pickups = this.physics.add.group();
@@ -288,7 +301,7 @@ export class PlayScene extends Phaser.Scene {
     this.fightMs += delta;
     this.movePlayer();
     this.actionKeys();
-    if (!this.bossDead) { this.updateBoss(); this.animateBoss(delta); }
+    if (!this.bossDead) { this.updateBoss(); this.animateBoss(delta); this.updateFinaleWorld(); }
     if (!this.bossDead) this.updateEffects();
     this.updateRetailer();
     this.cleanupProjectiles();
@@ -446,7 +459,7 @@ export class PlayScene extends Phaser.Scene {
     const t = this.telegraph;
     const kick = this.bossKick?.kind;
     const moving = (this.boss.body as Body).velocity.length() > 4;
-    const hands = t?.kind === 'ring' || kick === 'smash' || kick === 'throw' || kick === 'slam' || kick === 'flick' ? 'spread'
+    const hands = t?.kind === 'ring' || this.finale?.kind === 'giantBall' || kick === 'smash' || kick === 'throw' || kick === 'slam' || kick === 'flick' ? 'spread'
       : t?.kind === 'aimed' || t?.kind === 'dash' || now < this.dashUntil || near ? 'grab'
       : ['a', 'b', 'a', 'c'][Math.floor(now / (moving ? 150 : 280)) % 4];
     if (hands === this.bossHands) return;
@@ -484,6 +497,7 @@ export class PlayScene extends Phaser.Scene {
    */
   private animateBoss(delta: number) {
     const now = this.fightMs;
+    if (this.finale?.kind === 'slamRain') { this.heldBall.setVisible(false); return; }   // in the air: the leap's tweens move him
     const t = this.telegraph;
     const body = this.boss.body as Body;
     const side = (angle: number) => (Math.cos(angle) < 0 ? -1 : 1);          // -1: toward the left
@@ -491,7 +505,13 @@ export class PlayScene extends Phaser.Scene {
     const near = Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.player.x, this.player.y) < MELEE_REACH;
     const wound = t ? Phaser.Math.Clamp((now - t.from) / Math.max(1, t.fireAt - t.from), 0, 1) : 0;   // 0 -> 1 until he lets go
     let ball: { at: { x: number; y: number }; scale: number } | null = null;   // in his hands: a point on the drawing
-    if (t?.kind === 'ring') {                                  // rising up, a ball growing between his top claws
+    const fin = this.finale;
+    if (fin?.kind === 'giantBall') {                           // straining under a huge ball growing over his head
+      const w = Phaser.Math.Clamp((now - fin.at) / R.FINALE.ball.chargeMs, 0, 1);
+      Object.assign(goal, { sx: 1 - 0.05 * w, sy: 1 + 0.15 * w, dy: -4 * w, rot: 0.05 * w * Math.sin(now / 25) });
+      const scale = 1 + 4 * w;
+      ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };
+    } else if (t?.kind === 'ring') {                           // rising up, a ball growing between his top claws
       Object.assign(goal, { sx: 1 - 0.04 * wound, sy: 1 + 0.12 * wound, dy: -3 * wound });
       const scale = 1 + 1.2 * wound;
       ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };   // resting on the claws as it grows
@@ -541,10 +561,162 @@ export class PlayScene extends Phaser.Scene {
     this.animateHands(near);
   }
 
+  // ---- the finale (stage 3): giant ball and slam rain, taking turns (rules.ts FINALE) ----
+
+  private startFinale() {
+    const now = this.fightMs;
+    const kind = R.finaleMove(this.finaleCount++);
+    this.nextFinaleAt = now + R.FINALE.everyMs;
+    const body = this.boss.body as Body;
+    body.setVelocity(0, 0);
+    this.finale = { kind, phase: kind === 'giantBall' ? 'charge' : 'rise', at: now, dealt: 0, x: this.boss.x, y: this.boss.y };
+    if (kind === 'giantBall') {
+      this.tweens.add({ targets: this.dark, alpha: 0.6, duration: 300 });
+      this.floatText(this.boss.x, this.boss.y - 34, 'STOP HIM!', '#ffcc44');
+      sfx(this, 'stage', 0.6);
+    } else {
+      body.enable = false;                                     // up in the air: can't touch him, can't hit him
+      this.tweens.add({ targets: this.bossView, y: this.bossView.y - 150, scaleX: 1.3, scaleY: 1.3, rotation: 0, duration: R.FINALE.slam.riseMs, ease: 'Quad.easeIn' });
+      this.floatText(this.boss.x, this.boss.y - 24, 'LOOK OUT!', '#ff6a6a');
+      sfx(this, 'launch', 0.7);
+    }
+  }
+
+  private runFinale(body: Body) {
+    const f = this.finale!;
+    const now = this.fightMs;
+    if (f.kind === 'giantBall') {
+      body.setVelocity(0, 0);
+      // hit him hard enough (or paralyse / push him) before it is ready: he drops it on himself
+      if (R.staggers(f.dealt) || now < this.paralyzedUntil || now < this.knockUntil) this.staggerBoss();
+      else if (now >= f.at + R.FINALE.ball.chargeMs) this.throwGiant();
+      return;
+    }
+    const S = R.FINALE.slam;
+    if (f.phase === 'rise' && now >= f.at + S.riseMs) Object.assign(f, { phase: 'hunt', at: now });
+    else if (f.phase === 'hunt') {                             // his shadow hunts you...
+      f.x += (this.player.x - f.x) * 0.1;
+      f.y += (this.player.y - f.y) * 0.1;
+      if (now >= f.at + S.huntMs) Object.assign(f, { phase: 'lock', at: now });
+    } else if (f.phase === 'lock' && now >= f.at + S.lockMs) { // ...stops, and down he comes
+      Object.assign(f, { phase: 'fall', at: now });
+      body.reset(f.x, f.y);
+      this.tweens.killTweensOf(this.bossView);
+      this.bossView.setPosition(f.x, f.y - 150);
+      this.tweens.add({ targets: this.bossView, y: f.y, scaleX: 1, scaleY: 1, duration: S.fallMs, ease: 'Quad.easeIn' });
+    } else if (f.phase === 'fall' && now >= f.at + S.fallMs) this.slamDown();
+  }
+
+  private slamDown() {
+    const f = this.finale!;
+    const S = R.FINALE.slam;
+    const now = this.fightMs;
+    this.finale = null;
+    (this.boss.body as Body).enable = true;
+    this.bossView.setPosition(f.x, f.y).setScale(1);
+    this.cameras.main.shake(260, 0.02);
+    sfx(this, 'land');
+    dustPuff(this, f.x, f.y + 12, 10, 20);
+    this.shockwave(f.x, f.y, S.radius, 0xff6a3a);
+    if (Phaser.Math.Distance.Between(f.x, f.y, this.player.x, this.player.y) < S.radius) this.hurtPlayer(S.dmg);
+    // then the rain: every spot is marked with a red X before its ball lands
+    const area = { x: PLAY.x + WALL, y: PLAY.y, width: PLAY.width - WALL, height: PLAY.height };
+    R.rainSpots(this.rng, area, Math.floor(S.rainMs / S.rainEveryMs), S.dropGap)
+      .forEach((p, i) => this.rain.push({ x: p.x, y: p.y, at: now + S.rainWarnMs + i * S.rainEveryMs }));
+    this.nextShotAt = now + 1200;
+    this.nextDashAt = now + 2500;
+  }
+
+  private staggerBoss() {
+    const F = R.FINALE.ball;
+    this.finale = null;
+    this.heldBall.setVisible(false);
+    this.tweens.add({ targets: this.dark, alpha: 0, duration: 300 });
+    this.paralyzedUntil = Math.max(this.paralyzedUntil, this.fightMs + F.stunMs);
+    this.shockwave(this.boss.x, this.boss.y - 12, 22, 0xff4f7a);
+    this.cameras.main.shake(220, 0.015);
+    this.floatText(this.boss.x, this.boss.y - 34, 'STAGGERED!', '#ffee44');
+    this.kickBoss('slam', 0, 320);
+    this.damageBoss(F.staggerHit, { color: '#ffee44' });   // the ball came down on his own head
+  }
+
+  /** Where the giant ball would go if he threw it now: at you, bursting where you stand or at its range. */
+  private giantPath() {
+    const F = R.FINALE.ball;
+    const from = this.onBoss(PlayScene.OVERHEAD);
+    const ang = Phaser.Math.Angle.Between(from.x, from.y, this.player.x, this.player.y);
+    const dist = Math.min(Phaser.Math.Distance.Between(from.x, from.y, this.player.x, this.player.y), (F.speed * F.maxFlightMs) / 1000);
+    return { from, ang, tx: from.x + Math.cos(ang) * dist, ty: from.y + Math.sin(ang) * dist, flightMs: (dist / F.speed) * 1000 };
+  }
+
+  private throwGiant() {
+    this.finale = null;
+    this.heldBall.setVisible(false);
+    this.tweens.add({ targets: this.dark, alpha: 0, duration: 400 });
+    const { from, ang, tx, ty, flightMs } = this.giantPath();
+    this.giant = { img: this.add.image(from.x, from.y, 'bullet').setScale(5).setDepth(11), x0: from.x, y0: from.y, ang, start: this.fightMs, flightMs, tx, ty };
+    this.kickBoss('throw', ang, 260);
+    sfx(this, 'spell', 0.7);
+  }
+
+  /** The giant ball breaks into a ring of balls (starting a little out, so standing in the middle is safe). */
+  private burstGiant(x: number, y: number) {
+    const F = R.FINALE.ball;
+    this.giant?.img.destroy();
+    this.giant = null;
+    for (let i = 0; i < F.burst; i++) {
+      const a = (i / F.burst) * Math.PI * 2;
+      this.bullet(x + Math.cos(a) * 9, y + Math.sin(a) * 9, a, F.burstSpeed);
+    }
+    this.shockwave(x, y, 14, 0xff4f7a);
+    this.cameras.main.shake(150, 0.01);
+    sfx(this, 'hit');
+  }
+
+  /** The giant ball in flight and the rain: they go on while he does other things. */
+  private updateFinaleWorld() {
+    const now = this.fightMs;
+    const g = this.giant;
+    if (g) {
+      const t = now - g.start;
+      const x = g.x0 + (Math.cos(g.ang) * R.FINALE.ball.speed * t) / 1000;
+      const y = g.y0 + (Math.sin(g.ang) * R.FINALE.ball.speed * t) / 1000;
+      g.img.setPosition(Math.round(x), Math.round(y));
+      const hit = Phaser.Math.Distance.Between(x, y, this.player.x, this.player.y) < 12;
+      if (hit) this.hurtPlayer(R.FINALE.ball.hitDmg);
+      if (hit || t >= g.flightMs) this.burstGiant(x, y);
+    }
+    const S = R.FINALE.slam;
+    this.rain = this.rain.filter((d) => {
+      if (now < d.at) return true;
+      this.shockwave(d.x, d.y, S.dropRadius + 2, 0xff4f7a);
+      if (Phaser.Math.Distance.Between(d.x, d.y, this.player.x, this.player.y) < S.dropRadius + 3) this.hurtPlayer(R.BULLET_DMG);
+      return false;
+    });
+  }
+
+  private endFinale() {
+    if (this.finale?.kind === 'slamRain') {                    // caught in the air: put him back on the ground
+      this.tweens.killTweensOf(this.bossView);
+      this.bossView.setPosition(this.boss.x, this.boss.y).setScale(1);
+    }
+    this.finale = null;
+    this.giant?.img.destroy();
+    this.giant = null;
+    this.rain = [];
+    this.dark.setAlpha(0);
+  }
+
+  private shockwave(x: number, y: number, radius: number, color: number) {
+    const c = this.add.circle(x, y, 4).setStrokeStyle(2, color, 0.9).setDepth(12);
+    this.tweens.add({ targets: c, scale: radius / 4, alpha: 0, duration: 320, ease: 'Quad.easeOut', onComplete: () => c.destroy() });
+  }
+
   private updateBoss() {
     const now = this.fightMs;
     const st = R.STAGES[this.stage];
     const body = this.boss.body as Body;
+    if (this.finale) { this.runFinale(body); return; }        // a finale move drives him
     if (now < this.knockUntil) return;                       // pushed: flying back
     if (now < this.paralyzedUntil) { body.setVelocity(0, 0); return; }
     const slow = now < this.slowUntil ? R.SPECIAL.freezeFactor : 1;
@@ -568,6 +740,7 @@ export class PlayScene extends Phaser.Scene {
       return;
     }
     if (now < this.dashUntil) return;
+    if (this.stage === 3 && now >= this.nextFinaleAt && now >= this.bossInvulnUntil) { this.startFinale(); return; }
 
     if (st.dashEveryMs > 0 && now >= this.nextDashAt) {
       this.nextDashAt = now + st.dashEveryMs;
@@ -596,11 +769,12 @@ export class PlayScene extends Phaser.Scene {
 
   private damageBoss(dmg: number, opts: { hitStop?: boolean; drops?: boolean; color?: string } = {}) {
     if (this.bossDead) return;
-    if (this.fightMs < this.bossInvulnUntil) {     // changing stage: say so instead of silently ignoring the hit
+    if (this.fightMs < this.bossInvulnUntil || this.finale?.kind === 'slamRain') {   // changing stage / in the air: say so
       if (this.fightMs >= this.immuneNoteAt) { this.floatText(this.boss.x, this.boss.y - 14, 'immune', '#888888'); this.immuneNoteAt = this.fightMs + 300; }
       return;
     }
     const { hitStop = true, drops = true, color = '#ffffff' } = opts;
+    if (this.finale?.kind === 'giantBall') this.finale.dealt += dmg;   // fills the "stop him" meter
     this.bossHp = Math.max(0, this.bossHp - dmg);
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
     if (hitStop) {
@@ -624,6 +798,7 @@ export class PlayScene extends Phaser.Scene {
     this.bossInvulnUntil = this.fightMs + 1200;
     this.nextShotAt = this.fightMs + 1500;
     this.nextDashAt = this.fightMs + R.STAGES[next].dashEveryMs;
+    if (next === 3) this.nextFinaleAt = this.fightMs + R.FINALE.firstAfterMs;
     this.bullets.clear(true, true);
     this.drop(R.stageDrop(this.rng, this.villageLvl));
     this.cameras.main.shake(200, 0.015);
@@ -635,6 +810,7 @@ export class PlayScene extends Phaser.Scene {
   private killBoss() {
     this.bossDead = true;
     this.telegraph = null;
+    this.endFinale();
     this.heldBall.setVisible(false);
     this.bullets.clear(true, true);
     this.drop(R.deathDrop(this.rng, this.villageLvl));
@@ -831,7 +1007,7 @@ export class PlayScene extends Phaser.Scene {
         ray(b.x, b.y, tg.angle, 0, dist, pulse, 3);
         t.lineStyle(1, 0xff3a3a, pulse).strokeCircle(b.x + Math.cos(tg.angle) * dist, b.y + Math.sin(tg.angle) * dist, r);
       }
-    } else if (!this.bossDead && R.STAGES[this.stage].pattern === 'spiral'
+    } else if (!this.bossDead && !this.finale && R.STAGES[this.stage].pattern === 'spiral'
       && now >= this.bossInvulnUntil && now >= this.paralyzedUntil && now >= this.knockUntil && now >= this.dashUntil) {
       // the spiral has no wind-up: show the next burst's directions while it comes
       const left = this.nextShotAt - now;
@@ -839,6 +1015,36 @@ export class PlayScene extends Phaser.Scene {
         const k = 1 - Math.max(0, left) / SPIRAL_WARN_MS;      // 0 -> 1 as it comes
         for (let i = 0; i < SPIRAL_ARMS; i++) ray(b.x, b.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, 14, 14 + 26 * k, 0.15 + 0.6 * k);
       }
+    }
+    // the finale's warnings: where the giant ball bursts, where he lands, where the rain falls
+    const fin = this.finale;
+    const burstMark = (x: number, y: number) => {
+      t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(x, y, 9);
+      for (let i = 0; i < R.FINALE.ball.burst; i++) ray(x, y, (i / R.FINALE.ball.burst) * Math.PI * 2, 10, 20, 0.25 + pulse);
+    };
+    if (fin?.kind === 'giantBall' && !this.bossDead) {
+      const g = this.giantPath();                              // the same path the throw will take
+      t.lineStyle(2, 0xff3a3a, pulse).lineBetween(g.from.x, g.from.y, g.tx, g.ty);
+      burstMark(g.tx, g.ty);
+      const k = Math.min(1, fin.dealt / R.FINALE.ball.staggerDmg);
+      const left = Math.max(0, 1 - (now - fin.at) / R.FINALE.ball.chargeMs);
+      f.fillStyle(0x000000, 0.75).fillRect(b.x - 17, b.y + 20, 34, 6);
+      f.fillStyle(0xffcc44).fillRect(b.x - 16, b.y + 21, Math.round(32 * k), 3);     // the "stop him" meter
+      f.fillStyle(0xff3a3a).fillRect(b.x - 16, b.y + 24, Math.round(32 * left), 1);  // time left
+    }
+    if (this.giant) burstMark(this.giant.tx, this.giant.ty);
+    if (fin?.kind === 'slamRain') {
+      const S = R.FINALE.slam;
+      f.fillStyle(0x000000, 0.4).fillEllipse(fin.x, fin.y + 10, 26, 9);                  // his shadow
+      const k = fin.phase === 'lock' ? (now - fin.at) / S.lockMs : fin.phase === 'fall' ? 1 : 0;
+      t.lineStyle(1, 0xff3a3a, fin.phase === 'hunt' || fin.phase === 'rise' ? 0.3 : 0.5 + pulse).strokeCircle(fin.x, fin.y, S.radius);
+      if (k > 0) t.fillStyle(0xff3a3a, 0.25 * k).fillCircle(fin.x, fin.y, S.radius);
+    }
+    for (const d of this.rain) {
+      const left = d.at - now;
+      if (left > R.FINALE.slam.rainWarnMs) continue;
+      t.lineStyle(1, 0xff3a3a, 0.4 + pulse).lineBetween(d.x - 3, d.y - 3, d.x + 3, d.y + 3).lineBetween(d.x - 3, d.y + 3, d.x + 3, d.y - 3);
+      if (left < 260) f.fillStyle(0xff4f7a).fillCircle(d.x, d.y - (40 * left) / 260, 2);   // the ball coming down
     }
     if (this.bossDead) return;
     // status effects on him
@@ -944,6 +1150,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.ended) return;
     this.ended = true;
     this.heldBall.setVisible(false);
+    this.endFinale();
     const found = [...this.rings];
     updateSave((s) => ({ ...s, wallet: this.wallet, lifetimeRings: R.addRings(s.lifetimeRings, found) }));
 
