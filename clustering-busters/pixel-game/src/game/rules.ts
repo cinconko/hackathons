@@ -275,12 +275,12 @@ export const DRINK_ORDER: readonly DrinkId[] = ['ale', 'mead', 'cider'];
 export interface VillageLevel { readonly name: string; readonly at: number }
 /** Total rings spent at the merchant and the bar unlock the next level. */
 export const VILLAGE_LEVELS: readonly VillageLevel[] = [
-  { name: 'Camp', at: 0 },
-  { name: 'Hamlet', at: 150 },
-  { name: 'Village', at: 400 },
-  { name: 'Market town', at: 800 },
-  { name: 'Town', at: 1400 },
-  { name: 'Ringfall City', at: 2200 },
+  { name: 'Camp', at: 0 },             // forest, a campfire, beer from a barrel
+  { name: 'Tent camp', at: 150 },       // tents and the first huts
+  { name: 'Village', at: 400 },         // complete houses, the bar, the market stall
+  { name: 'Fountain square', at: 800 }, // fountains
+  { name: 'Rich town', at: 1400 },      // rich people come to visit
+  { name: 'Ringfall City', at: 2200 },  // horse carts on the road
 ];
 
 /** 1-based village level for this much spending. */
@@ -351,12 +351,35 @@ export function stageStartHp(stage: Stage, maxHp: number = BOSS_MAX_HP): number 
 }
 
 export interface Drop { rings: Rarity[] }
-/** Leaving a stage drops a rolled ring and two classic ones. */
-export function stageDrop(rng: Rng): Drop { return { rings: [rollRing(rng), 'classic', 'classic'] }; }
-/** The boss's death drop: a ring that is at least rare, and three classic ones. */
-export function deathDrop(rng: Rng): Drop { return { rings: [rollRing(rng, 'rare'), 'classic', 'classic', 'classic'] }; }
-/** Chance that a hit knocks a classic ring loose. */
+/**
+ * Ring luck: the bigger the village, the more rings Mossback drops. +15 % per village level
+ * (Camp 1.0 ... Ringfall City 1.75). Linear and capped by the 6 levels, so the loop
+ * "spend in the village -> more rings -> spend more" cannot run away.
+ */
+export const RING_BONUS_PER_LEVEL = 0.15;
+export function ringLuck(villageLevel: number): number {
+  return 1 + RING_BONUS_PER_LEVEL * (Math.min(Math.max(villageLevel, 1), 6) - 1);
+}
+/** Extra rolled rings so that a drop of `base` rings grows with the luck. */
+const extra = (rng: Rng, base: number, level: number): Rarity[] =>
+  Array.from({ length: Math.round(base * ringLuck(level)) - base }, () => rollRing(rng));
+
+/** Leaving a stage always drops a rare-or-better ring, plus a rolled one and a classic one (more with luck). */
+export function stageDrop(rng: Rng, villageLevel = 1): Drop {
+  const base: Rarity[] = [rollRing(rng, 'rare'), rollRing(rng), 'classic'];
+  return { rings: [...base, ...extra(rng, base.length, villageLevel)] };
+}
+/** The boss's death drop: two rings that are at least rare, a rolled one and a classic one (more with luck). */
+export function deathDrop(rng: Rng, villageLevel = 1): Drop {
+  const base: Rarity[] = [rollRing(rng, 'rare'), rollRing(rng, 'rare'), rollRing(rng), 'classic'];
+  return { rings: [...base, ...extra(rng, base.length, villageLevel)] };
+}
+/** Chance that a hit knocks a ring loose (times the luck); its rarity is rolled like any other drop. */
 export const RING_ON_HIT_CHANCE = 0.15;
+/** The ring a hit knocks loose, or null. */
+export function hitDrop(rng: Rng, villageLevel = 1): Rarity | null {
+  return rng() < RING_ON_HIT_CHANCE * ringLuck(villageLevel) ? rollRing(rng) : null;
+}
 
 // ---- Retailer: the fisherman, selling supplies -----------------------------------------
 

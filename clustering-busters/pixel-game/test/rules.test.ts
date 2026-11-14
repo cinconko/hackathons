@@ -4,7 +4,7 @@ import {
   addRings, bossStage, buyItem, CATALOG, countRings, damageTaken, deathDrop, emptyWallet, equip, formatTime, hitDamage,
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
-  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS,
+  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS, stageDrop, hitDrop, ringLuck,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -128,7 +128,7 @@ test('ring odds: 5% super rare, 25% rare, 70% classic; the death drop is at leas
   assert.equal(rollRing(fixed(0.01)), 'superRare');
   assert.equal(rollRing(fixed(0.05)), 'rare');
   assert.equal(rollRing(fixed(0.3)), 'classic');
-  assert.equal(deathDrop(fixed(0.9)).rings[0], 'rare');
+  assert.deepEqual(deathDrop(fixed(0.9)).rings.slice(0, 2), ['rare', 'rare']);
   const rng = seededRng(7);
   const many = countRings(Array.from({ length: 20000 }, () => rollRing(rng)));
   assert.ok(Math.abs(many.superRare / 20000 - 0.05) < 0.01);
@@ -183,8 +183,39 @@ test('village levels grow with rings spent', () => {
   assert.equal(villageLevel(150), 2);
   assert.equal(villageLevel(2199), 5);
   assert.equal(villageLevel(99999), VILLAGE_LEVELS.length);
-  assert.deepEqual(villageProgress(275), { level: 2, name: 'Hamlet', next: 400, frac: 0.5 });
+  assert.deepEqual(villageProgress(275), { level: 2, name: 'Tent camp', next: 400, frac: 0.5 });
   assert.equal(villageProgress(5000).next, null);
   // thresholds only go up
   for (let i = 1; i < VILLAGE_LEVELS.length; i++) assert.ok(VILLAGE_LEVELS[i].at > VILLAGE_LEVELS[i - 1].at);
+});
+
+test('rare rings drop in every fight: each stage change and the death drop guarantee them', () => {
+  const rareOrBetter = (r: string) => r === 'rare' || r === 'superRare';
+  for (let seed = 0; seed < 200; seed++) {
+    assert.ok(stageDrop(seededRng(seed)).rings.some(rareOrBetter), `stage drop ${seed}`);
+    assert.ok(deathDrop(seededRng(seed)).rings.filter(rareOrBetter).length >= 2, `death drop ${seed}`);
+  }
+});
+
+test('hits knock rings loose 15% of the time, with the usual rarity odds', () => {
+  const rng = seededRng(5);
+  const drops = Array.from({ length: 40000 }, () => hitDrop(rng)).filter((d) => d !== null);
+  assert.ok(Math.abs(drops.length / 40000 - 0.15) < 0.01, `drop rate ${drops.length / 40000}`);
+  assert.ok(drops.some((d) => d === 'rare') && drops.some((d) => d === 'superRare'));
+});
+
+test('a bigger village: Mossback drops more rings (+15% per level, capped at level 6)', () => {
+  assert.equal(ringLuck(1), 1);
+  assert.ok(Math.abs(ringLuck(6) - 1.75) < 1e-9);
+  assert.equal(ringLuck(9), ringLuck(6));
+  assert.equal(ringLuck(0), 1);
+  const stage = [1, 2, 3, 4, 5, 6].map((l) => stageDrop(seededRng(1), l).rings.length);
+  const death = [1, 2, 3, 4, 5, 6].map((l) => deathDrop(seededRng(1), l).rings.length);
+  assert.deepEqual(stage, [3, 3, 4, 4, 5, 5]);
+  assert.deepEqual(death, [4, 5, 5, 6, 6, 7]);
+  const rate = (l: number) => { const rng = seededRng(9); let n = 0; for (let i = 0; i < 40000; i++) if (hitDrop(rng, l)) n++; return n / 40000; };
+  assert.ok(Math.abs(rate(1) - 0.15) < 0.01);
+  assert.ok(Math.abs(rate(6) - 0.2625) < 0.012);
+  // the rare guarantees still hold at every level
+  for (let l = 1; l <= 6; l++) assert.ok(stageDrop(seededRng(l), l).rings.some((r) => r !== 'classic'));
 });

@@ -10,6 +10,7 @@ export interface SaveData {
   drink: DrinkId | null;   // bought at the bar, drunk at the start of the next fight
   spent: number;           // rings spent in the village: it grows with them
   villageSeen: number;     // the village level the player has already watched being built
+  handRevealed: boolean;   // the "in hand" indicator has popped up once (after the first weapon)
   lifetimeRings: Wallet;   // every ring ever found
   wins: number;
   bestTimeMs: number;      // fastest win, 0 = no win yet
@@ -17,7 +18,7 @@ export interface SaveData {
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], drink: null, spent: 0, villageSeen: 1, lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], drink: null, spent: 0, villageSeen: 1, handRevealed: false, lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
 
 /** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */
