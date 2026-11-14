@@ -219,6 +219,7 @@ export class BootScene extends Phaser.Scene {
       px(0x9fd3ff, 5, 13, 5, 4); px(0x9fd3ff, 20, 13, 5, 4); px(0x6b4a2b, 7, 13, 1, 4); px(0x6b4a2b, 22, 13, 1, 4);
     });
     tex('tree', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); });
+    tex('tree_apple', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); px(0xd83a3a, 3, 7); px(0xd83a3a, 9, 4); px(0xd83a3a, 10, 9); });
     // bushes (village decoration), the berry ones with red dots
     const bush = (key: string, w: number, h: number, berries: boolean) => tex(key, w, h, () => {
       g.fillStyle(0x2f6b2f).fillEllipse(w / 2, h / 2 + 1, w, h - 2); g.fillStyle(0x3f8a3a).fillEllipse(w / 2 - 2, h / 2, w - 8, h - 5);
