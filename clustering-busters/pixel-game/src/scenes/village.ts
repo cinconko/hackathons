@@ -3,9 +3,10 @@ import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import {
-  addRings, buyItem, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, pay, rollCards, walletValue, WELL_RING_CHANCE,
+  addRings, buyItem, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, pay, rollCards, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
   type CatalogId, type CatalogItem, type ItemKind, type Rarity,
 } from '../game/rules';
+import { playMusic, sfx } from '../media';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, walletHud } from '../ui';
@@ -15,6 +16,7 @@ import { banner, floatText, FONT, walletHud } from '../ui';
 //   bar            one drink at a time, drunk at the start of the next fight
 //   well           step into it and you fall in (sometimes there is a ring at the bottom)
 //   catapult       flies you into Mossback's arena
+//   growth         rings spent here build the village out: 6 levels, from a camp to Ringfall City
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Panel = 'cards' | 'gear' | 'bar';
@@ -28,6 +30,31 @@ const CATAPULT = { x: PLAY.x + PLAY.width - 40, y: PLAY.y + 104 };   // pivot of
 const ARM_REST = Math.PI * 0.92;     // arm lying back, bucket near the ground
 const ARM_FIRE = -Math.PI * 0.35;    // arm after the throw
 const ARM_LEN = 24;
+/** What the village builds, by level. x / y are relative to the play area; solid = [w, h, y offset]. */
+interface Part { lvl: number; key: string; x: number; y: number; solid?: [number, number, number] }
+const PARTS: readonly Part[] = [
+  // 2 Hamlet: two houses with flower beds
+  { lvl: 2, key: 'house', x: 70, y: 72, solid: [26, 14, 5] },
+  { lvl: 2, key: 'house', x: 178, y: 70, solid: [26, 14, 5] },
+  { lvl: 2, key: 'flowers', x: 70, y: 89 },
+  { lvl: 2, key: 'flowers', x: 178, y: 87 },
+  // 3 Village: lanterns along the road (and cobbles, drawn), another house
+  ...[30, 92, 136, 195, 250].map((x) => ({ lvl: 3, key: 'lantern', x, y: 97 })),
+  { lvl: 3, key: 'house', x: 232, y: 146, solid: [26, 14, 5] },
+  { lvl: 3, key: 'flowers', x: 34, y: 57 },
+  // 4 Market town: a fruit stall, a roof over the well (and bunting, drawn)
+  { lvl: 4, key: 'fruitstall', x: 40, y: 144, solid: [26, 6, 4] },
+  { lvl: 4, key: 'well_roof', x: 70, y: 127 },
+  // 5 Town: watchtowers (and a stone wall, drawn); the first house becomes a big one
+  { lvl: 5, key: 'tower', x: 12, y: 150, solid: [16, 8, 12] },
+  { lvl: 5, key: 'tower', x: 300, y: 150, solid: [16, 8, 12] },
+  { lvl: 5, key: 'house_big', x: 34, y: 38, solid: [28, 14, 9] },
+  // 6 Ringfall City: a golden statue of the hero, flags on the towers
+  { lvl: 6, key: 'statue', x: 150, y: 90, solid: [14, 6, 8] },
+  { lvl: 6, key: 'flag', x: 16, y: 127 },
+  { lvl: 6, key: 'flag', x: 304, y: 127 },
+];
+
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 
 export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean }
@@ -44,6 +71,11 @@ export class VillageScene extends Phaser.Scene {
   private sel = 0;
   private locked = false;       // no control: launching, getting up, falling into the well
   private wellLooted = false;   // one ring from the well per visit, at most
+  private solids!: Phaser.Physics.Arcade.StaticGroup;
+  private firstHouse!: Phaser.GameObjects.Image;
+  private villagers: Phaser.GameObjects.Image[] = [];
+  private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text };
+  private pendingGrow = false;  // a purchase raised the level: build when the shop closes
 
   constructor() { super('village'); }
 
@@ -53,6 +85,8 @@ export class VillageScene extends Phaser.Scene {
     this.note = '';
     this.sel = 0;
     this.wellLooted = false;
+    this.villagers = [];
+    this.pendingGrow = false;
 
     // the merchant deals new cards every time you come back from the arena (and on a first visit)
     const save = loadSave();
@@ -63,12 +97,13 @@ export class VillageScene extends Phaser.Scene {
 
     this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
     const solids = this.drawVillage();
+    this.solids = solids;
 
     this.add.image(MERCHANT.x, MERCHANT.y, 'merchant').setDepth(6);
     this.add.image(STALL.x, STALL.y + 4, 'stall').setDepth(7);
     this.add.text(STALL.x, STALL.y - 22, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
     this.add.image(BAR.x, BAR.y, 'bar').setDepth(5);
-    this.add.text(BAR.x, BAR.y - 24, 'BAR', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);
+    this.add.text(BAR.x, BAR.y - 10, 'BAR', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // on the roof, clear of the level HUD
     this.add.image(BAR.x + 30, BAR.y - 4, 'mug').setDepth(8);                 // the hanging sign
     this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
     this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
@@ -81,9 +116,21 @@ export class VillageScene extends Phaser.Scene {
     this.prompt = this.add.text(0, 0, '', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950);
     this.wallet = walletHud(this, PLAY.x + 4, PLAY.y + 4);
     this.wallet.update(loadSave().wallet);
-    this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + 3, 'WASD move   E use', { ...FONT, color: '#556655' }).setOrigin(1, 0).setDepth(950);
+    this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, 'WASD move   E use', { ...FONT, color: '#2f5a2a' }).setOrigin(1, 0).setDepth(950);
+    this.levelHud = {
+      g: this.add.graphics().setDepth(950),
+      name: this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + 2, '', { ...FONT, color: '#ffffff' }).setOrigin(1, 0).setDepth(950),
+      next: this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + 15, '', { ...FONT, color: '#c8e8b8' }).setOrigin(1, 0).setDepth(950),
+    };
+
+    // what the village has built so far appears at once; anything new gets built in front of you
+    const seen = Math.min(save.villageSeen, villageLevel(save.spent));
+    this.buildUpTo(seen, false);
+    this.updateLevelHud();
+    if (villageLevel(loadSave().spent) > seen) this.time.delayedCall(data.bouncedBack ? 3600 : 900, () => this.grow());
 
     drawFrame(this);
+    playMusic(this, 'village');
     if (data.bouncedBack) {
       this.bounceIn(data.kept ?? 0);
     } else {
@@ -124,7 +171,21 @@ export class VillageScene extends Phaser.Scene {
     this.render();
   }
 
-  private closePanel() { this.panel?.destroy(); this.panel = null; this.prompt.setVisible(false); }
+  private closePanel() {
+    this.panel?.destroy();
+    this.panel = null;
+    this.prompt.setVisible(false);
+    if (this.pendingGrow) { this.pendingGrow = false; this.time.delayedCall(250, () => this.grow()); }
+  }
+
+  /** After spending: refresh the level bar, and build when the shop closes if the level went up. */
+  private spentChanged(spent: number, seen: number) {
+    this.updateLevelHud();
+    if (villageLevel(spent) > seen) {
+      this.pendingGrow = true;
+      this.note = `${this.note ? `${this.note} ` : ''}The village will grow!`;
+    }
+  }
 
   private panelKeys() {
     const k = this.keys;
@@ -148,8 +209,10 @@ export class VillageScene extends Phaser.Scene {
       const r = buyItem(s.wallet, s.inventory, id);
       if (!r.ok) this.note = `${it.name} costs ${it.price} rings. You have ${walletValue(s.wallet)}.`;
       else {
-        updateSave((x) => ({ ...x, wallet: r.wallet, inventory: r.inventory }));
+        sfx(this, 'buy');
+        const after = updateSave((x) => ({ ...x, wallet: r.wallet, inventory: r.inventory, spent: x.spent + it.price }));
         this.wallet.update(r.wallet);
+        this.spentChanged(after.spent, after.villageSeen);
         this.note = it.kind === 'special' ? `Bought ${it.name}: a number key in the fight.` : `Bought and equipped: ${it.name}.`;
       }
     } else if (this.mode === 'gear') {
@@ -164,8 +227,10 @@ export class VillageScene extends Phaser.Scene {
       const paid = pay(s.wallet, d.price);
       if (!paid) this.note = `${d.name} is ${d.price} rings.`;
       else {
-        updateSave((x) => ({ ...x, wallet: paid, drink: id }));
+        sfx(this, 'buy');
+        const after = updateSave((x) => ({ ...x, wallet: paid, drink: id, spent: x.spent + d.price }));
         this.wallet.update(paid);
+        this.spentChanged(after.spent, after.villageSeen);
         this.note = s.drink ? `${d.name} instead of ${DRINKS[s.drink].name}. Drunk at the next fight.` : `${d.name}: you drink it when the fight starts.`;
       }
     }
@@ -278,6 +343,124 @@ export class VillageScene extends Phaser.Scene {
     c.add(this.add.text(x + 8, y + h - 11, 'W/S choose  Enter buy  E leave', { ...FONT, color: '#888888' }));
   }
 
+  // ---- the village grows ----
+
+  /** Places every part up to `level`. animate = build it in front of the player. */
+  private buildUpTo(level: number, animate: boolean, from = 1) {
+    const g = (lvl: number) => this.add.graphics().setDepth(lvl === 3 ? 1 : lvl === 4 ? 8 : 4);
+    let n = 0;
+    const appear = (obj: Phaser.GameObjects.Image | Phaser.GameObjects.Graphics, x: number, y: number) => {
+      if (!animate) return;
+      const delay = 300 + n++ * 220;
+      if (obj instanceof Phaser.GameObjects.Image) {
+        const sy = obj.scaleY;
+        obj.setScale(obj.scaleX, 0);
+        this.tweens.add({ targets: obj, scaleY: sy, duration: 380, delay, ease: 'Back.easeOut', onStart: () => { dustPuff(this, x, y + obj.height / 2 - 4, 6, 12); this.sparkle(x, y - obj.height / 2); } });
+      } else {
+        obj.setAlpha(0);
+        this.tweens.add({ targets: obj, alpha: 1, duration: 500, delay });
+      }
+    };
+    for (let lvl = from; lvl <= level; lvl++) {
+      if (lvl === 3) appear(this.drawCobbles(g(lvl)), WIDTH / 2, PLAY.y + 112);
+      if (lvl === 4) appear(this.drawBunting(g(lvl)), STALL.x + 50, STALL.y - 14);
+      if (lvl === 5) appear(this.drawWall(g(lvl)), WIDTH / 2, PLAY.y + PLAY.height - 3);
+      for (const p of PARTS.filter((q) => q.lvl === lvl)) {
+        const x = PLAY.x + p.x;
+        const y = PLAY.y + p.y;
+        const img = this.add.image(x, y, p.key).setDepth(p.key === 'well_roof' || p.key === 'flag' ? 8 : 5);
+        if (p.solid) { this.solids.add(this.add.zone(x, y + p.solid[2], p.solid[0], p.solid[1])); }
+        if (p.key === 'house_big') {   // the first house is rebuilt bigger
+          if (animate) this.tweens.add({ targets: this.firstHouse, alpha: 0, duration: 300, delay: 300 + n * 220 });
+          else this.firstHouse.setVisible(false);
+        }
+        appear(img, x, y);
+      }
+    }
+    this.solids.refresh();
+    this.addVillagers(level - 1);
+  }
+
+  /** Build the levels reached since the player last looked, with a banner. */
+  private grow() {
+    const save = loadSave();
+    const level = villageLevel(save.spent);
+    const from = save.villageSeen;
+    if (level <= from) return;
+    updateSave((x) => ({ ...x, villageSeen: level }));
+    this.buildUpTo(level, true, from + 1);
+    sfx(this, 'levelup');
+    this.cameras.main.shake(200, 0.006);
+    banner(this, 'THE VILLAGE GROWS!', `Level ${level}: ${villageProgress(save.spent).name}`);
+    this.updateLevelHud();
+  }
+
+  private updateLevelHud() {
+    const p = villageProgress(loadSave().spent);
+    const { g, name, next } = this.levelHud;
+    name.setText(`${p.name} (${p.level}/6)`);
+    next.setText(p.next === null ? 'fully built!' : `${loadSave().spent}/${p.next} spent`);
+    const w = 60;
+    const x = PLAY.x + PLAY.width - 4 - w;
+    const y = PLAY.y + 11;
+    g.clear().fillStyle(0x000000, 0.6).fillRect(x - 1, y - 1, w + 2, 4);
+    g.fillStyle(0x2a3a20).fillRect(x, y, w, 2).fillStyle(0xffcc44).fillRect(x, y, Math.round(w * p.frac), 2);
+  }
+
+  private sparkle(x: number, y: number) {
+    for (let i = 0; i < 3; i++) {
+      const sp = this.add.image(x + Phaser.Math.Between(-8, 8), y + Phaser.Math.Between(-3, 3), 'sparkle').setDepth(12);
+      this.tweens.add({ targets: sp, y: sp.y - 8, alpha: 0, duration: 700, delay: i * 90, onComplete: () => sp.destroy() });
+    }
+  }
+
+  /** Villagers walking up and down the road: one more per level. */
+  private addVillagers(count: number) {
+    while (this.villagers.length < count) {
+      const i = this.villagers.length;
+      const y = PLAY.y + 108 + (i % 3) * 4;
+      const x1 = PLAY.x + 14 + ((i * 47) % 90);
+      const x2 = x1 + 70 + ((i * 31) % 90);
+      const v = this.add.image(x1, y, i % 2 ? 'villager_b' : 'villager_a').setDepth(9);
+      this.tweens.add({
+        targets: v, x: x2, duration: (x2 - x1) * 55, yoyo: true, repeat: -1, ease: 'Sine.easeInOut', delay: i * 400,
+        onYoyo: () => v.setFlipX(true), onRepeat: () => v.setFlipX(false),
+      });
+      this.villagers.push(v);
+    }
+  }
+
+  private drawCobbles(g: Phaser.GameObjects.Graphics) {
+    for (let x = 0; x < PLAY.width - 48; x += 6) for (let row = 0; row < 3; row++) {
+      g.fillStyle(row % 2 ? 0xa89a7a : 0xb8aa8a).fillRect(PLAY.x + x + (row % 2) * 3, PLAY.y + 106 + row * 5, 4, 3);
+    }
+    return g;
+  }
+
+  private drawBunting(g: Phaser.GameObjects.Graphics) {
+    const x1 = STALL.x + 20;
+    const y1 = STALL.y - 16;
+    const x2 = BAR.x - 25;
+    const y2 = BAR.y - 10;
+    g.lineStyle(1, 0x6b4a2b).lineBetween(x1, y1, x2, y2);
+    const colors = [0xd83a3a, 0xffcc44, 0x4a90d9, 0x6fd13a];
+    for (let i = 0; i < 9; i++) {
+      const t = (i + 0.5) / 9;
+      const x = x1 + (x2 - x1) * t;
+      const y = y1 + (y2 - y1) * t + Math.sin(t * Math.PI) * 4;
+      g.fillStyle(colors[i % 4]).fillTriangle(x - 2, y, x + 2, y, x, y + 4);
+    }
+    return g;
+  }
+
+  private drawWall(g: Phaser.GameObjects.Graphics) {
+    const y = PLAY.y + PLAY.height - 6;
+    for (let x = 20; x < PLAY.width - 20; x += 6) {
+      g.fillStyle(0x7a7a84).fillRect(PLAY.x + x, y, 5, 3).fillStyle(0x8a8a94).fillRect(PLAY.x + x + 3, y + 3, 5, 3);
+    }
+    return g;
+  }
+
   // ---- the well ----
 
   /** Step into the hole: you shrink and spin down, splash, then climb out soaked. */
@@ -292,6 +475,7 @@ export class VillageScene extends Phaser.Scene {
         p.setVisible(false);
         this.cameras.main.shake(160, 0.012);
         floatText(this, WELL.x, WELL.y - 10, 'SPLASH!', '#6ab8ff');
+        sfx(this, 'splash');
         for (let i = 0; i < 12; i++) {
           const a = -Math.PI / 2 + (i / 11 - 0.5) * 2.2;
           const d = this.add.image(WELL.x, WELL.y - 2, 'drop').setDepth(11);
@@ -320,6 +504,7 @@ export class VillageScene extends Phaser.Scene {
       const ring = found;
       const s = updateSave((x) => ({ ...x, wallet: addRings(x.wallet, [ring]), lifetimeRings: addRings(x.lifetimeRings, [ring]) }));
       this.wallet.update(s.wallet);
+      sfx(this, 'ring');
       banner(this, 'SPLASH!', `You climbed out with a ${ring === 'rare' ? 'rare' : 'classic'} ring from the bottom.`);
     } else {
       banner(this, 'SPLASH!', 'You climbed out. Soaked, and nothing at the bottom.');
@@ -341,6 +526,7 @@ export class VillageScene extends Phaser.Scene {
     const p = this.player;
     p.setPosition(PLAY.x + PLAY.width + 16, roadY - 40).setRotation(0);
     const thud = (x: number, y: number, i: number) => {
+      sfx(this, 'bounce', 0.6 - i * 0.12);
       dustPuff(this, x, y, 6, 14 - i * 2);
       this.cameras.main.shake(140 - i * 30, 0.018 - i * 0.004);
     };
@@ -410,6 +596,7 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private fly() {
+    sfx(this, 'launch');
     this.cameras.main.shake(150, 0.01);
     const start = { x: this.player.x, y: this.player.y };
     const t = { p: 0 };
@@ -449,7 +636,7 @@ export class VillageScene extends Phaser.Scene {
 
     const solids = this.physics.add.staticGroup();
     const block = (x: number, y: number, w: number, h: number) => solids.add(this.add.zone(x, y, w, h));
-    this.add.image(PLAY.x + 34, PLAY.y + 40, 'house').setDepth(5);
+    this.firstHouse = this.add.image(PLAY.x + 34, PLAY.y + 40, 'house').setDepth(5);
     block(PLAY.x + 34, PLAY.y + 45, 26, 14);
     for (const [x, y] of [[PLAY.x + 80, PLAY.y + 24], [PLAY.x + 160, PLAY.y + 150], [PLAY.x + 14, PLAY.y + 82], [PLAY.x + 280, PLAY.y + 150], [PLAY.x + 170, PLAY.y + 20]] as const) {
       this.add.image(x, y, 'tree').setDepth(5);

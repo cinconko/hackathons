@@ -4,7 +4,7 @@ import {
   addRings, bossStage, buyItem, CATALOG, countRings, damageTaken, deathDrop, emptyWallet, equip, formatTime, hitDamage,
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
-  rollCards, DRINKS, CARD_COUNT,
+  rollCards, DRINKS, CARD_COUNT, villageLevel, villageProgress, VILLAGE_LEVELS,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -175,4 +175,16 @@ test('bar drinks cost a multiple of 5 and each does one thing', () => {
     assert.equal(d.price % RINGS.classic.value, 0, d.name);
     assert.equal([d.hp, d.damage, d.speed].filter((v) => v > 0).length, 1, d.name);
   }
+});
+
+test('village levels grow with rings spent', () => {
+  assert.equal(villageLevel(0), 1);
+  assert.equal(villageLevel(149), 1);
+  assert.equal(villageLevel(150), 2);
+  assert.equal(villageLevel(2199), 5);
+  assert.equal(villageLevel(99999), VILLAGE_LEVELS.length);
+  assert.deepEqual(villageProgress(275), { level: 2, name: 'Hamlet', next: 400, frac: 0.5 });
+  assert.equal(villageProgress(5000).next, null);
+  // thresholds only go up
+  for (let i = 1; i < VILLAGE_LEVELS.length; i++) assert.ok(VILLAGE_LEVELS[i].at > VILLAGE_LEVELS[i - 1].at);
 });

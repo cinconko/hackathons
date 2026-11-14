@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import { CATALOG, RINGS, RARITY_ORDER, STAGES, type CatalogId } from '../game/rules';
+import { mediaStatus } from '../media';
 import { loadSave, updateSave } from '../save';
 
-// Generates all sprites in code (no art files yet). Real art goes in public/media/ (see its
-// README): load it under the same texture key and delete the matching tex(...) call.
+// Draws a placeholder for every sprite that has no file in public/media/sprites (see its README).
+// A file named <key>.png replaces the placeholder with the same key: no code change needed.
 //
 // Dev hooks (URL parameters), to jump to one moment without playing up to it:
-//   ?scene=intro | village | treasury | menu
+//   ?scene=intro | village | treasury | menu | media   (media = the art and sound checklist)
 //   ?play            start the fight right away (no landing)
 //     &t=30500       fight clock in ms (30500 = the fisherman is there)
 //     &stage=3       start the boss in stage 2 or 3
@@ -16,12 +17,18 @@ import { loadSave, updateSave } from '../save';
 //   &wallet=10,2,1   put rings in the wallet (classic, rare, super rare). Writes the save!
 //   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
 //   ?scene=village&merchant   open the ring merchant's shop at once
+//   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
 
   create() {
     const g = this.make.graphics({ x: 0, y: 0 }, false);
-    const tex = (key: string, w: number, h: number, draw: () => void) => { g.clear(); draw(); g.generateTexture(key, w, h); };
+    // A sprite from public/media (loaded by the preload scene) wins; otherwise draw the placeholder.
+    const tex = (key: string, w: number, h: number, draw: () => void) => {
+      if (this.textures.exists(key)) { mediaStatus.fromFiles.add(key); return; }
+      mediaStatus.placeholders.set(key, { w, h });
+      g.clear(); draw(); g.generateTexture(key, w, h);
+    };
     const px = (color: number, x: number, y: number, w = 1, h = 1, alpha = 1) => g.fillStyle(color, alpha).fillRect(x, y, w, h);
     const GOLD = 0xffcc44;
 
@@ -175,6 +182,40 @@ export class BootScene extends Phaser.Scene {
     tex('barkeeper', 10, 14, () => { px(0x3a2418, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3); px(0x5a3a2a, 2, 5, 6, 1); px(0x8a3a3a, 1, 6, 8, 8); px(0xeeeeee, 3, 7, 4, 7); });
     tex('mug', 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(0xc89a3a, 2, 3, 4, 5); px(0xffffff, 2, 2, 4, 2); px(0xc89a3a, 6, 4, 1, 3); px(0x8a6a2a, 2, 7, 4, 1); });
     tex('drop', 2, 2, () => { px(0x6ab8ff, 0, 0, 2, 2); });
+    // ---- what the village builds as it grows ----
+    tex('house_big', 32, 36, () => {
+      for (let i = 0; i < 10; i++) px(0x7a2f22, 11 - i, i, 10 + i * 2, 1);              // roof
+      px(0x5a2018, 0, 10, 32, 1);
+      px(0xe8d8b0, 2, 11, 28, 25); px(0x8a6040, 2, 22, 28, 1);                          // two floors
+      px(0x9fd3ff, 5, 13, 5, 5); px(0x9fd3ff, 22, 13, 5, 5); px(0x9fd3ff, 5, 25, 5, 5);
+      px(0x6b4a2b, 13, 26, 6, 10); px(GOLD, 17, 31); px(0x6b4a2b, 4, 18, 7, 1); px(0x6b4a2b, 21, 18, 7, 1);
+    });
+    tex('lantern', 5, 12, () => { px(0x3a3a3a, 2, 3, 1, 9); px(0x3a3a3a, 1, 11, 3, 1); px(0x2a2a2a, 0, 0, 5, 1); px(0xffd27a, 1, 1, 3, 2); });
+    tex('flowers', 14, 5, () => { px(0x3f7a30, 0, 2, 14, 3); for (let i = 0; i < 5; i++) px([0xff6a8a, 0xffee44, 0xffffff, 0xff6a8a, 0xa070ff][i], 1 + i * 3, 1, 2, 2); });
+    tex('fruitstall', 28, 18, () => {
+      for (let i = 0; i < 7; i++) px(i % 2 ? 0xffffff : 0x3a9a3a, i * 4, 0, 4, 4);
+      px(0x6b4a2b, 1, 4, 2, 14); px(0x6b4a2b, 25, 4, 2, 14); px(0x8a6a3a, 0, 11, 28, 7);
+      for (let i = 0; i < 6; i++) px([0xd83a3a, 0xffaa33, 0xffee44, 0xd83a3a, 0x6fd13a, 0xffaa33][i], 3 + i * 4, 8, 3, 3);
+    });
+    tex('tower', 18, 34, () => {
+      px(0x7a7a84, 2, 8, 14, 26); for (let y = 10; y < 34; y += 5) px(0x6a6a74, 2, y, 14, 1);
+      px(0x8a8a94, 0, 4, 18, 5); px(0x8a8a94, 0, 0, 4, 4); px(0x8a8a94, 7, 0, 4, 4); px(0x8a8a94, 14, 0, 4, 4);   // battlements
+      px(0x1a1a24, 7, 14, 4, 6); px(0x3a2418, 6, 26, 6, 8);
+    });
+    tex('flag', 10, 12, () => { px(0x6b4a2b, 0, 0, 1, 12); px(0xffcc44, 1, 0, 8, 2); px(0xd83a3a, 1, 2, 8, 3); px(0xffcc44, 1, 5, 6, 1); });
+    tex('statue', 14, 22, () => {
+      px(0x8a8a94, 0, 16, 14, 6); px(0x6a6a74, 0, 21, 14, 1);                           // plinth
+      px(GOLD, 5, 2, 4, 4); px(0xfff1a8, 5, 2, 1, 1);                                     // head
+      px(GOLD, 4, 6, 6, 6); px(GOLD, 4, 12, 2, 4); px(GOLD, 8, 12, 2, 4);                 // body, legs
+      px(0xdddddd, 10, 0, 1, 9); px(GOLD, 9, 7, 3, 1);                                    // raised sword
+    });
+    tex('well_roof', 24, 8, () => { for (let i = 0; i < 6; i++) px(0x8a3a2a, 6 - i, i, 12 + i * 2, 1); px(0x5a2018, 0, 6, 24, 2); });
+    const villager = (key: string, shirt: number, hair: number) => tex(key, 8, 10, () => {
+      px(hair, 1, 0, 6, 2); px(0xf2c79a, 1, 2, 6, 3); px(0x000000, 2, 3); px(0x000000, 5, 3);
+      px(shirt, 1, 5, 6, 3); px(0x2b2b3a, 1, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
+    });
+    villager('villager_a', 0xd8823a, 0x2a1a10);
+    villager('villager_b', 0x6aa84a, 0xe8c34a);
     tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
     tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
     g.destroy();
@@ -185,13 +226,17 @@ export class BootScene extends Phaser.Scene {
     if (wallet && wallet.length === 3 && wallet.every((n) => Number.isFinite(n) && n >= 0)) {
       updateSave((s) => ({ ...s, wallet: { classic: wallet[0], rare: wallet[1], superRare: wallet[2] } }));
     }
+    if (q.has('spent')) {
+      const spent = Math.max(0, Number(q.get('spent')) || 0);
+      updateSave((s) => ({ ...s, spent, villageSeen: Math.max(1, Number(q.get('seen') ?? 1) || 1) }));
+    }
     if (q.get('kit') === 'all') {
       updateSave((s) => ({ ...s, inventory: { owned: CATALOG.map((i) => i.id as CatalogId), melee: 'sword', range: 'bow', armor: 'steel' } }));
     }
     const scene = q.get('scene');
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
-    } else if (scene && ['intro', 'village', 'treasury', 'menu'].includes(scene)) {
+    } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
       this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant') });
     } else {
       this.scene.start('menu');

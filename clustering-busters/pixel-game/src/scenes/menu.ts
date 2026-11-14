@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { playMusic } from '../media';
 import { HEIGHT, WIDTH } from '../config';
 import { drawFrame } from '../frame';
 import { formatTime, walletValue } from '../game/rules';
@@ -32,5 +33,6 @@ export class MenuScene extends Phaser.Scene {
     this.input.once('pointerdown', start);
 
     drawFrame(this);
+    playMusic(this, 'menu');
   }
 }
