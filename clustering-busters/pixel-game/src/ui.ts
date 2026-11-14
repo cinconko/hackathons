@@ -3,7 +3,11 @@ import Phaser from 'phaser';
 import { PLAY, WIDTH } from './config';
 import { RARITY_ORDER, RINGS, walletValue, type Wallet } from './game/rules';
 
-export const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#ffffff' };
+/**
+ * All small text: Silkscreen (public/media/fonts/silkscreen.ttf, SIL Open Font License), a pixel font
+ * drawn for 8 px. The browser's monospace was not made for 8 px and came out foggy when scaled up.
+ */
+export const FONT = { fontFamily: 'silkscreen, monospace', fontSize: '8px', color: '#ffffff' };
 /**
  * Titles: Alagard by Hewett Tsoi (public/media/fonts/alagard.ttf; "Give credit if used").
  * A pixel font drawn for 16 px: use 16 or 32, never sizes in between (they blur).
@@ -36,13 +40,13 @@ export function ringIcon(g: Phaser.GameObjects.Graphics, x: number, y: number, c
 /** Wallet HUD: three ring icons with counts and the total worth. Call update() when it changes. */
 export function walletHud(scene: Phaser.Scene, x: number, y: number) {
   const g = scene.add.graphics().setDepth(950);
-  const counts = RARITY_ORDER.map((_r, i) => scene.add.text(x + 8 + i * 22, y - 1, '', FONT).setDepth(950));
-  const worth = scene.add.text(x + 70, y - 1, '', { ...FONT, color: '#ffcc44' }).setDepth(950);
-  RARITY_ORDER.forEach((r, i) => ringIcon(g, x + i * 22, y, RINGS[r].color));
+  const counts = RARITY_ORDER.map((_r, i) => scene.add.text(x + 8 + i * 24, y - 1, '', FONT).setDepth(950));
+  const worth = scene.add.text(x + 76, y - 1, '', { ...FONT, color: '#ffcc44' }).setDepth(950);
+  RARITY_ORDER.forEach((r, i) => ringIcon(g, x + i * 24, y, RINGS[r].color));
   return {
     update(w: Wallet) {
       RARITY_ORDER.forEach((r, i) => counts[i].setText(String(w[r])));
-      worth.setText(`= ${walletValue(w)} rings`);
+      worth.setText(`${walletValue(w)} rings`);
     },
   };
 }

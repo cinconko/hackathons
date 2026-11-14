@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
+import { installCrispText } from './crispText';
 import { placeHandArt } from './handArt';
 import { loadSave, resetSave, updateSave } from './save';
 import { BootScene } from './scenes/boot';
@@ -11,6 +12,8 @@ import { PlayScene } from './scenes/play';
 import { ResultScene } from './scenes/result';
 import { TreasuryScene } from './scenes/treasury';
 import { VillageScene } from './scenes/village';
+
+installCrispText();                     // every text snapped to whole pixels (no grey fog when scaled up)
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
