@@ -57,11 +57,10 @@ const ARM_LEN = 24;
  * animation; swing = a hanging sign that sways.
  */
 interface Part { lvl: number; until?: number; key: string; x: number; y: number; solid?: [number, number, number]; anim?: string; depth?: number; swing?: boolean }
-const forest = (until: number, pts: [number, number][], key = 'tree'): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key, x, y, solid: [6, 6, 6] }));
+const forest = (until: number, pts: [number, number][]): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key: 'tree', x, y, solid: [6, 6, 6] }));
 const PARTS: readonly Part[] = [
   // trees that always stay
-  ...forest(99, [[170, 20], [14, 82]]),                        // clear of the HUD, the signs and the yard
-  ...forest(99, [[62, 32], [280, 150]], 'tree_apple'),
+  ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),   // clear of the HUD, the signs and the yard
   // the forest, cleared stage by stage
   ...forest(2, [[60, 66], [80, 78], [184, 64], [196, 80], [232, 140], [246, 152], [28, 36], [44, 46]]),
   ...forest(3, [[42, 92], [250, 86], [150, 68]]),   // clear of the merchant's blanket
@@ -153,6 +152,7 @@ export class VillageScene extends Phaser.Scene {
   private pour = false;                  // a drink was just bought: pour it
   private hand!: ReturnType<typeof handHud>;
   private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
+  private natureSeed = 1;
   private paths: Phaser.GameObjects.TileSprite[] = [];   // the road and the side paths (paved as the village grows)
   private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text; luck: Phaser.GameObjects.Text };
   private pendingGrow = false;  // a purchase raised the level: build when the shop closes
@@ -182,6 +182,8 @@ export class VillageScene extends Phaser.Scene {
     this.afterBounce = [];
     this.grandpa = null;
     this.paths = [];
+    if (!loadSave().natureSeed) updateSave((x) => ({ ...x, natureSeed: Phaser.Math.Between(1, 1e9) }));   // a new game: a new forest
+    this.natureSeed = loadSave().natureSeed;
     this.placed = new Map();
     this.layers = new Set();
     this.pendingGrow = false;
@@ -611,9 +613,11 @@ export class VillageScene extends Phaser.Scene {
       if (!shown(p) || this.placed.has(p)) continue;
       const x = PLAY.x + p.x;
       const y = PLAY.y + p.y;
-      const { key, anim } = this.robed(p);
+      const wild = this.wild(p);
+      const { key, anim } = wild ?? this.robed(p);
       const obj = anim ? this.add.sprite(x, y, key).play(anim) : this.add.image(x, y, key);
       obj.setDepth(p.depth ?? 5);
+      if (wild) obj.setScale(wild.scale).setY(y + Math.round((1 - wild.scale) * obj.height / 2));   // bigger or smaller, standing on the same spot
       if (p.swing) {   // a hanging sign: pivot at the top, sways
         obj.setOrigin(0.5, 0);
         this.tweens.add({ targets: obj, angle: { from: -9, to: 9 }, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
@@ -1252,6 +1256,20 @@ export class VillageScene extends Phaser.Scene {
   }
 
   // ---- the village itself ----
+
+  /**
+   * Trees and bushes differ in every game: some trees have apples, some bushes berries, and each is a bit
+   * bigger or smaller. Picked from the save's seed, so the same tree looks the same every time you come back.
+   */
+  private wild(p: Part): { key: string; anim?: undefined; scale: number } | null {
+    const tree = p.key === 'tree' || p.key === 'tree_apple';
+    if (!tree && !p.key.startsWith('bush_')) return null;
+    const rnd = new Phaser.Math.RandomDataGenerator([`${this.natureSeed}:${PARTS.indexOf(p)}`]);
+    const fruit = rnd.frac() < (tree ? 0.35 : 0.5);
+    const plain = tree ? 'tree' : p.key.replace('_berry', '');
+    const key = !fruit ? plain : tree ? 'tree_apple' : `${plain}_berry`;
+    return { key, scale: [0.8, 0.9, 1, 1, 1.1, 1.2][rnd.between(0, 5)] };
+  }
 
   /** The merchant and his blanket in this deal's robe colour (when its sprites exist). */
   private robed(p: { key: string; anim?: string }): { key: string; anim?: string } {
