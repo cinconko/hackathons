@@ -452,7 +452,7 @@ export class VillageScene extends Phaser.Scene {
         card.add(marks);
         card.add(this.add.text(L + cw - 14, T + 14, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
       }
-      const ic = this.add.image(0, T + 32, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : `icon_${o.id}`);
+      const ic = this.add.image(0, T + 32, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
       ic.setScale(Math.max(1, Math.floor(Math.min(2, 24 / Math.max(ic.width, ic.height)))));   // whole steps: team art stays crisp
       if (sold) ic.setAlpha(0.35);
       card.add(ic);

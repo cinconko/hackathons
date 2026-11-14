@@ -56,3 +56,15 @@ make Boss.png                    boss_art        32x35 cut
 # Campfire: level 1 wood only, level 2 in a ring of stones (boot adds the flicker frames).
 make Campfire/Campfire_1.png     campfire_wood   18x17 cut
 make Campfire/Campfire_2.png     campfire_stone  16x18 cut
+
+# Spells (fireball, freeze): the orb flies and is the HUD icon; the casting hand flashes when you
+# cast; the large swirl is the merchant's card; the ring bursts where it hits. Drawn at game scale.
+for s in fireball freeze; do
+  make "Spells/$s.png"       "proj_$s"       8x10  cut
+  make "Spells/$s.png"       "icon_$s"       9x9   cut
+  make "Spells/${s}_held.png"  "proj_${s}_cast" 14x12 cut
+  make "Spells/${s}_large.png" "card_$s"       20x19 cut
+  make "Spells/${s}_ring.png"  "proj_${s}_hit"  22x24 cut
+done
+# Fisherman's supplies
+make Supplies/health_potion.png  supply_potion   11x13 cut
