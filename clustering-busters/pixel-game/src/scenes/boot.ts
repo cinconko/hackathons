@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CATALOG, RINGS, RARITY_ORDER, STAGES, type CatalogId } from '../game/rules';
-import { mediaStatus } from '../media';
+import { mediaStatus, ROBES } from '../media';
 import { loadSave, updateSave } from '../save';
 
 // Draws a placeholder for every sprite that has no file in public/media/sprites (see its README).
@@ -14,10 +14,10 @@ import { loadSave, updateSave } from '../save';
 //     &shop          open the fisherman's shop as soon as he is there
 //     &dead          the boss is already beaten: the key is on the floor
 //     &lose          lose at once: watch Mossback bounce you back to the village
-//     &training      the training ground (a dummy instead of Mossback)
 //   &wallet=10,2,1   put rings in the wallet (classic, rare, super rare). Writes the save!
 //   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
 //   ?scene=village&merchant   open the ring merchant's shop at once (&nodeal: cards already on the table)
+//   ?scene=village&yard       start inside the training yard, weapon out
 //   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
@@ -163,6 +163,23 @@ export class BootScene extends Phaser.Scene {
       px(0x9fd3ff, 5, 13, 5, 4); px(0x9fd3ff, 20, 13, 5, 4); px(0x6b4a2b, 7, 13, 1, 4); px(0x6b4a2b, 22, 13, 1, 4);
     });
     tex('tree', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); });
+    // bushes (village decoration), the berry ones with red dots
+    const bush = (key: string, w: number, h: number, berries: boolean) => tex(key, w, h, () => {
+      g.fillStyle(0x2f6b2f).fillEllipse(w / 2, h / 2 + 1, w, h - 2); g.fillStyle(0x3f8a3a).fillEllipse(w / 2 - 2, h / 2, w - 8, h - 5);
+      if (berries) for (let i = 0; i < 4; i++) px(0xd83a3a, 3 + i * Math.floor((w - 6) / 4), 3 + (i % 2) * 3);
+    });
+    bush('bush_big', 19, 11, false);
+    bush('bush_big_berry', 19, 11, true);
+    bush('bush_mid', 23, 10, false);
+    bush('bush_mid_berry', 23, 10, true);
+    // textures the game repeats: village grass, arena pond water, treasury planks
+    tex('grass', 8, 8, () => { px(0x4f8a3a, 0, 0, 8, 8); px(0x5c9a44, 1, 2); px(0x5c9a44, 5, 5); px(0x3f7a30, 6, 1); });
+    tex('water', 8, 8, () => { px(0x1e4f7a, 0, 0, 8, 8); px(0x2d6fa3, 1, 2, 3, 1); px(0x2d6fa3, 4, 6, 3, 1); });
+    tex('floor_wood', 8, 8, () => { px(0x8a6040, 0, 0, 8, 8); px(0x6b4a2b, 3, 0, 1, 8); px(0x6b4a2b, 7, 0, 1, 8); px(0x5a3a1a, 0, 5, 3, 1); });
+    tex('wall_wood', 8, 8, () => { px(0x7a5230, 0, 0, 8, 8); px(0x5a3a1a, 0, 3, 8, 1); px(0x5a3a1a, 0, 7, 8, 1); });
+    // the intro's catapult shot: sky and a cloud
+    tex('sky', 8, 8, () => { px(0x87c4ff, 0, 0, 8, 8); });
+    tex('cloud', 24, 19, () => { g.fillStyle(0xffffff).fillCircle(9, 11, 7).fillCircle(16, 10, 6).fillCircle(12, 6, 5); });
     tex('merchant', 10, 14, () => { px(0x6a3fa0, 1, 0, 8, 3); px(0xf2c79a, 2, 3, 6, 4); px(0x000000, 3, 4); px(0x000000, 6, 4); px(0x8a5fc0, 1, 7, 8, 7); px(GOLD, 4, 9, 2, 2); });
     tex('stall', 40, 20, () => {
       for (let i = 0; i < 8; i++) px(i % 2 ? 0xffffff : 0xd83a3a, i * 5, 0, 5, 5);                     // awning
@@ -277,15 +294,82 @@ export class BootScene extends Phaser.Scene {
     });
     noble('noble_a', 0x5a2a8a, 0x1a1a24);
     noble('noble_b', 0x2a4a8a, 0x3a2418);
-    // horse + cart, two leg frames
-    for (let i = 0; i < 2; i++) tex(`cart_${i}`, 38, 18, () => {
-      px(0x8a6040, 0, 6, 18, 6); px(0x6b4a2b, 0, 5, 18, 1); px(0xc8a84a, 2, 3, 14, 3);        // cart with hay
-      g.fillStyle(0x3a2418).fillCircle(4, 14, 3).fillCircle(14, 14, 3); px(0x999999, 4, 14); px(0x999999, 14, 14);
-      px(0x6b4a2b, 18, 9, 4, 1);                                                             // shaft
-      px(0x7a4a2a, 22, 6, 12, 6); px(0x7a4a2a, 31, 2, 5, 5); px(0x3a2418, 33, 1, 2, 2); px(0x000000, 34, 3);  // horse
-      const a = i ? 1 : 0;
-      px(0x5a3a1a, 23 + a, 12, 2, 5); px(0x5a3a1a, 31 - a, 12, 2, 5); px(0x5a3a1a, 26 - a, 12, 2, 5 - a); px(0x5a3a1a, 29 + a, 12, 2, 5 - a);
-    });
+    // Horse carts, in three views (no rotating a side view: the game is drawn at an angle).
+    // Side (cart_*): horse trotting right, a driver with the reins, a cart with crate, barrel, sack.
+    // Front (cartf_*): coming toward you, the horse's face and chest, the driver behind it.
+    // Back (cartb_*): driving away, the horse's rump and tail, the back of the loaded cart.
+    {
+      const BR = 0x8a5a32, BRD = 0x6b4426, BRL = 0xa8723f, MANE = 0x2e1c10, HOOF = 0x1e140c;
+      const WOOD = 0x9a6a3a, WOODD = 0x6b4a2b, WOODL = 0xb88a4a, WHEEL = 0x3a2414, IRON = 0x8a8a94;
+      const HARNESS = 0xa03a2a, SACK = 0xd8c8a0, SKIN = 0xf2c79a, HAT = 0x5a3a1a, SHIRT = 0x3a7bd5, BLAZE = 0xeeeeee;
+      const straight = (x: number, top: number, len: number) => { px(BRD, x, top, 2, len); px(HOOF, x, top + len, 2, 1); };
+      const lifted = (x: number, top: number) => { px(BRD, x, top, 2, 4); px(BRD, x + 1, top + 4, 2, 2); px(HOOF, x + 1, top + 6, 2, 1); };
+      const crate = (x: number, y: number, w: number, h: number) => {
+        px(WOODL, x, y, w, h); px(WOODD, x, y, w, 1); px(WOODD, x, y + h - 1, w, 1); px(WOODD, x, y, 1, h); px(WOODD, x + w - 1, y, 1, h);
+        for (let k = 1; k < Math.min(w, h) - 1; k++) px(WOODD, x + k, y + k);
+      };
+      const barrel = (x: number, y: number) => { px(BRD, x, y, 4, 5); px(IRON, x, y + 1, 4, 1); px(IRON, x, y + 3, 4, 1); px(BRL, x + 1, y, 1, 5); };
+
+      for (let i = 0; i < 2; i++) tex(`cart_${i}`, 44, 26, () => {
+        // wheel with spokes (they turn: + then x)
+        g.fillStyle(WHEEL).fillCircle(9, 20, 5); g.fillStyle(WOODD).fillCircle(9, 20, 4);
+        if (i === 0) { px(WHEEL, 9, 16, 1, 9); px(WHEEL, 5, 20, 9, 1); } else for (let k = -3; k <= 3; k++) { px(WHEEL, 9 + k, 20 + k); px(WHEEL, 9 + k, 20 - k); }
+        px(IRON, 8, 19, 2, 2);
+        // cart bed, cargo, driver
+        px(WOOD, 1, 13, 20, 4); px(WOODL, 1, 13, 20, 1); px(WOODD, 1, 16, 20, 1);
+        px(WOODD, 6, 13, 1, 3); px(WOODD, 11, 13, 1, 3); px(WOODD, 1, 10, 1, 3);
+        crate(2, 7, 6, 6); barrel(9, 8); px(SACK, 13, 9, 3, 4); px(WOODD, 13, 9, 3, 1);
+        px(WOODD, 16, 12, 5, 1);                                                      // seat
+        px(SHIRT, 17, 6, 4, 6); px(SKIN, 17, 2, 4, 4); px(0x000000, 20, 3); px(HAT, 16, 2, 6, 1); px(HAT, 17, 0, 4, 2); px(SKIN, 21, 8, 2, 1);
+        px(WOODD, 21, 15, 8, 1);                                                      // shaft
+        g.lineStyle(1, MANE, 1).lineBetween(22.5, 8.5, 38.5, 5.5);                    // reins
+        // horse: legs (trotting), tail, body, neck, head
+        if (i === 0) { straight(27, 16, 8); lifted(29, 16); lifted(36, 16); straight(38, 16, 8); }
+        else { lifted(27, 16); straight(29, 16, 8); straight(36, 16, 8); lifted(38, 16); }
+        px(MANE, 23, 10, 2, 2); px(MANE, 22, 12, 2, 5); px(MANE, 23, 17, 1, 2);
+        g.fillStyle(BR).fillEllipse(32, 13, 18, 9);
+        px(BRD, 26, 16, 12, 1); px(BRL, 28, 9, 8, 1);
+        px(BR, 37, 6, 4, 7); px(BR, 38, 4, 4, 3); px(BR, 39, 2, 4, 3); px(BR, 41, 4, 3, 4);
+        px(BRD, 42, 7, 2, 1); px(BLAZE, 42, 3, 1, 3); px(BRD, 39, 0, 1, 2); px(0x000000, 40, 3); px(HOOF, 43, 6);
+        px(MANE, 36, 7, 1, 3); px(MANE, 37, 5, 1, 2); px(MANE, 38, 3, 1, 2);
+        px(HARNESS, 35, 7, 2, 6); px(HARNESS, 30, 9, 1, 8); px(0x5a2a1a, 26, 10, 9, 1);
+      });
+
+      for (let i = 0; i < 2; i++) tex(`cartf_${i}`, 22, 28, () => {
+        // behind: the cart front with cargo and the driver
+        px(WHEEL, 0, 6, 3, 9); px(WHEEL, 19, 6, 3, 9); px(IRON, 1, 10); px(IRON, 20, 10);
+        crate(3, 3, 5, 5); barrel(14, 3);
+        px(WOOD, 3, 8, 16, 5); px(WOODL, 3, 8, 16, 1); px(WOODD, 3, 12, 16, 1);
+        px(HAT, 7, 1, 8, 1); px(HAT, 9, 0, 4, 1); px(SKIN, 9, 2, 4, 3); px(0x000000, 10, 3); px(0x000000, 12, 3); px(SHIRT, 8, 5, 6, 3);
+        px(MANE, 7, 6, 1, 7); px(MANE, 14, 6, 1, 7);                                  // reins down to the bridle
+        // in front: the horse coming at you: a broad chest, a long face with a blaze
+        px(BR, 4, 17, 14, 6); px(BRL, 5, 17, 12, 1); px(BRD, 4, 22, 14, 1);          // chest
+        px(HARNESS, 4, 16, 14, 1); px(HARNESS, 4, 16, 1, 4); px(HARNESS, 17, 16, 1, 4); // collar
+        if (i === 0) { straight(5, 23, 3); px(BRD, 15, 23, 2, 2); px(HOOF, 15, 25, 2, 1); }
+        else { px(BRD, 5, 23, 2, 2); px(HOOF, 5, 25, 2, 1); straight(15, 23, 3); }
+        px(BRD, 7, 11, 2, 3); px(BRD, 13, 11, 2, 3);                                  // ears
+        px(BR, 7, 13, 8, 4); px(BR, 8, 17, 6, 4); px(BRD, 8, 21, 6, 2);               // head, muzzle
+        px(BLAZE, 10, 13, 2, 7); px(MANE, 9, 12, 4, 1);                               // blaze, forelock
+        px(0x000000, 7, 15); px(0x000000, 14, 15); px(HOOF, 9, 22); px(HOOF, 12, 22);  // eyes, nostrils
+      });
+
+      for (let i = 0; i < 2; i++) tex(`cartb_${i}`, 22, 28, () => {
+        // ahead (farther): the horse from behind: ears, neck, a round rump with the breeching strap
+        px(BRD, 8, 0, 2, 2); px(BRD, 12, 0, 2, 2); px(BR, 8, 2, 6, 3); px(MANE, 10, 1, 2, 6);
+        px(BR, 7, 5, 8, 2);
+        px(BR, 6, 7, 10, 1); px(BR, 5, 8, 12, 5); px(BR, 6, 13, 10, 1);              // rump
+        px(BRL, 7, 8, 3, 2); px(BRL, 12, 8, 3, 2); px(BRD, 10, 7, 2, 6);              // two haunches, the spine
+        px(HARNESS, 5, 11, 12, 1); px(HARNESS, 5, 8, 1, 4); px(HARNESS, 16, 8, 1, 4); // breeching strap
+        px(MANE, 10, 9, 2, 6); px(MANE, 9, 14, 4, 2);                                 // tail
+        if (i === 0) { straight(6, 14, 3); px(BRD, 14, 14, 2, 2); px(HOOF, 14, 16, 2, 1); }
+        else { px(BRD, 6, 14, 2, 2); px(HOOF, 6, 16, 2, 1); straight(14, 14, 3); }
+        px(WOODD, 4, 12, 1, 6); px(WOODD, 17, 12, 1, 6);                              // shafts
+        // closer: the back of the loaded cart
+        px(WHEEL, 0, 16, 3, 10); px(WHEEL, 19, 16, 3, 10); px(IRON, 1, 21); px(IRON, 20, 21);
+        crate(4, 14, 5, 5); barrel(13, 15); px(SACK, 9, 16, 4, 3);
+        px(WOOD, 3, 19, 16, 6); px(WOODL, 3, 19, 16, 1); px(WOODD, 3, 24, 16, 1); px(WOODD, 8, 19, 1, 5); px(WOODD, 13, 19, 1, 5);
+      });
+    }
 
     // ---- the training ground and the people you can talk to ----
     const dummy = (key: string, flash: boolean) => tex(key, 16, 26, () => {
@@ -297,7 +381,6 @@ export class BootScene extends Phaser.Scene {
     });
     dummy('dummy', false);
     dummy('dummy_flash', true);
-    tex('gate', 14, 24, () => { px(0x6b4a2b, 0, 4, 3, 20); px(0x6b4a2b, 11, 4, 3, 20); px(0x8a6a3a, 0, 2, 14, 3); px(0x8a6a3a, 0, 9, 14, 2); px(0xd83a3a, 4, 0, 6, 2); });
     const person = (key: string, hair: number, top: number, extra: () => void, h = 12) => tex(key, 10, h, () => {
       px(hair, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3);
       px(top, 1, 6, 8, h - 8); px(0x2b2b3a, 2, h - 2, 2, 2); px(0x2b2b3a, 6, h - 2, 2, 2); extra();
@@ -320,7 +403,13 @@ export class BootScene extends Phaser.Scene {
     anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
     anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
     anim('merchant', [['merchant_0', 1800], ['merchant_1', 600]]);
+    // one robe colour per deal (files only: without them every deal shows the default merchant)
+    for (const r of ROBES) {
+      if (this.textures.exists(`merchant_${r}_0`) && this.textures.exists(`merchant_${r}_1`)) anim(`merchant_${r}`, [[`merchant_${r}_0`, 1800], [`merchant_${r}_1`, 600]]);
+    }
     anim('cart', [['cart_0', 160], ['cart_1', 160]]);
+    anim('cart_up', [['cartb_0', 170], ['cartb_1', 170]]);
+    anim('cart_down', [['cartf_0', 170], ['cartf_1', 170]]);
 
     // ---- dev hooks ----
     const q = new URLSearchParams(window.location.search);
@@ -337,9 +426,9 @@ export class BootScene extends Phaser.Scene {
     }
     const scene = q.get('scene');
     if (q.has('play')) {
-      this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), training: q.has('training'), landing: false });
+      this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
     } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
-      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant') });
+      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), inYard: q.has('yard') });
     } else {
       this.scene.start('menu');
     }

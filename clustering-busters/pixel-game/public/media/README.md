@@ -11,6 +11,18 @@ public/media/
   audio/sfx/<event>.ogg        a sound effect for a game event
 ```
 
+## Drew it big? Put it in `art/` instead
+
+Big pictures (hundreds of pixels, any name, PNG / JPG / AVIF) go in **`pixel-game/art/`**, not
+here. Add one line for the file to `tools/import-art.sh` (source, sprite key, size in game
+pixels, `cut` / `tile` / `cover`) and run **`npm run art`** (needs ImageMagick). It shrinks the
+picture and writes `sprites/<key>.png` here. The originals stay out of the build.
+
+Made this way so far: `tree`, `bush_big(_berry)`, `bush_mid(_berry)`, `cloud`, `grass` (village
+ground), `water` (arena pond), `floor_wood` + `wall_wood` (treasury), `sky` (intro catapult shot),
+and the merchant in six robe colours with a matching blanket (`merchant_<robe>_0/_1`,
+`blanket_<robe>`; each deal picks a robe).
+
 ## What to draw: the checklist
 
 Open the game with **`?scene=media`** (e.g. http://127.0.0.1:5173/?scene=media). It shows every

@@ -1,18 +1,19 @@
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
+import { Combat, SPELL_SPEED } from '../combat';
 import { bounce, dustPuff } from '../fx';
 import {
-  addRings, buyItem, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, CARD_COUNT, dealMerchant, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
-  type CatalogId, type CatalogItem, type ItemKind, type Rarity,
+  addRings, buyItem, SPECIAL, DRINK_ORDER, DRINKS, equip, item, KIND_NAMES, loadout, pay, ringLuck, CARD_COUNT, dealMerchant, villageLevel, villageProgress, walletValue, WELL_RING_CHANCE,
+  type CatalogId, type CatalogItem, type ItemKind, type Rarity, type SpecialId,
 } from '../game/rules';
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
-import { playMusic, sfx } from '../media';
+import { playMusic, robeFor, sfx } from '../media';
 import { NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave, updateSave } from '../save';
-import { banner, fadeToScene, floatText, FONT, walletHud } from '../ui';
+import { banner, floatText, FONT, walletHud } from '../ui';
 
 // The hub between fights:
 //   ring merchant  three random cards from the weapons chart, dealt again after every run
@@ -21,10 +22,12 @@ import { banner, fadeToScene, floatText, FONT, walletHud } from '../ui';
 //   catapult       flies you into Mossback's arena
 //   growth         rings spent here build it out: camp, tents, village, fountains, rich town, city
 //   people         Elder Mira, Tobi the kid, Sergeant Brann: walk up, E to talk
-//   training       the gate at the west end of the road: a dummy to try your weapons on
+//   training yard  a fenced yard south of the road with a straw dummy: step in and your weapon
+//                  comes out (aim, attack, Q, specials 1-8; combat.ts), step out and it goes away
 //   carts (city)   deliver to the nearest shop you are not standing at, unload, drive on
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
+type Body = Phaser.Physics.Arcade.Body;
 type Panel = 'cards' | 'gear' | 'bar';
 
 const STALL = { x: PLAY.x + 120, y: PLAY.y + 46 };
@@ -32,7 +35,11 @@ const BAR = { x: PLAY.x + 222, y: PLAY.y + 38 };
 const BAR_DOOR = { x: BAR.x, y: BAR.y + 20 };
 const WELL = { x: PLAY.x + 70, y: PLAY.y + 142 };
 const CATAPULT = { x: PLAY.x + PLAY.width - 40, y: PLAY.y + 104 };   // pivot of the arm
-const GATE = { x: PLAY.x + 8, y: PLAY.y + 110 };                    // the training ground, west end of the road
+/** The training yard: fenced, the gap in the top fence faces the road. Clear of the wall (lvl 5). */
+const YARD = { x: PLAY.x + 132, y: PLAY.y + 128, width: 80, height: 34 };
+const YARD_GAP = { x: YARD.x + 22, width: 18 };
+const DUMMY = { x: YARD.x + 58, y: YARD.y + 16 };
+const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'] as const;
 const ROAD_Y = PLAY.y + 112;
 /** Where carts deliver: a shop front off the road. minLvl = the shop exists from that stage. */
 const SHOPS = [
@@ -53,13 +60,17 @@ interface Part { lvl: number; until?: number; key: string; x: number; y: number;
 const forest = (until: number, pts: [number, number][]): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key: 'tree', x, y, solid: [6, 6, 6] }));
 const PARTS: readonly Part[] = [
   // trees that always stay
-  ...forest(99, [[80, 24], [170, 20], [14, 82], [160, 150], [280, 150]]),
+  ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),   // clear of the HUD, the signs and the yard
   // the forest, cleared stage by stage
   ...forest(2, [[60, 66], [80, 78], [184, 64], [196, 80], [232, 140], [246, 152], [28, 36], [44, 46]]),
   ...forest(3, [[42, 92], [250, 86], [140, 64]]),
   ...forest(4, [[100, 150], [36, 150]]),
   ...forest(5, [[300, 140]]),
   ...forest(6, [[205, 86]]),
+  // bushes, clear of the HUD, the paths, the lanterns and the signs
+  { lvl: 1, key: 'bush_big_berry', x: 20, y: 62, depth: 4 },
+  { lvl: 1, key: 'bush_mid', x: 300, y: 120, depth: 4 },
+  { lvl: 1, key: 'bush_mid_berry', x: 292, y: 58, depth: 4 },
   // 1 Camp: a campfire, beer from a barrel, the merchant on a blanket
   { lvl: 1, until: 4, key: 'campfire_0', anim: 'campfire', x: 158, y: 86, solid: [10, 6, 3] },
   { lvl: 1, until: 3, key: 'blanket', x: 120, y: 56, solid: [34, 6, 2] },
@@ -90,7 +101,7 @@ const PARTS: readonly Part[] = [
   { lvl: 4, key: 'well_roof', x: 70, y: 127, depth: 8 },
   { lvl: 4, key: 'flowers', x: 34, y: 57 },
   // 5 Rich town: rich people walk around (walkers); a big house, towers (+ wall, drawn)
-  { lvl: 5, key: 'house_big', x: 34, y: 38, solid: [28, 14, 9] },
+  { lvl: 5, key: 'house_big', x: 34, y: 42, solid: [28, 14, 9] },   // its roof clear of the HUD
   { lvl: 5, key: 'tower', x: 12, y: 150, solid: [16, 8, 12] },
   { lvl: 5, key: 'tower', x: 300, y: 150, solid: [16, 8, 12] },
   // 6 Ringfall City: horse carts on the road (walkers), the hero's statue, flags
@@ -101,7 +112,7 @@ const PARTS: readonly Part[] = [
 
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 
-export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; fromTraining?: boolean; kept?: number; openShop?: boolean }
+export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; inYard?: boolean }
 
 interface Cart {
   sprite: Phaser.GameObjects.Sprite;
@@ -139,6 +150,14 @@ export class VillageScene extends Phaser.Scene {
   private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
   private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text; luck: Phaser.GameObjects.Text };
   private pendingGrow = false;  // a purchase raised the level: build when the shop closes
+  private combat!: Combat;      // your weapons, out only in the training yard
+  private dummy!: Sprite;
+  private inYard = false;
+  private trainText!: Phaser.GameObjects.Text;
+  private hint!: Phaser.GameObjects.Text;       // "WASD move  E use" (hidden in the yard: the meter is there)
+  private hits: { t: number; dmg: number }[] = [];   // recent hits on the dummy, for damage per second
+  private totalDmg = 0;
+  private bestHit = 0;
 
   constructor() { super('village'); }
 
@@ -161,6 +180,10 @@ export class VillageScene extends Phaser.Scene {
     this.popCard = -1;
     this.pour = false;
     this.revealHand = false;
+    this.inYard = false;
+    this.hits = [];
+    this.totalDmg = 0;
+    this.bestHit = 0;
 
     // the merchant deals new cards every time you come back from the arena (and on a first visit)
     const save = loadSave();
@@ -180,18 +203,18 @@ export class VillageScene extends Phaser.Scene {
     this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
     this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
     this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 30, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
-    this.add.image(GATE.x, GATE.y - 6, 'gate').setDepth(6);
-    this.add.text(GATE.x + 16, GATE.y - 22, 'TRAINING', { ...FONT, color: '#ff9a6a' }).setOrigin(0.5).setDepth(8);
     this.addPeople();
 
-    this.player = this.physics.add.sprite(PLAY.x + (data.fromTraining ? 24 : 44), PLAY.y + 112, 'player').setCollideWorldBounds(true).setDepth(10);
+    const start = data.inYard ? { x: YARD.x + 20, y: YARD.y + 18 } : { x: PLAY.x + 44, y: PLAY.y + 112 };   // inYard: dev hook
+    this.player = this.physics.add.sprite(start.x, start.y, 'player').setCollideWorldBounds(true).setDepth(10);
     this.physics.add.collider(this.player, solids);
     this.keys = addKeys(this);
+    this.addYard();
 
     this.prompt = this.add.text(0, 0, '', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950);
     this.wallet = walletHud(this, PLAY.x + 4, PLAY.y + 4);
     this.wallet.update(loadSave().wallet);
-    this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, 'WASD move   E use', { ...FONT, color: '#2f5a2a' }).setOrigin(1, 0).setDepth(950);
+    this.hint = this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, 'WASD move   E use', { ...FONT, color: '#2f5a2a' }).setOrigin(1, 0).setDepth(950);
     // what's in hand: only once you own a weapon; the very first time it pops up
     this.hand = handHud(this, PLAY.x + 4, PLAY.y + PLAY.height - 20);
     this.refreshHand();
@@ -231,22 +254,20 @@ export class VillageScene extends Phaser.Scene {
     if (this.panel) { this.panelKeys(); return; }
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
+    if (this.updateYard()) return;   // in the training yard: fighting the dummy
     steer(this.player, k, 1);
     if (near(this.player, WELL.x, WELL.y, 5)) { this.fallInWell(); return; }
     const atShop = near(this.player, STALL.x, STALL.y + 16, 22);
     const atBar = near(this.player, BAR_DOOR.x, BAR_DOOR.y, 16);
     const atCatapult = near(this.player, CATAPULT.x - 8, CATAPULT.y + 6, 22);
-    const atGate = near(this.player, GATE.x + 4, GATE.y, 14);
     const person = this.npcs.find((n) => near(this.player, n.sprite.x, n.sprite.y, 14));
     if (person) this.prompt.setText(`E: talk to ${NPCS[person.id].name}`).setPosition(person.sprite.x, person.sprite.y - 16).setVisible(true);
-    else if (atGate) this.prompt.setText('E: training ground').setPosition(GATE.x + 26, GATE.y + 14).setVisible(true);
     else if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
     else if (atBar) this.prompt.setText('E: bar').setPosition(BAR_DOOR.x, BAR_DOOR.y + 10).setVisible(true);
     else if (atCatapult) this.prompt.setText('E: launch!').setPosition(CATAPULT.x - 6, CATAPULT.y + 20).setVisible(true);
     else this.prompt.setVisible(false);
     if (JD(k.E) || JD(k.ENTER)) {
       if (person) this.startTalk(person.id);
-      else if (atGate) this.enterTraining();
       else if (atShop) this.openPanel('cards');
       else if (atBar) this.openPanel('bar');
       else if (atCatapult) this.launch();
@@ -350,7 +371,8 @@ export class VillageScene extends Phaser.Scene {
     bg.fillStyle(0x1a1424).fillRect(x, y, w, h);
     bg.fillStyle(border).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
-    c.add(this.anims.exists(npc) ? this.add.sprite(x + 11, y + 11, `${npc}_0`).play(npc) : this.add.image(x + 11, y + 11, npc));
+    const who = npc === 'merchant' ? this.robed({ key: 'merchant_0', anim: 'merchant' }).anim ?? npc : npc;
+    c.add(this.anims.exists(who) ? this.add.sprite(x + 11, y + 11, `${who}_0`).play(who) : this.add.image(x + 11, y + 11, who));
     c.add(this.add.text(x + 22, y + 4, title, { ...FONT, color: '#ffcc44' }));
     c.add(this.add.text(x + 22, y + 13, sub, { ...FONT, color: '#a898c8' }));
     c.add(this.add.text(x + w - 6, y + 4, `${walletValue(loadSave().wallet)} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
@@ -573,7 +595,8 @@ export class VillageScene extends Phaser.Scene {
       if (!shown(p) || this.placed.has(p)) continue;
       const x = PLAY.x + p.x;
       const y = PLAY.y + p.y;
-      const obj = p.anim ? this.add.sprite(x, y, p.key).play(p.anim) : this.add.image(x, y, p.key);
+      const { key, anim } = this.robed(p);
+      const obj = anim ? this.add.sprite(x, y, key).play(anim) : this.add.image(x, y, key);
       obj.setDepth(p.depth ?? 5);
       if (p.swing) {   // a hanging sign: pivot at the top, sways
         obj.setOrigin(0.5, 0);
@@ -719,8 +742,8 @@ export class VillageScene extends Phaser.Scene {
   private addPeople() {
     const spot: Record<NpcId, { x: number; y: number }> = {
       elder: { x: PLAY.x + 48, y: PLAY.y + 128 },     // by the well
-      kid: { x: PLAY.x + 140, y: PLAY.y + 128 },      // runs around the square
-      sergeant: { x: PLAY.x + 22, y: PLAY.y + 126 },  // at the training gate
+      kid: { x: PLAY.x + 140, y: PLAY.y + 106 },      // runs along the top of the road
+      sergeant: { x: YARD_GAP.x + YARD_GAP.width + 7, y: YARD.y - 6 },   // beside the training yard's gap
     };
     const talked = loadSave().talkedTo;
     (Object.keys(spot) as NpcId[]).forEach((id) => {
@@ -809,14 +832,145 @@ export class VillageScene extends Phaser.Scene {
     this.npcs.forEach((n) => n.walk?.resume());
   }
 
-  // ---- the training ground ----
+  // ---- the training yard ----
 
-  private enterTraining() {
-    this.locked = true;
-    this.prompt.setVisible(false);
-    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
-    this.tweens.add({ targets: this.player, x: GATE.x - 6, alpha: 0, duration: 350 });
-    fadeToScene(this, 'play', { training: true }, 400);
+  /** Fence, sign, dummy and the weapons that come out inside it. */
+  private addYard() {
+    const { x, y, width: w, height: h } = YARD;
+    const g = this.add.graphics().setDepth(3);
+    g.fillStyle(0xb8985a, 0.55).fillRect(x, y, w, h);                                  // trampled sand
+    const rail = (x0: number, y0: number, len: number, across: boolean) => {
+      for (let i = 0; i <= len; i += 6) g.fillStyle(0x5a3a1a).fillRect(across ? x0 + i : x0 - 1, across ? y0 - 3 : y0 + i - 3, 2, 4);   // posts
+      g.fillStyle(0x8a6a3a).fillRect(x0, y0 - 1, across ? len : 1, across ? 1 : len);                                          // rail
+    };
+    rail(x, y, YARD_GAP.x - x, true);                                                  // top, left of the gap
+    rail(YARD_GAP.x + YARD_GAP.width, y, x + w - YARD_GAP.x - YARD_GAP.width, true);   // top, right of the gap
+    rail(x, y + h, w, true);                                                           // bottom
+    rail(x, y, h, false);                                                              // left
+    rail(x + w, y, h, false);                                                          // right
+    const block = (bx: number, by: number, bw: number, bh: number) => this.solids.add(this.add.zone(bx + bw / 2, by + bh / 2, bw, bh));
+    block(x, y - 2, YARD_GAP.x - x, 3);
+    block(YARD_GAP.x + YARD_GAP.width, y - 2, x + w - YARD_GAP.x - YARD_GAP.width, 3);
+    block(x, y + h - 2, w, 3);
+    block(x - 2, y, 3, h);
+    block(x + w - 1, y, 3, h);
+    this.solids.refresh();
+    this.add.text(x + 3, y + h - 9, 'TRAINING', { ...FONT, color: '#ff9a6a' }).setDepth(4);   // bottom left, clear of the dummy
+
+    this.dummy = this.physics.add.sprite(DUMMY.x, DUMMY.y, 'dummy').setDepth(9).setImmovable(true);
+    (this.dummy.body as Body).setCircle(8, 0, 5);   // the straw body (16x26 sprite)
+    this.physics.add.collider(this.player, this.dummy);
+    this.combat = new Combat(this, {
+      player: this.player,
+      kit: loadout(loadSave().inventory),
+      now: () => this.time.now,
+      area: YARD,
+      target: {
+        sprite: this.dummy,
+        alive: () => true,
+        hit: (dmg) => this.hitDummy(dmg),
+        effect: (e) => {
+          if (e === 'freeze') floatText(this, DUMMY.x, DUMMY.y - 22, 'SLOWED', '#9fe8ff');
+          else this.dummyTicks(SPECIAL.poisonMs / 1000, 1000, SPECIAL.poisonTickDmg, '#6fd13a', 'POISONED');
+        },
+      },
+    });
+    // the damage meter: under the fence while you train (the top of the screen is the HUD's)
+    this.trainText = this.add.text(x + w / 2, y + h + 2, '', { ...FONT, color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 2, y: 0 } })
+      .setOrigin(0.5, 0).setDepth(950).setVisible(false);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.input.setDefaultCursor('default'));
+  }
+
+  private insideYard() {
+    const p = this.player;
+    return p.x > YARD.x && p.x < YARD.x + YARD.width && p.y > YARD.y && p.y < YARD.y + YARD.height;
+  }
+
+  /** Every frame. Inside the fence: weapon out, aim, attack, specials. Returns true while inside. */
+  private updateYard(): boolean {
+    const inside = this.insideYard();
+    if (inside !== this.inYard) {
+      this.inYard = inside;
+      this.input.setDefaultCursor(inside ? 'none' : 'default');   // the crosshair replaces the cursor
+      this.trainText.setVisible(inside);
+      this.hint.setVisible(!inside);
+      if (inside) {
+        this.combat.setKit(loadout(loadSave().inventory));   // gear may have changed at the merchant
+        this.prompt.setVisible(false);
+      } else {
+        this.combat.drawAim(false);
+        this.combat.clearShots();
+        this.player.setTexture('player');
+        this.refreshHand();
+      }
+    }
+    if (!inside) return false;
+    const k = this.keys;
+    this.combat.face(steer(this.player, k, 1));
+    this.combat.keys(k);
+    this.combat.kit.specials.forEach((id, i) => { if (Phaser.Input.Keyboard.JustDown(k[SPECIAL_KEYS[i]])) this.castAtDummy(id); });
+    this.combat.drawAim(true);
+    this.combat.cleanup();
+    if (this.hand.visible) {
+      const frac = this.combat.readyFrac();
+      this.hand.update(this.combat.kit.weapons, this.combat.wIndex, frac);
+      showHandArt(this, this.combat.kit.weapons[this.combat.wIndex], frac);
+    }
+    const spanMs = 5000;   // damage per second over the last 5 s
+    const now = this.time.now;
+    this.hits = this.hits.filter((h) => now - h.t <= spanMs);
+    const dps = this.hits.reduce((sum, h) => sum + h.dmg, 0) / (spanMs / 1000);
+    this.trainText.setText(`${dps.toFixed(1)} dmg/s  total ${this.totalDmg}  best ${this.bestHit}`);
+    return true;
+  }
+
+  /** The dummy: counts the hit, wobbles, never breaks. */
+  private hitDummy(dmg: number) {
+    this.hits.push({ t: this.time.now, dmg });
+    this.totalDmg += dmg;
+    this.bestHit = Math.max(this.bestHit, dmg);
+    floatText(this, this.dummy.x, this.dummy.y - 14, `-${dmg}`, '#ffffff');
+    sfx(this, 'hit');
+    this.dummy.setTexture('dummy_flash');
+    this.time.delayedCall(60, () => { if (this.dummy.active) this.dummy.setTexture('dummy'); });
+    this.tweens.killTweensOf(this.dummy);
+    this.tweens.add({ targets: this.dummy, angle: { from: dmg >= 40 ? 18 : 9, to: 0 }, duration: 380, ease: 'Elastic.easeOut' });
+  }
+
+  /** Damage over time on the dummy (poison, health suck). */
+  private dummyTicks(count: number, everyMs: number, dmg: number, color: string, label: string) {
+    floatText(this, DUMMY.x, DUMMY.y - 22, label, color);
+    this.time.addEvent({ delay: everyMs, repeat: count - 1, callback: () => {
+      this.hits.push({ t: this.time.now, dmg });
+      this.totalDmg += dmg;
+      floatText(this, this.dummy.x, this.dummy.y - 14, `-${dmg}`, color);
+    } });
+  }
+
+  /** Specials against the dummy: the same cooldowns and damage as in the arena. */
+  private castAtDummy(id: SpecialId) {
+    const c = this.combat;
+    const it = item(id);
+    const p = this.player;
+    if (c.specialLeft(id) > 0) { floatText(this, p.x, p.y - 12, `${it.name} not ready`, '#888888'); return; }
+    const d = c.aimDir();
+    const S = SPECIAL;
+    sfx(this, 'spell', 0.5);
+    switch (id) {
+      case 'fireball': c.projectile('proj_fireball', d, SPELL_SPEED, c.hitDamage(it.damage ?? 0)); break;
+      case 'freeze': c.projectile('proj_freeze', d, SPELL_SPEED, c.hitDamage(it.damage ?? 0), 'freeze'); break;
+      case 'poison': c.projectile('proj_poison', d, SPELL_SPEED - 20, c.hitDamage(it.damage ?? 0), 'poison'); break;
+      case 'bomb': c.throwBomb(d, it.damage ?? 0); break;
+      case 'push':
+        c.ring(p.x, p.y, S.pushRadius, 0xffffff);
+        if (near(p, this.dummy.x, this.dummy.y, S.pushRadius)) this.hitDummy(c.hitDamage(it.damage ?? 0));
+        else floatText(this, p.x, p.y - 12, 'too far', '#888888');
+        break;
+      case 'healthSuck': this.dummyTicks(Math.round((S.suckMs / 1000) * 2), 500, S.suckPerSec / 2, '#e03a4a', 'DRAINED'); break;
+      case 'paralysis': floatText(this, DUMMY.x, DUMMY.y - 22, 'PARALYSED', '#ffee44'); break;
+      case 'shield': c.ring(p.x, p.y, 10, 0x6aa8ff); floatText(this, p.x, p.y - 12, 'SHIELD', '#6aa8ff'); break;
+    }
+    c.usedSpecial(id);
   }
 
   // ---- delivery carts (Ringfall City) ----
@@ -848,7 +1002,7 @@ export class VillageScene extends Phaser.Scene {
         if (c.shop && Math.abs(sp.x - c.shop.x) < 1.5) {
           sp.x = c.shop.x;
           c.state = 'in';
-          sp.setFlipX(false).setRotation(c.shop.stopY < ROAD_Y ? -Math.PI / 2 : Math.PI / 2);   // turn off the road
+          sp.setFlipX(false).play(c.shop.stopY < ROAD_Y ? 'cart_up' : 'cart_down', true);   // turn off the road: back or front view
         } else if (sp.x <= left || sp.x >= right) {
           c.dir = (sp.x <= left ? 1 : -1);                 // end of the road: turn around
           sp.x = Phaser.Math.Clamp(sp.x, left, right);
@@ -870,13 +1024,13 @@ export class VillageScene extends Phaser.Scene {
           this.shopBusyUntil.set(c.shop.id, this.time.now + 9000);
           c.state = 'out';
           sp.anims.resume();
-          sp.setRotation(c.shop.stopY < ROAD_Y ? Math.PI / 2 : -Math.PI / 2);
+          sp.play(c.shop.stopY < ROAD_Y ? 'cart_down' : 'cart_up', true);           // and come back out
         }
       } else if (c.state === 'out' && c.shop) {
         sp.y += Math.sign(ROAD_Y + (c.dir > 0 ? 1 : -4) - sp.y) * speed * dt;
         if (Math.abs(sp.y - (ROAD_Y + (c.dir > 0 ? 1 : -4))) < 1.5) {
           sp.y = ROAD_Y + (c.dir > 0 ? 1 : -4);
-          sp.setRotation(0).setFlipX(c.dir < 0);
+          sp.play('cart', true).setFlipX(c.dir < 0);
           c.state = 'road';
           c.shop = null;
         }
@@ -1039,12 +1193,17 @@ export class VillageScene extends Phaser.Scene {
 
   // ---- the village itself ----
 
+  /** The merchant and his blanket in this deal's robe colour (when its sprites exist). */
+  private robed(p: { key: string; anim?: string }): { key: string; anim?: string } {
+    const robe = robeFor(loadSave().merchantCards);
+    if (p.anim === 'merchant' && this.anims.exists(`merchant_${robe}`)) return { key: `merchant_${robe}_0`, anim: `merchant_${robe}` };
+    if (p.key === 'blanket' && this.textures.exists(`blanket_${robe}`)) return { key: `blanket_${robe}` };
+    return p;
+  }
+
   private drawVillage(): Phaser.Physics.Arcade.StaticGroup {
+    this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'grass').setOrigin(0).setDepth(0);   // the ground
     const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0x4f8a3a).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
-    for (let i = 0; i < 180; i++) {
-      g.fillStyle(i % 5 ? 0x5c9a44 : 0x3f7a30).fillRect(PLAY.x + ((i * 53) % PLAY.width), PLAY.y + ((i * 97 + (i % 7) * 13) % PLAY.height), 1, 1);
-    }
     g.fillStyle(0xc8a86a).fillRect(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);                     // main road
     g.fillStyle(0xb8985a).fillRect(PLAY.x, PLAY.y + 104, PLAY.width - 48, 1).fillRect(PLAY.x, PLAY.y + 119, PLAY.width - 48, 1);
     g.fillStyle(0xc8a86a).fillRect(STALL.x - 6, STALL.y + 14, 12, 90);                              // path to the stall

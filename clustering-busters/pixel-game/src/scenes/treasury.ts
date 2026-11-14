@@ -106,12 +106,10 @@ export class TreasuryScene extends Phaser.Scene {
 
   private drawRoom() {
     const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0x1a1620).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
-    g.fillStyle(0x2a2430).fillRect(PLAY.x, PLAY.y, PLAY.width, 20);                                   // back wall
-    for (let row = 0; row < 3; row++) for (let i = 0; i < 26; i++) {
-      g.fillStyle(0x352e3c).fillRect(PLAY.x + i * 12 + (row % 2) * 6, PLAY.y + 2 + row * 6, 11, 5);   // bricks
-    }
-    for (let i = 0; i < 120; i++) g.fillStyle(0x24202a).fillRect(PLAY.x + ((i * 53) % PLAY.width), PLAY.y + 22 + ((i * 97) % (PLAY.height - 22)), 2, 1);
+    this.add.tileSprite(PLAY.x, PLAY.y + 20, PLAY.width, PLAY.height - 20, 'floor_wood').setOrigin(0).setDepth(0);  // plank floor
+    this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, 20, 'wall_wood').setOrigin(0).setDepth(0);                     // back wall
+    g.fillStyle(0x000000, 0.35).fillRect(PLAY.x, PLAY.y + 20, PLAY.width, PLAY.height - 20);       // a dim, hidden room
+    g.fillStyle(0x000000, 0.5).fillRect(PLAY.x, PLAY.y + 20, PLAY.width, 2);                        // shadow under the wall
     g.fillStyle(0xffcc44, 0.08).fillEllipse(WIDTH / 2, PLAY.y + 60, 220, 70);                           // gold glow
     for (const x of [PLAY.x + 60, WIDTH / 2 - 30, WIDTH / 2 + 90, PLAY.x + PLAY.width - 24]) {
       const t = this.add.image(x, PLAY.y + 12, 'torch').setDepth(2);
