@@ -48,6 +48,13 @@ interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: nu
  * recoils when he fires. A kick is a short one-off move on top of that.
  */
 interface BossKick { kind: 'smash' | 'throw' | 'slam' | 'flick'; angle: number; at: number; ms: number }
+// His attacks. The warnings are drawn from the same numbers, so they show exactly where the balls go.
+const RING_BALLS = 10;           // stage 1: balls in a full circle, fixed directions
+const SPIRAL_ARMS = 4;           // stage 3: balls per spiral burst, the burst turns SPIRAL_TURN each time
+const SPIRAL_TURN = 0.35;
+const SPIRAL_WARN_MS = 400;      // the next spiral burst is shown this long before it fires
+const DASH_SPEED = 150;          // stage 3 charge: px/s for DASH_MS
+const DASH_MS = 350;
 const MELEE_REACH = 30;          // closer than this (centre to centre) and he rears back to strike
 
 export class PlayScene extends Phaser.Scene {
@@ -553,11 +560,11 @@ export class PlayScene extends Phaser.Scene {
         for (const off of [-0.25, 0, 0.25]) this.bullet(hand.x, hand.y, t.angle + off, 85);
         this.kickBoss('throw', t.angle, 220);
       } else if (t.kind === 'ring') {
-        for (let i = 0; i < 10; i++) this.bullet(this.boss.x, this.boss.y, (i / 10) * Math.PI * 2, 55);
+        for (let i = 0; i < RING_BALLS; i++) this.bullet(this.boss.x, this.boss.y, (i / RING_BALLS) * Math.PI * 2, 55);
         this.kickBoss('slam', 0, 240);                         // the ball over his head, slammed down: it bursts
         this.cameras.main.shake(80, 0.006);
       }
-      else { body.setVelocity(Math.cos(t.angle) * 150, Math.sin(t.angle) * 150); this.dashUntil = now + 350; this.dashAngle = t.angle; }
+      else { body.setVelocity(Math.cos(t.angle) * DASH_SPEED, Math.sin(t.angle) * DASH_SPEED); this.dashUntil = now + DASH_MS; this.dashAngle = t.angle; }
       return;
     }
     if (now < this.dashUntil) return;
@@ -574,9 +581,9 @@ export class PlayScene extends Phaser.Scene {
       if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS, from: now };
       else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350, from: now };
       else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
-        for (let i = 0; i < 4; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI) / 2, 70);
+        for (let i = 0; i < SPIRAL_ARMS; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, 70);
         this.kickBoss('flick', this.spiralAngle, 140);         // a quick throw, side to side as the spiral turns
-        this.spiralAngle += 0.35;
+        this.spiralAngle += SPIRAL_TURN;
       }
     }
   }
@@ -804,19 +811,33 @@ export class PlayScene extends Phaser.Scene {
     const b = this.boss;
     const p = this.player;
     const now = this.fightMs;
-    // the boss's warnings: red lines before aimed shots and dashes, a red circle before the ring
+    // The boss's warnings, each showing where the attack really goes (same numbers as the attack).
+    const pulse = 0.35 + 0.35 * Math.sin(now / 40);
+    const ray = (x: number, y: number, angle: number, from: number, to: number, alpha: number, width = 1) =>
+      t.lineStyle(width, 0xff3a3a, alpha).lineBetween(x + Math.cos(angle) * from, y + Math.sin(angle) * from, x + Math.cos(angle) * to, y + Math.sin(angle) * to);
     if (this.telegraph && !this.bossDead) {
       const tg = this.telegraph;
-      const pulse = 0.35 + 0.35 * Math.sin(now / 40);
-      if (tg.kind === 'ring') {
-        t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(b.x, b.y, 14 + 8 * (1 - (tg.fireAt - now) / 350));
-      } else {
-        const len = tg.kind === 'dash' ? 120 : 150;
-        const width = tg.kind === 'dash' ? 3 : 1;
-        const o = tg.kind === 'aimed' ? this.throwHand(tg.angle) : b;    // aimed balls leave from his fist
-        for (const off of tg.kind === 'aimed' ? [-0.25, 0, 0.25] : [0]) {
-          t.lineStyle(width, 0xff3a3a, pulse).lineBetween(o.x, o.y, o.x + Math.cos(tg.angle + off) * len, o.y + Math.sin(tg.angle + off) * len);
-        }
+      const wound = Phaser.Math.Clamp((now - tg.from) / Math.max(1, tg.fireAt - tg.from), 0, 1);
+      if (tg.kind === 'ring') {                                // the circle + a ray along each ball's path
+        const r = 14 + 8 * wound;
+        t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(b.x, b.y, r);
+        for (let i = 0; i < RING_BALLS; i++) ray(b.x, b.y, (i / RING_BALLS) * Math.PI * 2, r, r + 10 + 30 * wound, 0.3 + pulse);
+      } else if (tg.kind === 'aimed') {                        // three lines from the fist the balls leave from
+        const o = this.throwHand(tg.angle);
+        for (const off of [-0.25, 0, 0.25]) ray(o.x, o.y, tg.angle + off, 0, 150, pulse);
+      } else {                                                 // the dash: a thick line to where he stops, his outline there
+        const dist = (DASH_SPEED * DASH_MS) / 1000;
+        const r = (this.boss.body as Body).radius;
+        ray(b.x, b.y, tg.angle, 0, dist, pulse, 3);
+        t.lineStyle(1, 0xff3a3a, pulse).strokeCircle(b.x + Math.cos(tg.angle) * dist, b.y + Math.sin(tg.angle) * dist, r);
+      }
+    } else if (!this.bossDead && R.STAGES[this.stage].pattern === 'spiral'
+      && now >= this.bossInvulnUntil && now >= this.paralyzedUntil && now >= this.knockUntil && now >= this.dashUntil) {
+      // the spiral has no wind-up: show the next burst's directions while it comes
+      const left = this.nextShotAt - now;
+      if (left <= SPIRAL_WARN_MS) {
+        const k = 1 - Math.max(0, left) / SPIRAL_WARN_MS;      // 0 -> 1 as it comes
+        for (let i = 0; i < SPIRAL_ARMS; i++) ray(b.x, b.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, 14, 14 + 26 * k, 0.15 + 0.6 * k);
       }
     }
     if (this.bossDead) return;
