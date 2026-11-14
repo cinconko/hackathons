@@ -240,6 +240,41 @@ export function equip(inv: Inventory, id: CatalogId): Inventory {
   return inv;
 }
 
+// ---- The merchant's cards --------------------------------------------------------------
+
+export const CARD_COUNT = 3;
+
+/**
+ * Deals the merchant's cards: random chart items you do not own yet (fewer when nearly
+ * everything is bought). New cards every time you come back from the arena.
+ */
+export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number = CARD_COUNT): CatalogId[] {
+  const pool = CATALOG.map((i) => i.id).filter((id) => !owned.includes(id));
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const t = pool[i];
+    pool[i] = pool[j];
+    pool[j] = t;
+  }
+  return pool.slice(0, count);
+}
+
+// ---- The bar: one drink for the next fight ---------------------------------------------
+
+export type DrinkId = 'ale' | 'mead' | 'cider';
+export interface Drink { readonly name: string; readonly price: number; readonly desc: string; readonly hp: number; readonly damage: number; readonly speed: number }
+export const DRINKS: Readonly<Record<DrinkId, Drink>> = {
+  ale: { name: 'Ale', price: 25, desc: '+20 max hp', hp: 20, damage: 0, speed: 0 },
+  mead: { name: 'Mead', price: 40, desc: '+15% damage', hp: 0, damage: 0.15, speed: 0 },
+  cider: { name: 'Cider', price: 30, desc: '+10% speed', hp: 0, damage: 0, speed: 0.1 },
+};
+export const DRINK_ORDER: readonly DrinkId[] = ['ale', 'mead', 'cider'];
+
+// ---- The well --------------------------------------------------------------------------
+
+/** Chance of finding a ring at the bottom when you fall in (once per village visit). */
+export const WELL_RING_CHANCE = 0.35;
+
 export interface Loadout {
   weapons: WeaponId[];       // fists, then the equipped melee and ranged weapon
   specials: SpecialId[];     // every owned special, in chart order (keys 1..8)

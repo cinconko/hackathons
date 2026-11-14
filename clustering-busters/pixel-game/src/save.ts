@@ -1,11 +1,13 @@
 // Typed localStorage save. Missing or corrupt data falls back to defaults.
-import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, type Inventory, type Wallet } from './game/rules';
+import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, type DrinkId, type Inventory, type Wallet } from './game/rules';
 
 export interface SaveData {
   muted: boolean;
   seenIntro: boolean;      // the opening cutscene plays once, then it is in the menu
   wallet: Wallet;          // all your rings: the only money (village and fisherman)
   inventory: Inventory;    // what the village sold you and what you wear (kept between runs)
+  merchantCards: CatalogId[]; // the 3 cards on the merchant's table (dealt again after every run)
+  drink: DrinkId | null;   // bought at the bar, drunk at the start of the next fight
   lifetimeRings: Wallet;   // every ring ever found
   wins: number;
   bestTimeMs: number;      // fastest win, 0 = no win yet
@@ -13,7 +15,7 @@ export interface SaveData {
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantCards: [], drink: null, lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
 
 /** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */

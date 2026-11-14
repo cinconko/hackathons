@@ -4,6 +4,7 @@ import {
   addRings, bossStage, buyItem, CATALOG, countRings, damageTaken, deathDrop, emptyWallet, equip, formatTime, hitDamage,
   item, itemsOfKind, loadout, msUntilRetailer, msUntilRetailerLeaves, pay, retailerVisit, RINGS, rollRing, rollStock,
   seededRng, stageStartHp, startingInventory, startingWallet, SUPPLIES, TREASURY, walletValue, weapon, BOSS_MAX_HP,
+  rollCards, DRINKS, CARD_COUNT,
   type CatalogId,
 } from '../src/game/rules.ts';
 
@@ -154,4 +155,24 @@ test('treasury: 3 chests worth 330 rings', () => {
 
 test('time format', () => {
   assert.equal(formatTime(83_400), '1:23');
+});
+
+test('merchant cards: 3 different chart items you do not own; fewer when nearly all bought', () => {
+  for (let seed = 0; seed < 100; seed++) {
+    const owned: CatalogId[] = ['sword', 'bow', 'leather'];
+    const cards = rollCards(seededRng(seed), owned);
+    assert.equal(cards.length, CARD_COUNT);
+    assert.equal(new Set(cards).size, CARD_COUNT);
+    for (const id of cards) assert.ok(!owned.includes(id), `offered owned ${id}`);
+  }
+  const allButTwo = CATALOG.slice(2).map((i) => i.id);
+  assert.equal(rollCards(seededRng(1), allButTwo).length, 2);
+  assert.notDeepEqual(rollCards(seededRng(1), []), rollCards(seededRng(2), []));
+});
+
+test('bar drinks cost a multiple of 5 and each does one thing', () => {
+  for (const d of Object.values(DRINKS)) {
+    assert.equal(d.price % RINGS.classic.value, 0, d.name);
+    assert.equal([d.hp, d.damage, d.speed].filter((v) => v > 0).length, 1, d.name);
+  }
 });
