@@ -48,4 +48,10 @@ function mediaManifest(): Plugin {
 }
 
 // base './' = relative asset paths, required for itch.io's subfolder hosting.
-export default defineConfig({ base: './', plugins: [mediaManifest()] });
+// Phaser in its own file: it never changes, so players' browsers keep it cached when the game updates.
+// It is ~1.2 MB on its own (390 kB gzipped), hence the higher size warning limit.
+export default defineConfig({
+  base: './',
+  plugins: [mediaManifest()],
+  build: { chunkSizeWarningLimit: 1500, rollupOptions: { output: { manualChunks: { phaser: ['phaser'] } } } },
+});

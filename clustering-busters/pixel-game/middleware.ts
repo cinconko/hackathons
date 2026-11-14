@@ -6,6 +6,9 @@
 // Not set = the site stays closed (fail closed). Local `npm run dev` does not use this file.
 import { next } from '@vercel/functions';
 
+// Vercel gives middleware a Node-style process.env; declared here so the build's type check knows it.
+declare const process: { env: Record<string, string | undefined> };
+
 export const config = { matcher: '/:path*' };
 
 /** Compares in constant time, so response timing does not leak how much of a guess matched. */
