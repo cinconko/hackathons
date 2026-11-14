@@ -49,8 +49,8 @@ page lists the music and sound effects. The browser console also prints a table 
   is the HUD icon (`icon_<spell>`), the casting hand flashes when you cast (`proj_<spell>_cast`), the
   large swirl is the merchant's card (`card_<spell>`), the ring bursts where it hits (`proj_<spell>_hit`).
   Any projectile gets a cast flash / hit burst just by adding those two files.
-  Freeze, Health suck and Poison use potions as their icon and card (`art/Spells/freeze_potion.png`,
-  `art/Supplies/health_potion.png`, `art/Spells/poison_potion.png`).
+  Fireball, Freeze, Health suck and Poison use potions as their icon and card (`art/Spells/*_potion.png`,
+  `art/Supplies/health_potion.png`).
 - **Supplies**: `supply_<id>` shows next to it in the fisherman's shop (`supply_potion` = the health potion).
 - **No spaces in file names**: `fireball held.png` is skipped. Use `_` (`fireball_held.png`).
 - **Big source art goes in `art/`, not here**: everything in `public/` ships to players.
