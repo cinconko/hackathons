@@ -60,7 +60,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="Clusterbusters scam checker", lifespan=lifespan)
+app = FastAPI(title="Clustering Busters scam checker", lifespan=lifespan)
 app.add_middleware(  # the demo page may be served from another port
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
 )

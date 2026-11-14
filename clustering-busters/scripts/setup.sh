@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup after cloning. Safe to run again. Backend only (the Mac app lives in clusterbusters/electron).
+# One-time setup after cloning. Safe to run again. Backend only (the Mac app is in the separate repo cinconko/clusterbusters, folder electron/).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
