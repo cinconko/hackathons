@@ -62,7 +62,8 @@ export class IntroScene extends Phaser.Scene {
       caption: 'Then Mossback came. He carried the treasury off to his lair and hid it in a locked room.',
       build: (s) => {
         const items = s.nightVillage(false);
-        const boss = s.add.sprite(WIDTH + 20, PLAY.y + 104, 'boss_3').play('boss_idle_3').setScale(2).setDepth(20);
+        const boss = s.add.image(WIDTH + 20, PLAY.y + 104, 'boss_3').setScale(2).setDepth(20);
+        s.tweens.add({ targets: boss, rotation: { from: -0.1, to: 0.1 }, yoyo: true, repeat: -1, duration: 180, ease: 'Sine.easeInOut' });   // waddling in
         s.tweens.add({ targets: boss, x: WIDTH / 2 + 50, duration: 1200, ease: 'Quad.easeOut', onComplete: () => s.cameras.main.shake(400, 0.02) });
         s.tweens.add({ targets: boss, y: '-=4', yoyo: true, repeat: -1, duration: 220 });
         return [...items, boss];
@@ -72,7 +73,7 @@ export class IntroScene extends Phaser.Scene {
       caption: 'The only key hangs around his neck.',
       build: (s) => {
         const bg = s.add.rectangle(WIDTH / 2, HEIGHT / 2, PLAY.width, PLAY.height, 0x140c1c).setDepth(1);
-        const boss = s.add.sprite(WIDTH / 2, PLAY.y + 74, 'boss_1').play('boss_idle_1').setScale(4).setDepth(20);
+        const boss = s.add.image(WIDTH / 2, PLAY.y + 74, 'boss_1').setScale(4).setDepth(20);
         s.tweens.add({ targets: boss, scale: 4.6, duration: 2600, ease: 'Sine.easeInOut' });
         const glint = s.add.image(WIDTH / 2 + 2, PLAY.y + 68, 'sparkle').setScale(2).setDepth(21).setAlpha(0);
         s.tweens.add({ targets: glint, alpha: 1, scale: 3, yoyo: true, repeat: -1, duration: 500, delay: 600 });
