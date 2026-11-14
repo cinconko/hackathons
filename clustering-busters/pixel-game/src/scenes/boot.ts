@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CATALOG, RINGS, RARITY_ORDER, STAGES, type CatalogId } from '../game/rules';
+import { CATALOG, RINGS, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
 import { mediaStatus, ROBES } from '../media';
 import { loadSave, updateSave } from '../save';
 
@@ -511,6 +511,8 @@ export class BootScene extends Phaser.Scene {
     if (q.get('kit') === 'all') {
       updateSave((s) => ({ ...s, inventory: { owned: CATALOG.map((i) => i.id as CatalogId), melee: 'sword', range: 'bow', armor: 'steel' } }));
     }
+    const armor = q.get('armor');   // ?armor=iron: wear that armor (none = no armor)
+    if (armor !== null) updateSave((s) => ({ ...s, inventory: { ...s.inventory, armor: armor && armor !== 'none' ? armor as ArmorId : null } }));
     const scene = q.get('scene');
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });

@@ -4,7 +4,7 @@ import { drawFrame } from '../frame';
 import { bounce, dustPuff } from '../fx';
 import * as R from '../game/rules';
 import { Combat, SPELL_SPEED } from '../combat';
-import { addKeys, near, steer, type Keys } from '../player';
+import { addKeys, dress, heroLook, near, steer, type Keys } from '../player';
 import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
@@ -195,6 +195,7 @@ export class PlayScene extends Phaser.Scene {
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
+    dress(this.player, heroLook(this, save.inventory.armor));   // iron armor: the knight
     this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
     // the body is his chest and belly, not the arms: radius 11 centred at (16, 17) of the 32x35 sprite
     const bw = this.boss.width, bh = this.boss.height, r = Math.min(11, Math.floor(Math.min(bw, bh) / 2) - 1);
@@ -273,7 +274,7 @@ export class PlayScene extends Phaser.Scene {
     this.player.setVisible(false);
     const shadow = this.add.image(x, y + 5, 'shadow').setDepth(9).setScale(0.2);
     this.tweens.add({ targets: shadow, scale: 1.4, duration: 700, ease: 'Quad.easeIn' });
-    const faller = this.add.image(x, y - 140, 'player').setDepth(12).setScale(2.5);
+    const faller = this.add.image(x, y - 140, this.player.texture.key).setDepth(12).setScale(2.5);
     this.tweens.add({
       targets: faller, y, scale: 1, duration: 700, ease: 'Quad.easeIn',
       onComplete: () => {

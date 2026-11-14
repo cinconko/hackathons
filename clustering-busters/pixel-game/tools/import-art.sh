@@ -59,7 +59,9 @@ for c in DarkBlue Gray Green Orange Red Special; do
 done
 
 # The boss: one picture; boot makes the stage colours, the key and the hit flash, the arena moves it.
-make Boss.png                    boss_art        32x35 cut
+# Armor you can see on the hero (front view; it serves every direction). Drawn at game size.
+make Armor/iron.png              hero_iron       16x22 cut
+make Boss_Ver02.png              boss_art        32x35 cut
 # Campfire: level 1 wood only, level 2 in a ring of stones (boot adds the flicker frames).
 make Campfire/Campfire_1.png     campfire_wood   18x17 cut
 make Campfire/Campfire_2.png     campfire_stone  16x18 cut

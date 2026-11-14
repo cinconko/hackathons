@@ -10,6 +10,7 @@
 // Every timer runs on the scene's clock (`now`), so the arena can stop it for the shop and hit-stop.
 import Phaser from 'phaser';
 import * as R from './game/rules';
+import { lookOf } from './player';
 import { sfx } from './media';
 import type { Keys } from './player';
 
@@ -96,8 +97,9 @@ export class Combat {
     if (walkDir) this.facing = walkDir;
     const a = this.aimDir();
     const p = this.o.player;
-    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) p.setTexture(a.y < 0 ? 'player_up' : 'player').setFlipX(false);
-    else p.setTexture('player_side').setFlipX(a.x < 0);
+    const look = lookOf(p);
+    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) p.setTexture(a.y < 0 ? look.up : look.down).setFlipX(false);
+    else p.setTexture(look.side).setFlipX(a.x < 0);
   }
 
   /** Where the hero aims: at the cursor once the mouse is used, else the way he walks. */
