@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
-import { loadout, RINGS, TREASURY, type FightResult, type Rarity } from '../game/rules';
+import { addRings, RINGS, TREASURY, walletValue, type FightResult, type Rarity, type Wallet } from '../game/rules';
 import { addKeys, near, steer, type Keys } from '../player';
 import { loadSave } from '../save';
 import { banner, fadeToScene, FONT, hex } from '../ui';
@@ -10,7 +10,7 @@ import { banner, fadeToScene, FONT, hex } from '../ui';
 // When the rings are collected, walk out the door: the result screen, then home to the village.
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
-export interface TreasuryData { rings: Rarity[]; coins: number; timeMs: number }
+export interface TreasuryData { found: Rarity[]; wallet: Wallet; timeMs: number }
 
 const DOOR = { x: PLAY.x + 10, y: PLAY.y + PLAY.height / 2 + 8 };
 const CHESTS = [
@@ -22,7 +22,8 @@ const CHESTS = [
 export class TreasuryScene extends Phaser.Scene {
   private player!: Sprite;
   private keys!: Keys;
-  private rings: Rarity[] = [];
+  private rings: Rarity[] = [];      // found this run
+  private wallet!: Wallet;           // everything you own
   private data0!: TreasuryData;
   private chests: { img: Phaser.GameObjects.Image; open: boolean }[] = [];
   private loot!: Phaser.Physics.Arcade.Group;
@@ -33,8 +34,9 @@ export class TreasuryScene extends Phaser.Scene {
   constructor() { super('treasury'); }
 
   create(data: TreasuryData) {
-    this.data0 = { rings: data.rings ?? [], coins: data.coins ?? 0, timeMs: data.timeMs ?? 0 };
-    this.rings = [...this.data0.rings];
+    this.data0 = { found: data.found ?? [], wallet: data.wallet ?? loadSave().wallet, timeMs: data.timeMs ?? 0 };
+    this.rings = [...this.data0.found];
+    this.wallet = { ...this.data0.wallet };
     this.leaving = false;
     this.allDone = false;
     this.physics.world.setBounds(PLAY.x + 6, PLAY.y + 20, PLAY.width - 12, PLAY.height - 26);
@@ -54,9 +56,9 @@ export class TreasuryScene extends Phaser.Scene {
   }
 
   update() {
-    this.counter.setText(`Rings carried: ${this.rings.length}`);
+    this.counter.setText(`Rings: ${walletValue(this.wallet)}`);
     if (this.leaving) return;
-    steer(this.player, this.keys, loadout(loadSave().upgrades).speedMul);
+    steer(this.player, this.keys, 1);
     this.chests.forEach((c, i) => { if (!c.open && near(this.player, c.img.x, c.img.y + 4, 14)) this.openChest(i); });
     this.loot.getChildren().forEach((r) => { if ((r as Sprite).getData('magnet')) this.physics.moveToObject(r, this.player, 170); });
 
@@ -83,6 +85,7 @@ export class TreasuryScene extends Phaser.Scene {
     if (!r.active || !r.getData('magnet')) return;
     const rarity = r.getData('rarity') as Rarity;
     this.rings.push(rarity);
+    this.wallet = addRings(this.wallet, [rarity]);
     if (rarity !== 'classic') {
       const t = this.add.text(this.player.x, this.player.y - 12, RINGS[rarity].name, { ...FONT, color: hex(RINGS[rarity].color) }).setOrigin(0.5).setDepth(955);
       this.tweens.add({ targets: t, y: t.y - 10, alpha: 0, duration: 700, onComplete: () => t.destroy() });
@@ -93,7 +96,7 @@ export class TreasuryScene extends Phaser.Scene {
   private leave() {
     this.leaving = true;
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
-    const result: FightResult = { won: true, rings: this.rings, timeMs: this.data0.timeMs, coins: this.data0.coins };
+    const result: FightResult = { won: true, found: this.rings, wallet: this.wallet, timeMs: this.data0.timeMs };
     fadeToScene(this, 'result', result, 500);
   }
 

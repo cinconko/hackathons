@@ -1,35 +1,46 @@
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { drawFrame } from '../frame';
+import { bounce, dustPuff } from '../fx';
 import * as R from '../game/rules';
 import { addKeys, near, steer, type Keys } from '../player';
-import { bounce, dustPuff } from '../fx';
 import { loadSave, updateSave } from '../save';
-import { banner as showBanner, fadeToScene, floatText as showFloat } from '../ui';
+import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
 
-// The boss fight. Rules (stages, drops, the fisherman's timing and stock, damage) come from
-// game/rules.ts; this scene only moves sprites, reads input and draws.
+// The boss fight. Rules (the team's weapons chart, stages, drops, the fisherman, armor) come
+// from game/rules.ts; this scene moves sprites, reads input and draws.
 //
-// Every timer runs on fightMs, which stops while the shop is open: the boss, the bullets and
-// the fisherman's 10 s stay all wait for you while you shop.
+//   catapult ─► landing ─► fight (weapons: Q, specials: 1-8) ─► boss dies, drops the key
+//   ─► take the key ─► hidden door in the west wall ─► treasury
+//   lose ─► Mossback smashes you ─► you bounce back to the village (no death screen)
 //
-//   catapult ─► landing (shadow, dust, shake) ─► fight ─► boss dies, drops the key from his neck
-//   ─► take the key ─► the hidden door in the west wall opens ─► treasury
+// Every timer runs on fightMs, which stops while the shop is open and during hit-stop.
+//
+// Feel / readability:
+//   aim       crosshair cursor (red = an attack now would hit), held weapon points at it,
+//             reach drawn on the ground (swing arc / shot line / bomb circle)
+//   swing     the held weapon sweeps through its arc (fists jab, ranged weapons recoil)
+//   hit-stop  a few ms freeze on every solid hit, longer for big hits
+//   facing    the hero turns up / down / sideways toward the aim
+//   telegraph aimed shots and dashes show a red line first, the bullet ring a red circle
 
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
 interface Dir { x: number; y: number }
 export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
 
-const FONT = { fontFamily: 'monospace', fontSize: '8px', color: '#ffffff' };
 const FISHER_X = WIDTH / 2;
 const FISHER_Y = PLAY.y + PLAY.height - 26;
-const ARROW_SPEED = 200;
-const BLAST_RADIUS = 26;
 const WALL = 8;                                              // the west wall's thickness
 const DOOR = { x: PLAY.x + WALL / 2 + 2, y: PLAY.y + PLAY.height / 2 };
+const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'] as const;
+const SWING_MS = 140;
+const SPELL_SPEED = 180;
 
 const asSprite = (o: unknown) => o as Sprite;
+const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
+
+interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number }
 
 export class PlayScene extends Phaser.Scene {
   private rng: R.Rng = Math.random;
@@ -37,137 +48,174 @@ export class PlayScene extends Phaser.Scene {
   private boss!: Sprite;
   private fisher!: Phaser.GameObjects.Image;
   private fisherPrompt!: Phaser.GameObjects.Text;
-  private bullets!: Phaser.Physics.Arcade.Group;
-  private arrows!: Phaser.Physics.Arcade.Group;
+  private bullets!: Phaser.Physics.Arcade.Group;   // his
+  private shots!: Phaser.Physics.Arcade.Group;     // yours: arrows, stones, spells
   private pickups!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Graphics;
-  private texts!: { coins: Phaser.GameObjects.Text; weapon: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text; rings: Phaser.GameObjects.Text[] };
-  private keys!: Keys;
-  private kit!: R.Loadout;
+  private aimG!: Phaser.GameObjects.Graphics;
+  private tgG!: Phaser.GameObjects.Graphics;
+  private fxG!: Phaser.GameObjects.Graphics;
+  private crosshair!: Phaser.GameObjects.Image;
+  private held!: Phaser.GameObjects.Image;
   private door!: Phaser.GameObjects.Image;
   private keyIcon!: Phaser.GameObjects.Image;
+  private specialIcons: Phaser.GameObjects.Image[] = [];
+  private texts!: { hp: Phaser.GameObjects.Text; weapon: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
+  private walletUi!: ReturnType<typeof walletHud>;
+  private keys!: Keys;
 
   // fight state (reset in create, because Phaser reuses the scene object)
+  private kit!: R.Loadout;
   private fightMs = 0;
   private hp = R.PLAYER_HP;
-  private coins = R.STARTING_COINS;
-  private owned: R.WeaponId[] = [];
-  private weapon: R.WeaponId = 'fists';
-  private rings: R.Rarity[] = [];
-  private upgrades = { damage: 0, speed: 0 };
+  private wallet: R.Wallet = R.emptyWallet();
+  private rings: R.Rarity[] = [];                // found this run
+  private wIndex = 0;                            // which of kit.weapons is in hand
+  private buffs = { damage: 0, speed: 0 };       // the fisherman's supplies, this fight only
   private facing: Dir = { x: 1, y: 0 };
+  private aimMouse = false;
   private nextAttackAt = 0;
+  private swingUntil = 0;
+  private swingKind: 'sweep' | 'jab' | 'recoil' = 'sweep';
+  private swingAngle = 0;
   private invulnUntil = 0;
+  private readyAt: Partial<Record<R.SpecialId, number>> = {};
+  private shieldUntil = 0;
   private bossHp = R.BOSS_MAX_HP;
   private stage: R.Stage = 1;
   private bossInvulnUntil = 0;
   private nextShotAt = 0;
   private nextDashAt = 0;
   private dashUntil = 0;
+  private knockUntil = 0;
   private spiralAngle = 0;
+  private telegraph: Telegraph | null = null;
+  private slowUntil = 0;
+  private paralyzedUntil = 0;
+  private poisonUntil = 0;
+  private poisonNextTick = 0;
+  private suckUntil = 0;
+  private suckNextTick = 0;
   private bossDead = false;
   private ended = false;
+  private landed = true;
+  private hasKey = false;
+  private doorOpen = false;
   private visit = 0;
-  private stock: R.ItemId[] = [];
+  private stock: R.SupplyId[] = [];
   private sold = new Set<number>();
   private shop: Phaser.GameObjects.Container | null = null;
   private shopNote = '';
   private devOpenShop = false;
-  private landed = true;
-  private hasKey = false;
-  private doorOpen = false;
+  private hitStopUntil = 0;   // real time (performance.now), not fight time
+  private inHitStop = false;
 
   constructor() { super('play'); }
 
   create(data: PlayData = {}) {
+    const save = loadSave();
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
+    this.kit = R.loadout(save.inventory);
     this.fightMs = Math.max(0, data.startMs ?? 0);
-    this.coins = R.STARTING_COINS;
-    this.kit = R.loadout(loadSave().upgrades);
-    this.owned = [...this.kit.weapons];
-    this.weapon = 'sword';
-    this.hasKey = false;
-    this.doorOpen = false;
+    this.hp = this.kit.maxHp;
+    this.wallet = { ...save.wallet };
     this.rings = [];
-    this.upgrades = { damage: 0, speed: 0 };
+    this.wIndex = this.kit.weapons.length > 1 ? 1 : 0;      // your melee weapon if you have one
+    this.buffs = { damage: 0, speed: 0 };
     this.facing = { x: 1, y: 0 };
+    this.aimMouse = false;
     this.nextAttackAt = 0;
+    this.swingUntil = 0;
     this.invulnUntil = 0;
+    this.readyAt = {};
+    this.shieldUntil = 0;
     this.stage = startStage;
     this.bossHp = R.stageStartHp(startStage);
     this.bossInvulnUntil = 0;
     this.nextShotAt = this.fightMs + 1500;
     this.nextDashAt = this.fightMs + R.STAGES[startStage].dashEveryMs;
     this.dashUntil = 0;
+    this.knockUntil = 0;
     this.spiralAngle = 0;
+    this.telegraph = null;
+    this.slowUntil = this.paralyzedUntil = this.poisonUntil = this.poisonNextTick = this.suckUntil = this.suckNextTick = 0;
     this.bossDead = false;
     this.ended = false;
+    this.landed = true;
+    this.hasKey = false;
+    this.doorOpen = false;
     this.visit = 0;
     this.stock = [];
     this.sold = new Set();
     this.shop = null;
     this.shopNote = '';
     this.devOpenShop = !!data.openShop;
-    this.hp = this.kit.maxHp;
+    this.hitStopUntil = 0;
+    this.inHitStop = false;
 
     this.physics.world.setBounds(PLAY.x + WALL, PLAY.y, PLAY.width - WALL, PLAY.height);
     this.drawArena();
     this.door = this.add.image(DOOR.x, DOOR.y, 'door').setDepth(4).setVisible(false);
-
     this.fisher = this.add.image(FISHER_X, FISHER_Y, 'fisher').setDepth(5).setVisible(false);
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
     this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
     (this.boss.body as Body).setCircle(10, 2, 2);
-    this.applyBossTint();
 
     this.bullets = this.physics.add.group();
-    this.arrows = this.physics.add.group();
+    this.shots = this.physics.add.group();
     this.pickups = this.physics.add.group();
-    this.physics.add.overlap(this.player, this.bullets, (_p, b) => { asSprite(b).destroy(); this.hurtPlayer(); });
-    this.physics.add.overlap(this.player, this.boss, () => this.hurtPlayer());
-    this.physics.add.overlap(this.boss, this.arrows, (_b, a) => {
-      const arrow = asSprite(a);
-      const dmg = arrow.getData('dmg') as number;
-      arrow.destroy();
-      this.damageBoss(dmg);
-    });
+    this.physics.add.overlap(this.player, this.bullets, (_p, b) => { asSprite(b).destroy(); this.hurtPlayer(R.BULLET_DMG); });
+    this.physics.add.overlap(this.player, this.boss, () => this.hurtPlayer(R.CONTACT_DMG));
+    this.physics.add.overlap(this.boss, this.shots, (_b, s) => this.shotHit(asSprite(s)));
     this.physics.add.overlap(this.player, this.pickups, (_p, item) => this.collect(asSprite(item)));
 
     this.keys = addKeys(this);
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
+    this.input.on('pointermove', () => { this.aimMouse = true; });
+    this.input.on('pointerdown', () => {
       if (this.shop || this.ended || !this.landed) return;
-      const dx = p.worldX - this.player.x;
-      const dy = p.worldY - this.player.y;
-      const len = Math.hypot(dx, dy) || 1;
-      this.facing = { x: dx / len, y: dy / len };
-      this.attack(this.facing);
+      this.aimMouse = true;
+      this.attack(this.aimDir());
     });
+    // the custom crosshair replaces the system cursor, only in the arena
+    this.input.setDefaultCursor('none');
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.input.setDefaultCursor('default'));
+
+    this.tgG = this.add.graphics().setDepth(7);
+    this.aimG = this.add.graphics().setDepth(8);
+    this.fxG = this.add.graphics().setDepth(12);
+    this.held = this.add.image(0, 0, 'held_fists').setDepth(11).setVisible(false);
+    this.crosshair = this.add.image(0, 0, 'crosshair').setDepth(990).setVisible(false);
 
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
-      coins: this.add.text(PLAY.x + WALL + 3, PLAY.y + 10, '', { ...FONT, color: '#ffcc44' }).setDepth(950),
+      hp: this.add.text(PLAY.x + WALL + 66, PLAY.y + 2, '', FONT).setDepth(950),
       weapon: this.add.text(PLAY.x + WALL + 3, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950),
       boss: this.add.text(WIDTH / 2, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0).setDepth(950),
       retailer: this.add.text(PLAY.x + PLAY.width - 3, PLAY.y + 2, '', { ...FONT, color: '#9fd3ff' }).setOrigin(1, 0).setDepth(950),
-      rings: R.RARITY_ORDER.map((_r, i) => this.add.text(PLAY.x + PLAY.width - 54 + i * 18 + 8, PLAY.y + PLAY.height - 11, '', FONT).setDepth(950)),
     };
-    this.keyIcon = this.add.image(PLAY.x + WALL + 8 + this.kit.maxHp * 9, PLAY.y + 5, 'key').setDepth(950).setVisible(false);
+    this.keyIcon = this.add.image(PLAY.x + WALL + 112, PLAY.y + 5, 'key').setDepth(950).setVisible(false);
+    this.specialIcons = this.kit.specials.map((id, i) => {
+      const x = PLAY.x + WALL + 7 + i * 12;
+      this.add.text(x, PLAY.y + 21, String(i + 1), { ...FONT, color: '#888888' }).setOrigin(0.5, 0).setDepth(950);
+      return this.add.image(x, PLAY.y + 16, `icon_${id}`).setDepth(945);
+    });
+    this.walletUi = walletHud(this, PLAY.x + PLAY.width - 128, PLAY.y + PLAY.height - 9);
+    this.walletUi.update(this.wallet);
 
     drawFrame(this);
     if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
     if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
     if (data.landing) this.land();
-    else { this.landed = true; if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3'); }
+    else if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3');
   }
 
   /** Fell out of the catapult's sky: a shadow grows, the hero drops in, dust and a shake, then fight. */
   private land() {
     this.landed = false;
     this.cameras.main.fadeIn(350, 255, 255, 255);
-    const x = this.player.x;
-    const y = this.player.y;
+    const { x, y } = this.player;
     this.player.setVisible(false);
     const shadow = this.add.image(x, y + 5, 'shadow').setDepth(9).setScale(0.2);
     this.tweens.add({ targets: shadow, scale: 1.4, duration: 700, ease: 'Quad.easeIn' });
@@ -179,11 +227,7 @@ export class PlayScene extends Phaser.Scene {
         shadow.destroy();
         this.player.setVisible(true);
         this.cameras.main.shake(260, 0.02);
-        for (let i = 0; i < 8; i++) {
-          const a = (i / 8) * Math.PI * 2;
-          const d = this.add.image(x, y + 4, 'dust').setDepth(11);
-          this.tweens.add({ targets: d, x: x + Math.cos(a) * 16, y: y + 4 + Math.sin(a) * 7, alpha: 0, duration: 450, onComplete: () => d.destroy() });
-        }
+        dustPuff(this, x, y, 8, 16);
         this.landed = true;
         this.nextShotAt = this.fightMs + 1500;
         this.banner('MOSSBACK', 'Get the key around his neck');
@@ -192,138 +236,322 @@ export class PlayScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number) {
-    if (this.ended) return;
+    this.drawAim();
+    if (this.ended) { this.endHitStop(); this.drawFx(); return; }
     if (this.shop) { this.shopKeys(); return; }
     if (!this.landed) { this.drawHud(); return; }
+    if (this.hitStopping()) return;
     this.fightMs += delta;
     this.movePlayer();
     this.actionKeys();
-    if (!this.bossDead) this.updateBoss();
+    if (!this.bossDead) { this.updateBoss(); this.updateEffects(); }
     this.updateRetailer();
     this.cleanupProjectiles();
     if (this.bossDead) {
       this.pickups.getChildren().forEach((c) => { if ((c as Sprite).getData('kind') !== 'key') this.physics.moveToObject(c, this.player, 150); });
       if (this.hasKey && this.doorOpen && near(this.player, DOOR.x + 6, DOOR.y, 12)) this.enterTreasury();
     }
+    this.drawFx();
     this.drawHud();
+  }
+
+  // ---- hit-stop: a tiny freeze that makes hits feel heavy --------------------------------
+
+  private hitStop(ms: number) {
+    if (this.shop || this.ended) return;
+    this.hitStopUntil = Math.max(this.hitStopUntil, performance.now() + ms);
+    if (this.inHitStop) return;
+    this.inHitStop = true;
+    this.physics.pause();
+    this.tweens.pauseAll();
+    this.time.paused = true;
+  }
+
+  /** True while frozen; resumes everything when the freeze is over. */
+  private hitStopping(): boolean {
+    if (performance.now() < this.hitStopUntil) return true;
+    this.endHitStop();
+    return false;
+  }
+
+  private endHitStop() {
+    if (!this.inHitStop) return;
+    this.inHitStop = false;
+    this.physics.resume();
+    this.tweens.resumeAll();
+    this.time.paused = false;
   }
 
   // ---- player ------------------------------------------------------------------------
 
-  private bonuses(): R.Bonuses {
-    return { damageMul: this.kit.damageMul + this.upgrades.damage, speedMul: this.kit.speedMul + this.upgrades.speed, bonusHp: 0 };
-  }
-
-  private maxHp(): number { return this.kit.maxHp; }
+  private damageMul() { return 1 + this.buffs.damage; }
 
   private movePlayer() {
-    const dir = steer(this.player, this.keys, this.bonuses().speedMul);
+    const dir = steer(this.player, this.keys, 1 + this.buffs.speed);
     if (dir) this.facing = dir;
+    // face the aim: up, down or sideways (flipped for left)
+    const a = this.aimDir();
+    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) this.player.setTexture(a.y < 0 ? 'player_up' : 'player').setFlipX(false);
+    else this.player.setTexture('player_side').setFlipX(a.x < 0);
   }
 
   private actionKeys() {
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    if (JD(k.SPACE) || JD(k.J)) this.attack(this.facing);
-    if (JD(k.Q)) this.cycleWeapon();
-    (['ONE', 'TWO', 'THREE', 'FOUR'] as const).forEach((name, i) => { if (JD(k[name])) this.selectWeapon(R.WEAPON_ORDER[i]); });
+    if (JD(k.SPACE) || JD(k.J)) this.attack(this.aimDir());
+    if (JD(k.Q)) this.wIndex = (this.wIndex + 1) % this.kit.weapons.length;
+    this.kit.specials.forEach((id, i) => { if (JD(k[SPECIAL_KEYS[i]])) this.cast(id); });
     if (JD(k.E) && this.nearFisher()) this.openShop();
   }
 
-  private selectWeapon(w: R.WeaponId) {
-    if (!this.owned.includes(w)) { this.floatText(this.player.x, this.player.y - 10, `no ${R.WEAPONS[w].name.toLowerCase()}`, '#ff8888'); return; }
-    this.weapon = w;
+  private currentWeapon(): R.Weapon { return R.weapon(this.kit.weapons[this.wIndex]); }
+
+  // ---- aiming ------------------------------------------------------------------------
+
+  /** Where the hero aims: at the cursor once the mouse is used, else the way he walks. */
+  private aimDir(): Dir {
+    if (!this.aimMouse) return this.facing;
+    const p = this.input.activePointer;
+    const dx = p.worldX - this.player.x;
+    const dy = p.worldY - this.player.y;
+    const len = Math.hypot(dx, dy);
+    return len < 1 ? this.facing : { x: dx / len, y: dy / len };
   }
 
-  private cycleWeapon() {
-    const owned = R.WEAPON_ORDER.filter((w) => this.owned.includes(w));
-    this.weapon = owned[(owned.indexOf(this.weapon) + 1) % owned.length];
+  /**
+   * Shows the aim every frame: the weapon in hand points at it (and sweeps / jabs / recoils
+   * when used), the weapon's reach is drawn on the ground, and the crosshair turns red when an
+   * attack right now would hit Mossback. Dim = still recharging.
+   */
+  private drawAim() {
+    const g = this.aimG.clear();
+    const show = this.landed && !this.ended && !this.shop;
+    this.held.setVisible(show);
+    this.crosshair.setVisible(show);
+    if (!show) return;
+    const p = this.player;
+    const d = this.aimDir();
+    const a = Math.atan2(d.y, d.x);
+    const w = this.currentWeapon();
+    const ready = this.fightMs >= this.nextAttackAt;
+    const boss = this.boss;
+    let hits = false;
+
+    if (w.kind === 'melee') {
+      const reach = w.reach * 0.6;
+      hits = !this.bossDead && Phaser.Math.Distance.Between(p.x + d.x * reach, p.y + d.y * reach, boss.x, boss.y) < 11 + reach;
+      g.fillStyle(hits ? 0xff5a5a : 0xffffff, ready ? 0.22 : 0.08);
+      g.slice(p.x, p.y, w.reach + 3, a - 0.75, a + 0.75, false).fillPath();
+    } else {
+      const along = (boss.x - p.x) * d.x + (boss.y - p.y) * d.y;
+      const off = Math.abs((boss.x - p.x) * d.y - (boss.y - p.y) * d.x);
+      hits = !this.bossDead && along > 0 && off < 11;
+      g.fillStyle(hits ? 0xff5a5a : 0xffffff, ready ? 0.7 : 0.25);
+      for (let i = 1; i <= 12; i++) g.fillRect(Math.round(p.x + d.x * (6 + i * 6)), Math.round(p.y + d.y * (6 + i * 6)), 1, 1);
+    }
+
+    // the weapon in his hand: points at the aim, animated while attacking
+    let rot = a;
+    let dist = 6;
+    const left = this.swingUntil - this.fightMs;
+    if (left > 0) {
+      const t = 1 - left / SWING_MS;
+      if (this.swingKind === 'sweep') rot = this.swingAngle - 0.9 + 1.8 * easeOut(t);
+      else if (this.swingKind === 'jab') dist = 6 + 7 * Math.sin(Math.PI * t);
+      else dist = 6 - 3 * (1 - t);
+    }
+    const up = Math.abs(d.y) > Math.abs(d.x) * 1.2 && d.y < 0;
+    this.held.setTexture(`held_${w.id}`).setPosition(p.x + Math.cos(rot) * dist, p.y + Math.sin(rot) * dist + 1)
+      .setRotation(rot).setFlipY(Math.cos(rot) < 0).setDepth(up ? 9 : 11);   // behind him when aiming up
+
+    // the crosshair: at the mouse, or (keyboard) a little ahead of the hero
+    const cx = this.aimMouse ? this.input.activePointer.worldX : p.x + d.x * 24;
+    const cy = this.aimMouse ? this.input.activePointer.worldY : p.y + d.y * 24;
+    this.crosshair.setTexture(hits ? 'crosshair_hot' : 'crosshair')
+      .setPosition(Math.round(Phaser.Math.Clamp(cx, PLAY.x, PLAY.x + PLAY.width)), Math.round(Phaser.Math.Clamp(cy, PLAY.y, PLAY.y + PLAY.height)))
+      .setAlpha(ready ? 1 : 0.45);
   }
+
+  // ---- attacking ---------------------------------------------------------------------
 
   private attack(dir: Dir) {
-    const w = R.WEAPONS[this.weapon];
+    const w = this.currentWeapon();
     if (this.fightMs < this.nextAttackAt) return;
     this.nextAttackAt = this.fightMs + w.cooldownMs;
-    const dmg = R.hitDamage(this.weapon, this.bonuses().damageMul);
-    if (w.kind === 'melee') this.melee(dir, w, dmg);
-    else if (w.kind === 'shooting') this.shoot(dir, dmg);
-    else this.throwBomb(dir, w, dmg);
+    const dmg = R.hitDamage(w.damage, this.damageMul());
+    this.swingAngle = Math.atan2(dir.y, dir.x);
+    this.swingUntil = this.fightMs + SWING_MS;
+    if (w.kind === 'melee') {
+      this.swingKind = w.id === 'fists' ? 'jab' : 'sweep';
+      this.melee(dir, w, dmg);
+    } else {
+      this.swingKind = 'recoil';
+      this.projectile(`proj_${w.id}`, dir, w.speed, dmg);
+    }
   }
 
   private melee(dir: Dir, w: R.Weapon, dmg: number) {
-    const reach = w.range * 0.6;
+    const reach = w.reach * 0.6;
     const cx = this.player.x + dir.x * reach;
     const cy = this.player.y + dir.y * reach;
-    const fx = this.add.image(cx, cy, w.id === 'fists' ? 'punch' : 'slash').setRotation(Math.atan2(dir.y, dir.x)).setDepth(11);
-    this.tweens.add({ targets: fx, alpha: 0, duration: 140, onComplete: () => fx.destroy() });
+    const fx = this.add.image(cx, cy, w.id === 'fists' ? 'punch' : 'slash').setRotation(Math.atan2(dir.y, dir.x)).setDepth(11).setScale(Math.max(0.7, w.reach / 16));
+    this.tweens.add({ targets: fx, alpha: 0, duration: 160, onComplete: () => fx.destroy() });
     if (!this.bossDead && Phaser.Math.Distance.Between(cx, cy, this.boss.x, this.boss.y) < 11 + reach) this.damageBoss(dmg);
   }
 
-  private shoot(dir: Dir, dmg: number) {
-    const a = asSprite(this.arrows.create(this.player.x, this.player.y, 'arrow'));
-    a.setRotation(Math.atan2(dir.y, dir.x)).setDepth(11).setData('dmg', dmg).setData('dies', this.fightMs + 1500);
-    (a.body as Body).setVelocity(dir.x * ARROW_SPEED, dir.y * ARROW_SPEED);
+  /** Your projectiles: weapon shots and spells. `effect` is what a spell does on hit. */
+  private projectile(texture: string, dir: Dir, speed: number, dmg: number, effect: '' | 'freeze' | 'poison' = '') {
+    const s = asSprite(this.shots.create(this.player.x, this.player.y, texture));
+    s.setRotation(Math.atan2(dir.y, dir.x)).setDepth(11).setData('dmg', dmg).setData('effect', effect).setData('dies', this.fightMs + 2000);
+    (s.body as Body).setVelocity(dir.x * speed, dir.y * speed);
   }
 
-  private throwBomb(dir: Dir, w: R.Weapon, dmg: number) {
-    const tx = Phaser.Math.Clamp(this.player.x + dir.x * w.range, PLAY.x + 4, PLAY.x + PLAY.width - 4);
-    const ty = Phaser.Math.Clamp(this.player.y + dir.y * w.range, PLAY.y + 4, PLAY.y + PLAY.height - 4);
+  private shotHit(s: Sprite) {
+    if (!s.active) return;
+    const dmg = s.getData('dmg') as number;
+    const effect = s.getData('effect') as string;
+    s.destroy();
+    this.damageBoss(dmg);
+    if (effect === 'freeze') { this.slowUntil = this.fightMs + R.SPECIAL.freezeSlowMs; this.floatText(this.boss.x, this.boss.y - 22, 'SLOWED', '#9fe8ff'); }
+    if (effect === 'poison') { this.poisonUntil = this.fightMs + R.SPECIAL.poisonMs; this.poisonNextTick = this.fightMs + 1000; this.floatText(this.boss.x, this.boss.y - 22, 'POISONED', '#6fd13a'); }
+  }
+
+  // ---- specials (number keys) --------------------------------------------------------
+
+  private cast(id: R.SpecialId) {
+    const it = R.item(id);
+    if (this.fightMs < (this.readyAt[id] ?? 0)) { this.floatText(this.player.x, this.player.y - 12, `${it.name} not ready`, '#888888'); return; }
+    const d = this.aimDir();
+    const p = this.player;
+    const boss = this.boss;
+    const S = R.SPECIAL;
+    let used = true;
+    switch (id) {
+      case 'fireball': this.projectile('proj_fireball', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul())); break;
+      case 'freeze': this.projectile('proj_freeze', d, SPELL_SPEED, R.hitDamage(it.damage ?? 0, this.damageMul()), 'freeze'); break;
+      case 'poison': this.projectile('proj_poison', d, SPELL_SPEED - 20, R.hitDamage(it.damage ?? 0, this.damageMul()), 'poison'); break;
+      case 'paralysis':
+        if (this.bossDead) { used = false; break; }
+        this.paralyzedUntil = this.fightMs + S.paralysisMs;
+        this.telegraph = null;
+        this.bullets.clear(true, true);
+        this.floatText(boss.x, boss.y - 22, 'PARALYSED', '#ffee44');
+        break;
+      case 'push': {
+        this.ring(p.x, p.y, S.pushRadius, 0xffffff);
+        if (this.bossDead || !near(p, boss.x, boss.y, S.pushRadius)) { this.floatText(p.x, p.y - 12, 'too far', '#888888'); break; }
+        this.damageBoss(R.hitDamage(it.damage ?? 0, this.damageMul()));
+        const ang = Phaser.Math.Angle.Between(p.x, p.y, boss.x, boss.y);
+        const ms = 220;
+        (boss.body as Body).setVelocity(Math.cos(ang) * S.pushDistance * (1000 / ms), Math.sin(ang) * S.pushDistance * (1000 / ms));
+        this.knockUntil = this.fightMs + ms;
+        this.telegraph = null;
+        break;
+      }
+      case 'healthSuck':
+        if (this.bossDead) { used = false; break; }
+        this.suckUntil = this.fightMs + S.suckMs;
+        this.suckNextTick = this.fightMs + 500;
+        break;
+      case 'bomb': this.throwBomb(d, it.damage ?? 0); break;
+      case 'shield':
+        this.shieldUntil = this.fightMs + S.shieldMs;
+        this.floatText(p.x, p.y - 12, 'SHIELD', '#6aa8ff');
+        break;
+    }
+    if (used) this.readyAt[id] = this.fightMs + (it.cooldownMs ?? 0);
+  }
+
+  /** The bomb special: thrown toward the aim, blinks for its 2 s fuse, then a big blast. */
+  private throwBomb(d: Dir, damage: number) {
+    const S = R.SPECIAL;
+    const tx = Phaser.Math.Clamp(this.player.x + d.x * S.bombThrow, PLAY.x + WALL + 4, PLAY.x + PLAY.width - 4);
+    const ty = Phaser.Math.Clamp(this.player.y + d.y * S.bombThrow, PLAY.y + 4, PLAY.y + PLAY.height - 4);
     const bomb = this.add.image(this.player.x, this.player.y, 'bomb').setDepth(11);
-    this.tweens.add({
-      targets: bomb, x: tx, y: ty, duration: 350, ease: 'Quad.easeOut',
-      onComplete: () => this.time.delayedCall(450, () => {
-        bomb.destroy();
-        const blast = this.add.image(tx, ty, 'blast').setDepth(11).setScale(0.4);
-        this.tweens.add({ targets: blast, scale: 1.2, alpha: 0, duration: 300, onComplete: () => blast.destroy() });
-        this.cameras.main.shake(120, 0.01);
-        if (!this.bossDead && Phaser.Math.Distance.Between(tx, ty, this.boss.x, this.boss.y) < BLAST_RADIUS) this.damageBoss(dmg);
-      }),
+    this.tweens.add({ targets: bomb, x: tx, y: ty, duration: 350, ease: 'Quad.easeOut' });
+    this.tweens.add({ targets: bomb, alpha: 0.3, yoyo: true, repeat: -1, duration: 150, delay: 350 });
+    const marker = this.add.circle(tx, ty, S.bombRadius).setStrokeStyle(1, 0xff5a5a, 0.6).setDepth(7);
+    this.time.delayedCall(S.bombFuseMs, () => {
+      bomb.destroy();
+      marker.destroy();
+      const blast = this.add.image(tx, ty, 'blast').setDepth(11).setScale(0.4);
+      this.tweens.add({ targets: blast, scale: 1.3, alpha: 0, duration: 320, onComplete: () => blast.destroy() });
+      this.cameras.main.shake(180, 0.015);
+      if (!this.bossDead && Phaser.Math.Distance.Between(tx, ty, this.boss.x, this.boss.y) < S.bombRadius + 10) this.damageBoss(R.hitDamage(damage, this.damageMul()));
     });
   }
 
-  private hurtPlayer() {
+  /** Damage over time: poison ticks and the health suck. */
+  private updateEffects() {
+    const S = R.SPECIAL;
+    while (this.fightMs < this.poisonUntil && this.fightMs >= this.poisonNextTick) {
+      this.poisonNextTick += 1000;
+      this.damageBoss(S.poisonTickDmg, { hitStop: false, drops: false, color: '#6fd13a' });
+    }
+    while (this.fightMs < this.suckUntil && this.fightMs >= this.suckNextTick && !this.bossDead) {
+      this.suckNextTick += 500;            // 2 hp/s = 1 hp every 0.5 s
+      this.damageBoss(S.suckPerSec / 2, { hitStop: false, drops: false, color: '#e03a4a' });
+      this.hp = Math.min(this.kit.maxHp, this.hp + S.suckPerSec / 2);
+    }
+  }
+
+  private hurtPlayer(raw: number) {
     if (this.ended || this.bossDead || this.fightMs < this.invulnUntil) return;
-    this.hp -= 1;
+    const shielded = this.fightMs < this.shieldUntil;
+    const dmg = R.damageTaken(raw, this.kit.armor, shielded);
+    if (shielded) {
+      this.invulnUntil = this.fightMs + 300;
+      this.floatText(this.player.x, this.player.y - 12, 'BLOCKED', '#6aa8ff');
+      return;
+    }
+    this.hp = Math.max(0, this.hp - dmg);
     this.invulnUntil = this.fightMs + R.INVULN_MS;
     this.cameras.main.shake(100, 0.008);
+    this.floatText(this.player.x, this.player.y - 12, `-${dmg}`, '#ff6a6a');
     this.tweens.add({ targets: this.player, alpha: 0.2, yoyo: true, repeat: 4, duration: 90, onComplete: () => this.player.setAlpha(1) });
     if (this.hp <= 0) this.thrownOut();
   }
 
   // ---- boss --------------------------------------------------------------------------
 
-  private applyBossTint() {
-    this.boss.setTexture(`boss_${this.stage}`);
-  }
+  private applyBossTexture() { this.boss.setTexture(`boss_${this.stage}`); }
 
   private updateBoss() {
     const now = this.fightMs;
     const st = R.STAGES[this.stage];
-    if (now >= this.dashUntil) {
-      if (st.dashEveryMs > 0 && now >= this.nextDashAt) {
-        this.physics.moveToObject(this.boss, this.player, 150);
-        this.dashUntil = now + 350;
-        this.nextDashAt = now + st.dashEveryMs;
-      } else {
-        this.physics.moveToObject(this.boss, this.player, st.speed);
-      }
-    }
-    if (now >= this.nextShotAt && now >= this.bossInvulnUntil) {
-      this.fire(st.pattern);
-      this.nextShotAt = now + st.shotEveryMs;
-    }
-  }
+    const body = this.boss.body as Body;
+    if (now < this.knockUntil) return;                       // pushed: flying back
+    if (now < this.paralyzedUntil) { body.setVelocity(0, 0); return; }
+    const slow = now < this.slowUntil ? R.SPECIAL.freezeFactor : 1;
 
-  private fire(pattern: R.Pattern) {
-    const { x, y } = this.boss;
-    if (pattern === 'ring') {
-      for (let i = 0; i < 10; i++) this.bullet(x, y, (i / 10) * Math.PI * 2, 55);
-    } else if (pattern === 'aimed') {
-      const a = Phaser.Math.Angle.Between(x, y, this.player.x, this.player.y);
-      for (const d of [-0.25, 0, 0.25]) this.bullet(x, y, a + d, 85);
-    } else {
-      for (let i = 0; i < 4; i++) this.bullet(x, y, this.spiralAngle + (i * Math.PI) / 2, 70);
-      this.spiralAngle += 0.35;
+    // a telegraphed attack: stand still while the warning shows, then do it
+    if (this.telegraph) {
+      body.setVelocity(0, 0);
+      if (now < this.telegraph.fireAt) return;
+      const t = this.telegraph;
+      this.telegraph = null;
+      if (t.kind === 'aimed') for (const off of [-0.25, 0, 0.25]) this.bullet(this.boss.x, this.boss.y, t.angle + off, 85);
+      else if (t.kind === 'ring') for (let i = 0; i < 10; i++) this.bullet(this.boss.x, this.boss.y, (i / 10) * Math.PI * 2, 55);
+      else { body.setVelocity(Math.cos(t.angle) * 150, Math.sin(t.angle) * 150); this.dashUntil = now + 350; }
+      return;
+    }
+    if (now < this.dashUntil) return;
+
+    if (st.dashEveryMs > 0 && now >= this.nextDashAt) {
+      this.nextDashAt = now + st.dashEveryMs;
+      this.telegraph = { kind: 'dash', angle: Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y), fireAt: now + R.TELEGRAPH_MS };
+      return;
+    }
+    this.physics.moveToObject(this.boss, this.player, st.speed * slow);
+    if (now >= this.nextShotAt && now >= this.bossInvulnUntil) {
+      this.nextShotAt = now + st.shotEveryMs / slow;
+      const angle = Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y);
+      if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS };
+      else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350 };
+      else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
+        for (let i = 0; i < 4; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI) / 2, 70);
+        this.spiralAngle += 0.35;
+      }
     }
   }
 
@@ -333,13 +561,17 @@ export class PlayScene extends Phaser.Scene {
     (b.body as Body).setCircle(2).setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
   }
 
-  private damageBoss(dmg: number) {
+  private damageBoss(dmg: number, opts: { hitStop?: boolean; drops?: boolean; color?: string } = {}) {
     if (this.bossDead || this.fightMs < this.bossInvulnUntil) return;
+    const { hitStop = true, drops = true, color = '#ffffff' } = opts;
     this.bossHp = Math.max(0, this.bossHp - dmg);
-    this.boss.setTexture('boss_flash');
-    this.time.delayedCall(60, () => { if (this.boss.active) this.applyBossTint(); });
-    this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, '#ffffff');
-    if (this.rng() < R.COIN_ON_HIT_CHANCE) this.spawnCoin(this.boss.x, this.boss.y);
+    this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
+    if (hitStop) {
+      this.boss.setTexture('boss_flash');
+      this.time.delayedCall(60, () => { if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
+      this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
+    }
+    if (drops && this.rng() < R.RING_ON_HIT_CHANCE) this.spawnRing(this.boss.x, this.boss.y, 'classic');
     if (this.bossHp <= 0) { this.killBoss(); return; }
     const next = R.bossStage(this.bossHp);
     for (let s = this.stage + 1; s <= next; s++) this.enterStage(s as R.Stage);
@@ -347,7 +579,8 @@ export class PlayScene extends Phaser.Scene {
 
   private enterStage(next: R.Stage) {
     this.stage = next;
-    this.applyBossTint();
+    this.applyBossTexture();
+    this.telegraph = null;
     this.bossInvulnUntil = this.fightMs + 1200;
     this.nextShotAt = this.fightMs + 1500;
     this.nextDashAt = this.fightMs + R.STAGES[next].dashEveryMs;
@@ -360,6 +593,7 @@ export class PlayScene extends Phaser.Scene {
 
   private killBoss() {
     this.bossDead = true;
+    this.telegraph = null;
     this.bullets.clear(true, true);
     this.drop(R.deathDrop(this.rng));
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
@@ -375,37 +609,31 @@ export class PlayScene extends Phaser.Scene {
   // ---- drops -------------------------------------------------------------------------
 
   private drop(d: R.Drop) {
-    this.spawnRing(this.boss.x, this.boss.y, d.ring);
-    for (let i = 0; i < d.coins; i++) this.spawnCoin(this.boss.x, this.boss.y);
-  }
-
-  private scatter(item: Sprite) {
-    const a = this.rng() * Math.PI * 2;
-    const s = 40 + this.rng() * 40;
-    item.setDepth(7).setCollideWorldBounds(true);
-    (item.body as Body).setVelocity(Math.cos(a) * s, Math.sin(a) * s).setDrag(90, 90);
-  }
-
-  private spawnCoin(x: number, y: number) {
-    const c = asSprite(this.pickups.create(x, y, 'coin'));
-    c.setData('kind', 'coin');
-    this.scatter(c);
+    for (const r of d.rings) this.spawnRing(this.boss.x, this.boss.y, r);
   }
 
   private spawnRing(x: number, y: number, rarity: R.Rarity) {
     const r = asSprite(this.pickups.create(x, y, `ring_${rarity}`));
-    r.setData('kind', 'ring').setData('rarity', rarity);
-    this.scatter(r);
+    r.setData('kind', 'ring').setData('rarity', rarity).setDepth(7).setCollideWorldBounds(true);
+    const a = this.rng() * Math.PI * 2;
+    const s = 40 + this.rng() * 40;
+    (r.body as Body).setVelocity(Math.cos(a) * s, Math.sin(a) * s).setDrag(90, 90);
     this.tweens.add({ targets: r, scale: 1.3, yoyo: true, repeat: -1, duration: 400 });
   }
 
   private collect(item: Sprite) {
     if (!item.active) return;
-    const kind = item.getData('kind');
-    if (kind === 'coin') this.coins++;
-    else if (kind === 'key') this.takeKey();
+    if (item.getData('kind') === 'key') this.takeKey();
     else this.addRing(item.getData('rarity') as R.Rarity);
     item.destroy();
+  }
+
+  private addRing(rarity: R.Rarity) {
+    this.rings.push(rarity);
+    this.wallet = R.addRings(this.wallet, [rarity]);
+    this.walletUi.update(this.wallet);
+    const info = R.RINGS[rarity];
+    this.floatText(this.player.x, this.player.y - 12, info.name, `#${info.color.toString(16).padStart(6, '0')}`);
   }
 
   private takeKey() {
@@ -432,18 +660,11 @@ export class PlayScene extends Phaser.Scene {
     if (this.ended) return;
     this.ended = true;
     (this.player.body as Body).setVelocity(0, 0);
-    // rings still on the floor are yours
-    for (const c of this.pickups.getChildren() as Sprite[]) if (c.getData('kind') === 'ring') this.rings.push(c.getData('rarity') as R.Rarity);
-    fadeToScene(this, 'treasury', { rings: [...this.rings], coins: this.coins, timeMs: Math.round(this.fightMs) }, 500);
+    for (const c of this.pickups.getChildren() as Sprite[]) if (c.getData('kind') === 'ring') this.addRing(c.getData('rarity') as R.Rarity);
+    fadeToScene(this, 'treasury', { found: [...this.rings], wallet: this.wallet, timeMs: Math.round(this.fightMs) }, 500);
   }
 
-  private addRing(rarity: R.Rarity) {
-    this.rings.push(rarity);
-    const info = R.RINGS[rarity];
-    this.floatText(this.player.x, this.player.y - 12, info.name, `#${info.color.toString(16).padStart(6, '0')}`);
-  }
-
-  // ---- the fisherman -----------------------------------------------------------------
+  // ---- the fisherman: supplies for rings ---------------------------------------------
 
   private nearFisher(): boolean {
     return this.visit > 0 && Phaser.Math.Distance.Between(this.player.x, this.player.y, FISHER_X, FISHER_Y) < 24;
@@ -454,7 +675,7 @@ export class PlayScene extends Phaser.Scene {
     if (v !== this.visit) {
       this.visit = v;
       if (v > 0) {
-        this.stock = R.rollStock(this.rng, this.owned);
+        this.stock = R.rollStock(this.rng);
         this.sold = new Set();
         this.fisher.setVisible(true).setAlpha(0);
         this.tweens.add({ targets: this.fisher, alpha: 1, duration: 300 });
@@ -494,17 +715,17 @@ export class PlayScene extends Phaser.Scene {
     if (i >= this.stock.length) return;
     if (this.sold.has(i)) { this.shopNote = 'Already sold.'; this.renderShop(); return; }
     const id = this.stock[i];
-    const item = R.ITEMS[id];
-    if (this.coins < item.price) { this.shopNote = `Not enough coins (${item.price}c).`; this.renderShop(); return; }
-    this.coins -= item.price;
+    const s = R.SUPPLIES[id];
+    const paid = R.pay(this.wallet, s.price);
+    if (!paid) { this.shopNote = `Not enough rings (${s.price}).`; this.renderShop(); return; }
+    this.wallet = paid;
+    this.walletUi.update(this.wallet);
     this.sold.add(i);
-    this.shopNote = `Bought: ${item.name}.`;
-    if (item.weapon) { this.owned.push(item.weapon); this.weapon = item.weapon; }
-    else if (id === 'potion') this.hp = Math.min(this.maxHp(), this.hp + 2);
-    else if (id === 'bigPotion') this.hp = this.maxHp();
-    else if (id === 'whetstone') this.upgrades.damage += 0.2;
-    else if (id === 'boots') this.upgrades.speed += 0.15;
-    else if (id === 'mysteryRing') { const r = R.rollRing(this.rng); this.addRing(r); this.shopNote = `Bought: ${R.RINGS[r].name}!`; }
+    this.shopNote = `Bought: ${s.name}.`;
+    if (id === 'potion') this.hp = Math.min(this.kit.maxHp, this.hp + 30);
+    else if (id === 'bigPotion') this.hp = this.kit.maxHp;
+    else if (id === 'whetstone') this.buffs.damage += 0.2;
+    else if (id === 'boots') this.buffs.speed += 0.15;
     this.renderShop();
   }
 
@@ -516,18 +737,18 @@ export class PlayScene extends Phaser.Scene {
     const y = PLAY.y + 30;
     const c = this.add.container(0, 0).setDepth(960);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);   // dim the fight
+    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
     bg.fillStyle(0x10202a).fillRect(x, y, w, h);
     bg.fillStyle(0x2d6fa3).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
     c.add(this.add.image(x + 14, y + 16, 'fisher'));
     c.add(this.add.text(x + 28, y + 6, "THE FISHERMAN'S CATCH", { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 28, y + 16, `"Three things today, friend." You have ${this.coins}c`, { ...FONT, color: '#9fd3ff' }));
+    c.add(this.add.text(x + 28, y + 16, `"Supplies. Rings only." You have ${R.walletValue(this.wallet)}`, { ...FONT, color: '#9fd3ff' }));
     this.stock.forEach((id, i) => {
-      const item = R.ITEMS[id];
+      const s = R.SUPPLIES[id];
       const sold = this.sold.has(i);
-      const color = sold ? '#555555' : this.coins >= item.price ? '#ffffff' : '#ff8888';
-      const line = `${i + 1}  ${item.name.padEnd(12)} ${sold ? 'SOLD' : `${item.price}c`.padStart(4)}  ${item.desc}`;
+      const color = sold ? '#555555' : R.walletValue(this.wallet) >= s.price ? '#ffffff' : '#ff8888';
+      const line = `${i + 1}  ${s.name.padEnd(12)} ${sold ? 'SOLD' : `${s.price}r`.padStart(4)}  ${s.desc}`;
       c.add(this.add.text(x + 8, y + 34 + i * 13, line, { ...FONT, color }));
     });
     if (this.shopNote) c.add(this.add.text(x + 8, y + 74, this.shopNote, { ...FONT, color: '#ffcc44' }));
@@ -535,12 +756,64 @@ export class PlayScene extends Phaser.Scene {
     this.shop = c;
   }
 
-  // ---- HUD and effects ---------------------------------------------------------------
+  // ---- drawing: telegraphs, effects, HUD ---------------------------------------------
+
+  private drawFx() {
+    const t = this.tgG.clear();
+    const f = this.fxG.clear();
+    const b = this.boss;
+    const p = this.player;
+    const now = this.fightMs;
+    // the boss's warnings: red lines before aimed shots and dashes, a red circle before the ring
+    if (this.telegraph && !this.bossDead) {
+      const tg = this.telegraph;
+      const pulse = 0.35 + 0.35 * Math.sin(now / 40);
+      if (tg.kind === 'ring') {
+        t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(b.x, b.y, 14 + 8 * (1 - (tg.fireAt - now) / 350));
+      } else {
+        const len = tg.kind === 'dash' ? 120 : 150;
+        const width = tg.kind === 'dash' ? 3 : 1;
+        for (const off of tg.kind === 'aimed' ? [-0.25, 0, 0.25] : [0]) {
+          t.lineStyle(width, 0xff3a3a, pulse).lineBetween(b.x, b.y, b.x + Math.cos(tg.angle + off) * len, b.y + Math.sin(tg.angle + off) * len);
+        }
+      }
+    }
+    if (this.bossDead) return;
+    // status effects on him
+    if (now < this.slowUntil) f.fillStyle(0x9fe8ff, 0.25).fillCircle(b.x, b.y, 12);
+    if (now < this.poisonUntil) for (let i = 0; i < 3; i++) f.fillStyle(0x6fd13a, 0.8).fillRect(b.x - 8 + i * 7, b.y - 14 - ((now / 8 + i * 9) % 10), 2, 2);
+    if (now < this.paralyzedUntil) for (let i = 0; i < 4; i++) {
+      const a = now / 150 + i * (Math.PI / 2);
+      f.fillStyle(0xffee44).fillRect(b.x + Math.cos(a) * 13, b.y - 4 + Math.sin(a) * 4, 2, 2);
+    }
+    // health suck: a red stream from him to you
+    if (now < this.suckUntil) for (let i = 0; i < 10; i++) {
+      const k = ((now / 400 + i / 10) % 1);
+      f.fillStyle(0xe03a4a, 0.9).fillRect(b.x + (p.x - b.x) * k, b.y + (p.y - b.y) * k, 2, 2);
+    }
+    // your shield
+    if (now < this.shieldUntil) f.lineStyle(1, 0x6aa8ff, 0.6 + 0.3 * Math.sin(now / 80)).strokeCircle(p.x, p.y, 9);
+  }
 
   private drawHud() {
     const g = this.hud.clear();
-    for (let i = 0; i < this.maxHp(); i++) this.heart(g, PLAY.x + WALL + 3 + i * 9, PLAY.y + 3, i < this.hp);
-
+    // your HP bar (blue edge while shielded)
+    const hx = PLAY.x + WALL + 3;
+    const hy = PLAY.y + 3;
+    g.fillStyle(this.fightMs < this.shieldUntil ? 0x6aa8ff : 0x000000).fillRect(hx - 1, hy - 1, 62, 7);
+    g.fillStyle(0x442228).fillRect(hx, hy, 60, 5);
+    g.fillStyle(0xe03a4a).fillRect(hx, hy, Math.round((60 * this.hp) / this.kit.maxHp), 5);
+    this.texts.hp.setText(`${Math.ceil(this.hp)}`);
+    // specials: dark from the top while recharging
+    this.specialIcons.forEach((icon, i) => {
+      const id = this.kit.specials[i];
+      const left = (this.readyAt[id] ?? 0) - this.fightMs;
+      if (left > 0) {
+        const frac = left / (R.item(id).cooldownMs ?? 1);
+        g.fillStyle(0x000000, 0.7).fillRect(icon.x - 4, icon.y - 4, 9, Math.ceil(9 * frac));
+      }
+    });
+    // the boss bar
     const bw = 110;
     const bx = WIDTH / 2 - bw / 2;
     const by = PLAY.y + 4;
@@ -549,26 +822,14 @@ export class PlayScene extends Phaser.Scene {
     g.fillStyle(R.STAGES[this.stage].color).fillRect(bx, by, Math.round((bw * this.bossHp) / R.BOSS_MAX_HP), 4);
     g.fillStyle(0xffffff).fillRect(bx + Math.round(bw / 3), by - 1, 1, 6).fillRect(bx + Math.round((bw * 2) / 3), by - 1, 1, 6);
 
-    R.RARITY_ORDER.forEach((r, i) => {
-      const rx = PLAY.x + PLAY.width - 54 + i * 18;
-      const ry = PLAY.y + PLAY.height - 10;
-      const c = R.RINGS[r].color;
-      g.fillStyle(c).fillRect(rx + 1, ry, 4, 1).fillRect(rx + 1, ry + 5, 4, 1).fillRect(rx, ry + 1, 1, 4).fillRect(rx + 5, ry + 1, 1, 4);
-    });
-    const counts = R.countRings(this.rings);
-    R.RARITY_ORDER.forEach((r, i) => this.texts.rings[i].setText(`${counts[r]}`));
-
-    this.texts.coins.setText(`${this.coins}c`);
-    this.texts.weapon.setText(`${R.WEAPONS[this.weapon].name}  Q: switch`);
-    this.texts.boss.setText(!this.bossDead ? `MOSSBACK  stage ${this.stage}/3` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
+    const now = this.fightMs;
+    const status = [now < this.slowUntil ? 'slow' : '', now < this.poisonUntil ? `poison ${Math.ceil((this.poisonUntil - now) / 1000)}s` : '', now < this.paralyzedUntil ? 'stunned' : '']
+      .filter(Boolean).join(' ');
+    this.texts.boss.setText(!this.bossDead ? `MOSSBACK ${this.stage}/3${status ? `  ${status}` : ''}` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
+    this.texts.weapon.setText(`${this.currentWeapon().name}${this.kit.weapons.length > 1 ? '  Q: switch' : ''}`);
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
     this.texts.retailer.setText(this.bossDead ? '' : here ? `Fisherman here ${secs}s` : `Fisherman in ${secs}s`);
-  }
-
-  private heart(g: Phaser.GameObjects.Graphics, x: number, y: number, full: boolean) {
-    g.fillStyle(full ? 0xe03a4a : 0x442228);
-    g.fillRect(x + 1, y, 2, 1).fillRect(x + 4, y, 2, 1).fillRect(x, y + 1, 7, 2).fillRect(x + 1, y + 3, 5, 1).fillRect(x + 2, y + 4, 3, 1).fillRect(x + 3, y + 5, 1, 1);
   }
 
   private drawArena() {
@@ -589,7 +850,12 @@ export class PlayScene extends Phaser.Scene {
     const py = PLAY.y + PLAY.height - 16;
     g.fillStyle(0x1e4f7a).fillRect(px, py, pw, 12);
     g.fillStyle(0x2d6fa3).fillRect(px + 2, py, pw - 4, 1).fillRect(px + 8, py + 5, 6, 1).fillRect(px + 30, py + 8, 8, 1);
-    g.fillStyle(0x6b4a2b).fillRect(FISHER_X - 6, py - 2, 12, 3);    // dock
+    g.fillStyle(0x6b4a2b).fillRect(FISHER_X - 6, py - 2, 12, 3);
+  }
+
+  private ring(x: number, y: number, r: number, color: number) {
+    const c = this.add.circle(x, y, 4).setStrokeStyle(1, color, 0.9).setDepth(12);
+    this.tweens.add({ targets: c, radius: r, alpha: 0, duration: 300, onComplete: () => c.destroy() });
   }
 
   private banner(title: string, sub: string) { showBanner(this, title, sub); }
@@ -599,7 +865,7 @@ export class PlayScene extends Phaser.Scene {
   private cleanupProjectiles() {
     const out = (o: Sprite) => o.x < PLAY.x - 2 || o.x > PLAY.x + PLAY.width + 2 || o.y < PLAY.y - 2 || o.y > PLAY.y + PLAY.height + 2;
     for (const b of [...this.bullets.getChildren()] as Sprite[]) if (out(b)) b.destroy();
-    for (const a of [...this.arrows.getChildren()] as Sprite[]) if (out(a) || this.fightMs > (a.getData('dies') as number)) a.destroy();
+    for (const s of [...this.shots.getChildren()] as Sprite[]) if (out(s) || this.fightMs > (s.getData('dies') as number)) s.destroy();
   }
 
   /**
@@ -610,23 +876,22 @@ export class PlayScene extends Phaser.Scene {
   private thrownOut() {
     if (this.ended) return;
     this.ended = true;
-    const rings = [...this.rings];
-    updateSave((s) => ({ ...s, wallet: R.addRings(s.wallet, rings), lifetimeRings: R.addRings(s.lifetimeRings, rings) }));
+    const found = [...this.rings];
+    updateSave((s) => ({ ...s, wallet: this.wallet, lifetimeRings: R.addRings(s.lifetimeRings, found) }));
 
-    // freeze the fight
     (this.player.body as Body).setVelocity(0, 0).enable = false;
     (this.boss.body as Body).setVelocity(0, 0).enable = false;
+    this.telegraph = null;
     this.bullets.clear(true, true);
-    this.arrows.clear(true, true);
+    this.shots.clear(true, true);
     this.tweens.killTweensOf(this.player);
     this.player.setAlpha(1);
     this.fisherPrompt.setVisible(false);
     this.banner('MOSSBACK SMASHES YOU', '...all the way back to the village');
 
     const p = this.player;
-    const dir = p.x <= this.boss.x ? -1 : 1;                 // away from him
+    const dir = p.x <= this.boss.x ? -1 : 1;
     const clampX = (x: number) => Phaser.Math.Clamp(x, PLAY.x + WALL + 6, PLAY.x + PLAY.width - 6);
-    // the slam: he squashes, springs, the ground shakes
     this.tweens.add({
       targets: this.boss, scaleY: 0.75, scaleX: 1.2, duration: 160, yoyo: true, ease: 'Quad.easeOut',
       onComplete: () => {
@@ -643,7 +908,7 @@ export class PlayScene extends Phaser.Scene {
   private bounceOut() {
     const p = this.player;
     this.tweens.add({ targets: p, y: PLAY.y - 30, scale: 2.6, rotation: p.rotation - Math.PI * 3, duration: 650, ease: 'Quad.easeOut' });
-    this.tweens.add({ targets: this.boss, y: this.boss.y - 5, yoyo: true, repeat: 3, duration: 140 });   // he laughs
+    this.tweens.add({ targets: this.boss, y: this.boss.y - 5, yoyo: true, repeat: 3, duration: 140 });
     this.time.delayedCall(450, () => {
       this.cameras.main.fadeOut(350, 255, 255, 255);
       this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('village', { bouncedBack: true, kept: this.rings.length }));
