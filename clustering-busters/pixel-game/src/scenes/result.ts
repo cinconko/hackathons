@@ -39,7 +39,7 @@ export class ResultScene extends Phaser.Scene {
 
     drawFrame(this);
     this.cameras.main.fadeIn(500);
-    const back = () => fadeToScene(this, 'village');
+    const back = () => fadeToScene(this, 'village', { fromRun: true });   // the merchant deals new cards
     this.time.delayedCall(500, () => {   // a short pause so a held attack key does not skip this screen
       this.input.keyboard?.once('keydown-ENTER', back);
       this.input.once('pointerdown', back);

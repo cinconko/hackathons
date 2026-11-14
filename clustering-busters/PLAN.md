@@ -19,7 +19,7 @@ Arena: boss in 3 stages -> key drops from his neck -> hidden door opens -> Treas
 | Part | How it works |
 |---|---|
 | Cutscene | 4 shots with typed captions in letterbox bars; the bars slide away into a title card and a fade to the village |
-| Village | Walk around; the ring merchant sells the team's weapons chart; the catapult throws you into the arena |
+| Village | Ring merchant: 3 random cards from the weapons chart (never something you own), dealt again every time you come back from the arena; Q shows your gear to equip. Bar: one drink for the next fight (Ale +20 max hp, Mead +15% damage, Cider +10% speed). Well: step in and you fall in, climb out soaked, sometimes with a ring (once per visit). Catapult: into the arena |
 | Rings = the only money | Classic 5, rare 25, super rare 100 (every chart price is a multiple of 5, so change always works). One wallet for the village and the fight. A new game starts with 100 |
 | Weapons chart | From the team's chart: 5 ranged (sling to hand cannon), 6 melee (dagger to spear), 8 specials, 7 armors (-5% to -75% damage). Buy once, equip; melee ~15 dmg/s and ranged ~10 dmg/s across the board |
 | Fight controls | Mouse aims; click/Space attacks; Q switches fists / melee / ranged; 1-8 cast the specials you own (each with its own cooldown) |

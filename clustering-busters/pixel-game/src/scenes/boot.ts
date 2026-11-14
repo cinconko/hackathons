@@ -162,6 +162,19 @@ export class BootScene extends Phaser.Scene {
       for (let i = 0; i < 5; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0, 0x44aaff][i], 6 + i * 6, 10, 3, 2);  // rings on the counter
     });
     tex('sign', 16, 12, () => { px(0x8a6a3a, 0, 0, 16, 7); px(0x6b4a2b, 7, 7, 2, 5); px(0x3a2a1a, 3, 3, 8, 1); px(0x3a2a1a, 10, 2, 2, 3); px(0x3a2a1a, 12, 3); });
+    // The bar: a wide timber building with a hanging mug sign; the barkeeper wears an apron.
+    tex('bar', 50, 34, () => {
+      for (let i = 0; i < 10; i++) px(0x5a3a2a, 10 - i, i, 30 + i * 2, 1);            // roof
+      px(0x3a2418, 0, 10, 50, 1);
+      px(0x8a6040, 2, 11, 46, 23); px(0x6b4a2b, 2, 11, 46, 1);                          // timber walls
+      for (let x = 2; x < 48; x += 8) px(0x6b4a2b, x, 11, 1, 23);
+      px(0x3a2418, 20, 20, 10, 14); px(0x2a1810, 24, 20, 1, 14); px(GOLD, 28, 27);       // double door
+      px(0xffd27a, 6, 16, 8, 6); px(0xffd27a, 36, 16, 8, 6);                            // warm windows
+      px(0x6b4a2b, 10, 16, 1, 6); px(0x6b4a2b, 40, 16, 1, 6);
+    });
+    tex('barkeeper', 10, 14, () => { px(0x3a2418, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3); px(0x5a3a2a, 2, 5, 6, 1); px(0x8a3a3a, 1, 6, 8, 8); px(0xeeeeee, 3, 7, 4, 7); });
+    tex('mug', 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(0xc89a3a, 2, 3, 4, 5); px(0xffffff, 2, 2, 4, 2); px(0xc89a3a, 6, 4, 1, 3); px(0x8a6a2a, 2, 7, 4, 1); });
+    tex('drop', 2, 2, () => { px(0x6ab8ff, 0, 0, 2, 2); });
     tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
     tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
     g.destroy();

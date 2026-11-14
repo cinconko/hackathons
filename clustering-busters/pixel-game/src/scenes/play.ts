@@ -109,19 +109,25 @@ export class PlayScene extends Phaser.Scene {
   private devOpenShop = false;
   private hitStopUntil = 0;   // real time (performance.now), not fight time
   private inHitStop = false;
+  private drinkNote = '';     // the bar drink kicking in, shown on landing
 
   constructor() { super('play'); }
 
   create(data: PlayData = {}) {
     const save = loadSave();
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
-    this.kit = R.loadout(save.inventory);
+    // the bar's drink is drunk now: it lasts this fight only
+    const drink = save.drink ? R.DRINKS[save.drink] : null;
+    if (save.drink) updateSave((s) => ({ ...s, drink: null }));
+    const base = R.loadout(save.inventory);
+    this.kit = { ...base, maxHp: base.maxHp + (drink?.hp ?? 0) };
+    this.drinkNote = drink ? `${drink.name}: ${drink.desc}` : '';
     this.fightMs = Math.max(0, data.startMs ?? 0);
     this.hp = this.kit.maxHp;
     this.wallet = { ...save.wallet };
     this.rings = [];
     this.wIndex = this.kit.weapons.length > 1 ? 1 : 0;      // your melee weapon if you have one
-    this.buffs = { damage: 0, speed: 0 };
+    this.buffs = { damage: drink?.damage ?? 0, speed: drink?.speed ?? 0 };
     this.facing = { x: 1, y: 0 };
     this.aimMouse = false;
     this.nextAttackAt = 0;
@@ -230,7 +236,7 @@ export class PlayScene extends Phaser.Scene {
         dustPuff(this, x, y, 8, 16);
         this.landed = true;
         this.nextShotAt = this.fightMs + 1500;
-        this.banner('MOSSBACK', 'Get the key around his neck');
+        this.banner('MOSSBACK', this.drinkNote ? `${this.drinkNote}. Get the key!` : 'Get the key around his neck');
       },
     });
   }
