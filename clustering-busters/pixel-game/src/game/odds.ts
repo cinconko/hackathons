@@ -1,22 +1,16 @@
-// How random is Ringfall? Every chance in the game, worked out from the rules themselves
-// (rules.ts), so the landing page can never show a number the game does not use. Pure, tested
-// in test/odds.test.ts. Each fact has the sprite the page draws it with (the game's own textures).
-import * as R from './rules.ts';   // the extension: the tests run this file in plain Node
+import * as R from './rules.ts';
 
-/** `short`: the page's tile label (a word or two); `label`/`note`: the long form. */
 export interface OddsRow { sprite: string; label: string; short: string; chance: number; note?: string }
 export interface OddsGroup { id: string; title: string; blurb: string; rows: OddsRow[] }
 
-/** Chance that at least one of `n` independent tries hits, each with chance `p`. */
 export const atLeastOne = (p: number, n: number): number => 1 - (1 - p) ** n;
 
 const classicShare = 1 - R.RING_ODDS.superRare - R.RING_ODDS.rare;
-const CITY = 6;   // the biggest village level
+const CITY = 6;
 
 export function oddsGroups(): OddsGroup[] {
   const robe: Record<R.MerchantKind, string> = { ranger: 'darkblue', smith: 'red', armorer: 'gray', alchemist: 'green', peddler: 'orange', special: 'special' };
   const classicMerchant = (1 - R.SPECIAL_MERCHANT_CHANCE) / R.CLASSIC_MERCHANTS.length;
-  // the death drop: 2 rare-or-better + 1 rolled (+ classic); a rare-or-better roll is super rare as often as any roll
   const deathRolls = (level: number) => 3 + Math.round(4 * R.ringLuck(level)) - 4;
   const supplies = Object.keys(R.SUPPLIES) as R.SupplyId[];
   return [
@@ -62,11 +56,9 @@ export function oddsGroups(): OddsGroup[] {
   ];
 }
 
-/** 0.0525 -> "5.3%", 0.25 -> "25%". */
 export function pct(p: number): string {
   const v = p * 100;
   return `${Number.isInteger(Math.round(v * 10) / 10) ? Math.round(v) : (Math.round(v * 10) / 10).toFixed(1)}%`;
 }
 
-/** 0.05 -> "1 in 20". */
 export const oneIn = (p: number): string => `1 in ${Math.round(1 / p)}`;

@@ -1,13 +1,3 @@
-// Your weapons, shared by the arena (Mossback) and the village training yard (the dummy).
-//
-//   aim       mouse once it moves, else the way you walk; crosshair (red = an attack now would
-//             hit the target), the weapon in hand points at it, its reach is drawn on the ground
-//   attack    click / Space / J, hold to keep attacking; each weapon has its own cooldown
-//   Q         next weapon in the kit
-//   specials  the scene decides what each one does; Combat gives it the cooldowns, projectiles,
-//             the bomb and the shock ring
-//
-// Every timer runs on the scene's clock (`now`), so the arena can stop it for the shop and hit-stop.
 import Phaser from 'phaser';
 import * as R from './game/rules';
 import { lookOf, setHeroBase } from './player';
@@ -20,13 +10,10 @@ export interface Dir { x: number; y: number }
 export interface Area { x: number; y: number; width: number; height: number }
 export type ShotEffect = '' | 'freeze' | 'poison';
 
-/** What your attacks hit. */
 export interface CombatTarget {
   sprite: Sprite;
   alive(): boolean;
-  /** A hit landed (melee, a shot, the bomb). */
   hit(dmg: number): void;
-  /** A spell shot landed with an effect (after `hit`). */
   effect?(effect: Exclude<ShotEffect, ''>): void;
 }
 
@@ -34,23 +21,18 @@ export interface CombatOptions {
   player: Sprite;
   target: CombatTarget;
   kit: R.Loadout;
-  now: () => number;                 // the scene's fight clock, in ms
-  area: Area;                        // shots die outside it; bombs and the crosshair stay inside
-  damageMul?: () => number;          // buffs (the bar's mead, the whetstone)
+  now: () => number;
+  area: Area;
+  damageMul?: () => number;
 }
 
 const SWING_MS = 140;
-const HIT_R = 11;                     // how far from the target's centre a hit still counts
+const HIT_R = 11;
 export const SPELL_SPEED = 180;
 const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
 
-/** Where each held weapon is gripped, as a share of its width (the rest: 1.5 px in from the left end). */
 const GRIP: Partial<Record<string, number>> = { fists: 0.5, bow: 0.6 };
 
-/**
- * The hero's hand in the world: on his drawing it is at about 80 % across and 74 % down (the farmer's
- * skin pixel, the knights' gauntlet), mirrored for the left hand. From the frame size, so any size works.
- */
 export function handOf(p: Phaser.GameObjects.Sprite, leftHand: boolean) {
   const w = p.frame.width;
   const h = p.frame.height;
@@ -75,7 +57,7 @@ export class Combat {
   private readonly onMove = () => { this.aimMouse = true; };
 
   constructor(private readonly scene: Phaser.Scene, private readonly o: CombatOptions) {
-    this.wIndex = o.kit.weapons.length > 1 ? 1 : 0;      // your melee weapon if you have one
+    this.wIndex = o.kit.weapons.length > 1 ? 1 : 0;
     this.shots = scene.physics.add.group();
     scene.physics.add.overlap(o.target.sprite, this.shots, (_t, s) => this.shotHit(s as Sprite));
     this.aimG = scene.add.graphics().setDepth(8);
@@ -86,7 +68,6 @@ export class Combat {
   }
 
   get kit() { return this.o.kit; }
-  /** New gear (equipped at the merchant): keep the weapon in hand if it is still there. */
   setKit(kit: R.Loadout) {
     const id = this.o.kit.weapons[this.wIndex];
     this.o.kit = kit;
@@ -95,29 +76,24 @@ export class Combat {
   }
   currentWeapon(): R.Weapon { return R.weapon(this.o.kit.weapons[this.wIndex]); }
   nextWeapon() { this.wIndex = (this.wIndex + 1) % this.o.kit.weapons.length; }
-  /** 0..1: how far the weapon in hand has recharged (for the hand HUD). */
   readyFrac(): number {
     const w = this.currentWeapon();
     return Phaser.Math.Clamp(1 - ((this.weaponReadyAt[w.id] ?? 0) - this.o.now()) / w.cooldownMs, 0, 1);
   }
-  /** Ms until this special can be cast again (0 = ready). */
   specialLeft(id: R.SpecialId): number { return Math.max(0, (this.specialReadyAt[id] ?? 0) - this.o.now()); }
-  /** Starts a special's cooldown. */
   usedSpecial(id: R.SpecialId) { this.specialReadyAt[id] = this.o.now() + (R.item(id).cooldownMs ?? 0); }
   private damageMul() { return this.o.damageMul?.() ?? 1; }
   hitDamage(base: number) { return R.hitDamage(base, this.damageMul()); }
 
-  /** Remember the walking direction (keyboard aim) and turn the hero toward the aim. */
   face(walkDir: Dir | null) {
     if (walkDir) this.facing = walkDir;
     const a = this.aimDir();
     const p = this.o.player;
     const look = lookOf(p);
     if (Math.abs(a.y) > Math.abs(a.x) * 1.2) { setHeroBase(p, a.y < 0 ? look.up : look.down); p.setFlipX(false); }
-    else { setHeroBase(p, look.side); p.setFlipX(a.x < 0); }   // the walking or breathing frame of that drawing
+    else { setHeroBase(p, look.side); p.setFlipX(a.x < 0); }
   }
 
-  /** Where the hero aims: at the cursor once the mouse is used, else the way he walks. */
   aimDir(): Dir {
     if (!this.aimMouse) return this.facing;
     const p = this.scene.input.activePointer;
@@ -127,7 +103,6 @@ export class Combat {
     return len < 1 ? this.facing : { x: dx / len, y: dy / len };
   }
 
-  /** Space / J / the mouse button (press or hold), Q. Specials stay with the scene. */
   keys(k: Keys) {
     const JD = Phaser.Input.Keyboard.JustDown;
     const ptr = this.scene.input.activePointer;
@@ -137,11 +112,6 @@ export class Combat {
     if (JD(k.Q)) this.nextWeapon();
   }
 
-  /**
-   * Every frame: the weapon in hand points at the aim (sweeps / jabs / recoils when used), its
-   * reach is drawn on the ground, the crosshair turns red when an attack now would hit.
-   * Dim = still recharging. show = false hides it all (weapon away).
-   */
   drawAim(show: boolean) {
     const g = this.aimG.clear();
     this.held.setVisible(show);
@@ -170,8 +140,6 @@ export class Combat {
       for (let i = 1; i <= 12; i++) g.fillRect(Math.round(p.x + d.x * (6 + i * 6)), Math.round(p.y + d.y * (6 + i * 6)), 1, 1);
     }
 
-    // the weapon sits in his hand: its grip (the left end of every held_* picture) at the hand on
-    // the side he aims, and it swings around that hand; a jab pushes the hand out, a shot kicks it back
     let rot = a;
     let push = 0;
     const left = this.swingUntil - now;
@@ -185,7 +153,7 @@ export class Combat {
     const up = Math.abs(d.y) > Math.abs(d.x) * 1.2 && d.y < 0;
     this.held.setTexture(`held_${w.id}`).setOrigin(GRIP[w.id] ?? 1.5 / this.held.frame.width, 0.5)
       .setPosition(hand.x + Math.cos(a) * push, hand.y + Math.sin(a) * push)
-      .setRotation(rot).setFlipY(Math.cos(rot) < 0).setDepth(up ? p.depth - 1 : p.depth + 1);   // behind him when aiming up
+      .setRotation(rot).setFlipY(Math.cos(rot) < 0).setDepth(up ? p.depth - 1 : p.depth + 1);
 
     const A = this.o.area;
     const ptr = this.scene.input.activePointer;
@@ -226,17 +194,14 @@ export class Combat {
     if (t.alive() && Phaser.Math.Distance.Between(cx, cy, t.sprite.x, t.sprite.y) < HIT_R + reach) t.hit(dmg);
   }
 
-  /** Your projectiles: weapon shots and spells. `effect` is what a spell does on hit. */
   projectile(texture: string, dir: Dir, speed: number, dmg: number, effect: ShotEffect = '') {
     const p = this.o.player;
     const s = this.shots.create(p.x, p.y, texture) as Sprite;
     s.setRotation(Math.atan2(dir.y, dir.x)).setDepth(p.depth + 1).setData('dmg', dmg).setData('effect', effect).setData('dies', this.o.now() + 2000);
     (s.body as Body).setVelocity(dir.x * speed, dir.y * speed);
-    // team art: <projectile>_cast flashes at the hand that cast it (spells)
     this.flash(`${texture}_cast`, p.x + dir.x * 7, p.y + dir.y * 7, 1, 180, p.depth + 2, dir.x < 0);
   }
 
-  /** A one-off picture that fades out (and grows to `grow`), if the art exists. */
   private flash(key: string, x: number, y: number, grow: number, ms: number, depth: number, flipX = false) {
     if (!this.scene.textures.exists(key)) return;
     const fx = this.scene.add.image(Math.round(x), Math.round(y), key).setDepth(depth).setFlipX(flipX);
@@ -247,7 +212,7 @@ export class Combat {
     if (!s.active) return;
     const dmg = s.getData('dmg') as number;
     const effect = s.getData('effect') as ShotEffect;
-    this.flash(`${s.texture.key}_hit`, s.x, s.y, 1.4, 280, s.depth + 1);   // team art: the burst where it hits
+    this.flash(`${s.texture.key}_hit`, s.x, s.y, 1.4, 280, s.depth + 1);
     s.destroy();
     const t = this.o.target;
     if (!t.alive()) return;
@@ -255,7 +220,6 @@ export class Combat {
     if (effect) t.effect?.(effect);
   }
 
-  /** The bomb special: thrown toward the aim, blinks for its fuse, then a big blast. */
   throwBomb(d: Dir, damage: number) {
     const S = R.SPECIAL;
     const A = this.o.area;
@@ -278,13 +242,11 @@ export class Combat {
     });
   }
 
-  /** A shock ring that grows and fades (the push special). */
   ring(x: number, y: number, r: number, color: number) {
     const c = this.scene.add.circle(x, y, 4).setStrokeStyle(1, color, 0.9).setDepth(12);
     this.scene.tweens.add({ targets: c, radius: r, alpha: 0, duration: 300, onComplete: () => c.destroy() });
   }
 
-  /** Shots that left the area or flew too long. */
   cleanup() {
     const A = this.o.area;
     const now = this.o.now();

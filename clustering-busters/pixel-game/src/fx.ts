@@ -1,12 +1,7 @@
-// Small motion effects shared by scenes.
 import Phaser from 'phaser';
 
 export interface Hop { x: number; y: number; h: number; ms: number }
 
-/**
- * Bounces `obj` through a list of landing points. Each hop is a parabola of height h
- * (y = lerp - h * 4t(1-t)) and spins a little; onLand runs at every touchdown.
- */
 export function bounce(
   scene: Phaser.Scene,
   obj: Phaser.GameObjects.Components.Transform,
@@ -31,7 +26,6 @@ export function bounce(
   step(0);
 }
 
-/** A ring of dust where something hit the ground. */
 export function dustPuff(scene: Phaser.Scene, x: number, y: number, n = 6, r = 12) {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;

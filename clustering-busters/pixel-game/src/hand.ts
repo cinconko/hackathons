@@ -1,6 +1,3 @@
-// "In hand": weapon slots in the corner. The weapon in hand has a gold frame, the others are
-// dimmed; its name and "Q: switch" beside them; in the fight a bar under it refills while it
-// recharges. Shown only once you own a melee or ranged weapon (fists alone: no indicator).
 import Phaser from 'phaser';
 import { weapon, type WeaponId } from './game/rules';
 import { FONT } from './ui';
@@ -24,7 +21,7 @@ export function handHud(scene: Phaser.Scene, x: number, y: number) {
       bg.fillStyle(on ? 0xffcc44 : 0x55555f).fillRect(sx, 0, SLOT, 1).fillRect(sx, SLOT - 1, SLOT, 1).fillRect(sx, 0, 1, SLOT).fillRect(sx + SLOT - 1, 0, 1, SLOT);
       const ic = scene.add.image(sx + SLOT / 2, SLOT / 2, `held_${id}`);
       const long = Math.max(ic.width, ic.height);
-      if (long > 10) ic.setRotation(-Math.PI / 4);          // long weapons lie diagonally to fit
+      if (long > 10) ic.setRotation(-Math.PI / 4);
       ic.setScale(Math.min(1.5, (long > 10 ? 17 : 12) / long));
       if (!on) ic.setAlpha(0.5);
       root.add(ic);
@@ -38,7 +35,6 @@ export function handHud(scene: Phaser.Scene, x: number, y: number) {
 
   return {
     get visible() { return root.visible; },
-    /** ready: 0..1 how far the weapon in hand has recharged (1 = ready, no bar). */
     update(weapons: readonly WeaponId[], current: number, ready = 1) {
       const s = `${weapons.join(',')}|${current}`;
       if (s !== sig) { sig = s; build(weapons, current); }
@@ -51,7 +47,6 @@ export function handHud(scene: Phaser.Scene, x: number, y: number) {
       }
     },
     show() { root.setVisible(true).setScale(1).setAlpha(1); },
-    /** The first time: pops up from nothing, with sparkles. */
     reveal() {
       root.setVisible(true).setScale(0).setAlpha(1);
       scene.tweens.add({ targets: root, scale: 1, duration: 450, ease: 'Back.easeOut' });
@@ -63,5 +58,4 @@ export function handHud(scene: Phaser.Scene, x: number, y: number) {
   };
 }
 
-/** You own a weapon (not just fists): the indicator is shown. */
 export const hasWeapon = (weapons: readonly WeaponId[]) => weapons.length > 1;

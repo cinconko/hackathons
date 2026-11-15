@@ -14,7 +14,7 @@ test('sprites, sheets, music and sfx are sorted into the manifest', () => {
   assert.deepEqual(m.fonts, { alagard: 'media/fonts/alagard.ttf' });
   assert.deepEqual(m.sprites, { boss_1: 'media/sprites/boss_1.png', player: 'media/sprites/player.webp' });
   assert.deepEqual(m.sheets, { player: { url: 'media/sheets/player@8x10.png', frameWidth: 8, frameHeight: 10 } });
-  assert.deepEqual(m.music, { village: ['media/audio/music/village.ogg', 'media/audio/music/village.mp3'] }); // ogg first
+  assert.deepEqual(m.music, { village: ['media/audio/music/village.ogg', 'media/audio/music/village.mp3'] });
   assert.deepEqual(m.sfx, { hit: ['media/audio/sfx/hit.wav'] });
   assert.deepEqual(m.skipped, []);
 });

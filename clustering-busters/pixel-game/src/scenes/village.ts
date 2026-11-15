@@ -20,18 +20,6 @@ import { Tutorial } from '../tutorial';
 import { FLOOR_PATCH, makeShopTextures, shopFloor, shopFloorArt } from '../merchantShops';
 import { CHIMNEYS, villageGround } from '../villageArt';
 
-// The hub between fights:
-//   merchants      ranger / smith / armorer / alchemist / peddler (3 cards, robe = what he mostly sells) or,
-//                  1 visit in 10, the special one (4 cards + a best deal); a new one after every run (rules.ts)
-//   bar            one drink at a time, drunk at the start of the next fight
-//   well           step into it and you fall in (sometimes there is a ring at the bottom)
-//   catapult       flies you into Mossback's arena
-//   growth         rings spent here build it out: camp, tents, village, fountains, rich town, city
-//   people         Elder Mira, Tobi the kid, Sergeant Brann: walk up, E to talk
-//   training yard  a fenced yard south of the road with a straw dummy: step in and your weapon
-//                  comes out (aim, attack, Q, specials 1-8; combat.ts), step out and it goes away
-//   carts (city)   deliver to the nearest shop you are not standing at, unload, drive on
-
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
 type Panel = 'cards' | 'gear' | 'bar';
@@ -40,57 +28,42 @@ const STALL = { x: PLAY.x + 120, y: PLAY.y + 46 };
 const BAR = { x: PLAY.x + 222, y: PLAY.y + 38 };
 const BAR_DOOR = { x: BAR.x, y: BAR.y + 20 };
 const WELL = { x: PLAY.x + 70, y: PLAY.y + 142 };
-const CATAPULT = { x: PLAY.x + PLAY.width - 24, y: PLAY.y + 82 };    // the arm's axle; drawn at 2x (the farmer is 28 px tall), its wheels on the road, clear of the tavern path
+const CATAPULT = { x: PLAY.x + PLAY.width - 24, y: PLAY.y + 82 };
 const CAT_SCALE = 2;
-/** The training yard: fenced, the gap in the top fence faces the road. Clear of the wall (lvl 5). */
 const YARD = { x: PLAY.x + 132, y: PLAY.y + 128, width: 80, height: 34 };
 const YARD_GAP = { x: YARD.x + 22, width: 18 };
 const DUMMY = { x: YARD.x + 58, y: YARD.y + 16 };
 const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'] as const;
 const ROAD_Y = PLAY.y + 112;
-/** Where carts deliver: a shop front off the road. minLvl = the shop exists from that stage. */
 const SHOPS = [
-  { id: 'merchant', x: STALL.x, stopY: PLAY.y + 76, minLvl: 1 },   // in front of the stall, not against it
+  { id: 'merchant', x: STALL.x, stopY: PLAY.y + 76, minLvl: 1 },
   { id: 'bar', x: BAR_DOOR.x, stopY: PLAY.y + 66, minLvl: 1 },
   { id: 'fruit', x: PLAY.x + 40, stopY: PLAY.y + 132, minLvl: 4 },
 ];
-const ARM_REST = Math.PI * 0.92;     // arm lying back, bucket near the ground
-const ARM_FIRE = Math.PI * 1.65;     // arm after the throw: up and over the top (not down through the cart)
-/**
- * Everything the village shows, by stage. A part is there from `lvl` until (not including)
- * `until`: the forest is cleared bit by bit, tents and huts become houses, the campfire becomes
- * a fountain. x / y relative to the play area; solid = [w, h, y offset]; anim = looping
- * animation; swing = a hanging sign that sways.
- */
+const ARM_REST = Math.PI * 0.92;
+const ARM_FIRE = Math.PI * 1.65;
 interface Part { lvl: number; until?: number; key: string; x: number; y: number; solid?: [number, number, number]; anim?: string; depth?: number; swing?: boolean }
 const forest = (until: number, pts: [number, number][]): Part[] => pts.map(([x, y]) => ({ lvl: 1, until, key: 'tree', x, y, solid: [6, 6, 6] }));
 const PARTS: readonly Part[] = [
-  // trees that always stay
-  ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),   // clear of the HUD, the signs and the yard
-  // the forest, cleared stage by stage
+  ...forest(99, [[62, 32], [170, 20], [14, 82], [280, 150]]),
   ...forest(2, [[60, 66], [80, 78], [184, 64], [196, 80], [232, 140], [246, 152], [28, 36], [44, 46]]),
-  ...forest(3, [[42, 92], [250, 86], [150, 68]]),   // clear of the merchant's blanket
+  ...forest(3, [[42, 92], [250, 86], [150, 68]]),
   ...forest(4, [[100, 150], [36, 150]]),
   ...forest(5, [[300, 140]]),
   ...forest(6, [[205, 86]]),
-  // bushes, clear of the HUD, the paths, the lanterns and the signs
   { lvl: 1, key: 'bush_big_berry', x: 20, y: 62, depth: 4 },
   { lvl: 1, key: 'bush_mid', x: 300, y: 120, depth: 4 },
   { lvl: 1, key: 'bush_mid_berry', x: 292, y: 58, depth: 4 },
-  // 1 Camp: a campfire, beer from a barrel, the merchant on a blanket
   { lvl: 1, until: 2, key: 'campfire_wood_0', anim: 'campfire_wood', x: 158, y: 86, solid: [12, 6, 4] },
-  // 2: stones around the campfire
   { lvl: 2, until: 4, key: 'campfire_stone_0', anim: 'campfire_stone', x: 158, y: 86, solid: [12, 6, 4] },
   { lvl: 1, until: 3, key: 'blanket', x: 120, y: 56, solid: [34, 6, 2] },
   { lvl: 1, until: 3, key: 'barrel', x: 236, y: 50, solid: [10, 6, 3] },
   { lvl: 1, until: 3, key: 'beerguy_0', anim: 'beerguy', x: 222, y: 47, depth: 6, solid: [16, 6, 4] },
-  { lvl: 1, until: 3, key: 'merchant_0', anim: 'merchant', x: 120, y: 42, depth: 6 },   // on the back of his blanket
-  // 2 Tent camp: tents and the first wooden huts
+  { lvl: 1, until: 3, key: 'merchant_0', anim: 'merchant', x: 120, y: 42, depth: 6 },
   { lvl: 2, until: 3, key: 'tent_a', x: 70, y: 72, solid: [20, 8, 4] },
   { lvl: 2, until: 3, key: 'tent_b', x: 188, y: 68, solid: [20, 8, 4] },
   { lvl: 2, until: 3, key: 'tent_a', x: 232, y: 146, solid: [20, 8, 4] },
   { lvl: 2, until: 3, key: 'hut', x: 34, y: 40, solid: [20, 10, 5] },
-  // 3 Village: complete houses, the bar building, the market stall, lanterns (+ cobbles, drawn)
   { lvl: 3, key: 'house', x: 70, y: 72, solid: [26, 14, 5] },
   { lvl: 3, key: 'house', x: 188, y: 68, solid: [26, 14, 5] },
   { lvl: 3, key: 'house', x: 232, y: 146, solid: [26, 14, 5] },
@@ -99,34 +72,29 @@ const PARTS: readonly Part[] = [
   { lvl: 3, key: 'mug', x: 252, y: 30, depth: 8, swing: true },
   { lvl: 3, key: 'barkeeper_0', anim: 'barkeeper', x: 241, y: 58, depth: 6 },
   { lvl: 3, until: 4, key: 'stall', x: 120, y: 50, depth: 7, solid: [40, 8, 6] },
-  { lvl: 3, until: 4, key: 'merchant_0', anim: 'merchant', x: 91, y: 52, depth: 6 },   // beside his stall: the awning would hide his face
-  // the merchant's shop grows with the village (src/merchantShops.ts): booth, ring shop, emporium
+  { lvl: 3, until: 4, key: 'merchant_0', anim: 'merchant', x: 91, y: 52, depth: 6 },
   { lvl: 4, until: 5, key: 'shop_booth', x: 120, y: 50, depth: 7, solid: [44, 8, 6] },
   { lvl: 5, until: 6, key: 'shop_house', x: 120, y: 47, depth: 7, solid: [46, 10, 8] },
   { lvl: 6, key: 'shop_emporium', x: 120, y: 47, depth: 7, solid: [52, 10, 8] },
-  { lvl: 4, key: 'merchant_0', anim: 'merchant', x: 87, y: 53, depth: 6 },             // by his door, clear of the wider front
-  ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern_0', anim: 'lantern', x, y: 97 })),   // their flames flicker
+  { lvl: 4, key: 'merchant_0', anim: 'merchant', x: 87, y: 53, depth: 6 },
+  ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern_0', anim: 'lantern', x, y: 97 })),
   { lvl: 3, key: 'flowers', x: 70, y: 89 },
   { lvl: 3, key: 'flowers', x: 188, y: 85 },
-  // 4 Fountain square: fountains (the big one where the campfire was), market (+ bunting, drawn)
   { lvl: 4, key: 'fountain_0', anim: 'fountain', x: 158, y: 84, solid: [22, 8, 5] },
   { lvl: 4, key: 'fountain_0', anim: 'fountain', x: 100, y: 150, solid: [22, 8, 5] },
   { lvl: 4, key: 'fruitstall', x: 36, y: 146, solid: [26, 6, 4] },
   { lvl: 4, key: 'well_roof', x: 70, y: 127, depth: 8 },
   { lvl: 4, key: 'flowers', x: 34, y: 57 },
-  // 5 Rich town: rich people walk around (walkers); a big house, towers (+ wall, drawn)
-  { lvl: 5, key: 'house_big', x: 34, y: 42, solid: [28, 14, 9] },   // its roof clear of the HUD
+  { lvl: 5, key: 'house_big', x: 34, y: 42, solid: [28, 14, 9] },
   { lvl: 5, key: 'tower', x: 12, y: 150, solid: [16, 8, 12] },
   { lvl: 5, key: 'tower', x: 300, y: 150, solid: [16, 8, 12] },
-  // 6 Ringfall City: horse carts on the road (walkers), the hero's statue, flags
   { lvl: 6, key: 'statue', x: 205, y: 90, solid: [14, 6, 8] },
-  { lvl: 6, key: 'flag_0', anim: 'flag', x: 16, y: 127, depth: 8 },   // waving
+  { lvl: 6, key: 'flag_0', anim: 'flag', x: 16, y: 127, depth: 8 },
   { lvl: 6, key: 'flag_0', anim: 'flag', x: 304, y: 127, depth: 8 },
 ];
 
-const VEIL = 0.5;   // how dark the veil over the merchant's rug is (its painted clutter dimmed)
+const VEIL = 0.5;
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
-/** Each merchant's shop window: his title, what he says, the frame in the colour of what he sells. */
 const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string; color: number }>> = {
   ranger: { title: 'THE RANGER', line: '"Bows and slings, mostly. Three today."', color: KIND_COLORS.range },
   smith: { title: 'THE SMITH', line: '"Fresh off the anvil. Three today."', color: KIND_COLORS.melee },
@@ -140,10 +108,10 @@ export interface VillageData { tutorial?: boolean; fromIntro?: boolean; bouncedB
 
 interface Cart {
   sprite: Phaser.GameObjects.Sprite;
-  dir: 1 | -1;                                   // along the road
+  dir: 1 | -1;
   state: 'road' | 'in' | 'unload' | 'out';
   shop: (typeof SHOPS)[number] | null;
-  until: number;                                  // unloading ends
+  until: number;
 }
 
 export class VillageScene extends Phaser.Scene {
@@ -156,36 +124,36 @@ export class VillageScene extends Phaser.Scene {
   private mode: Panel = 'cards';
   private note = '';
   private sel = 0;
-  private locked = false;       // no control: launching, getting up, falling into the well
-  private wellLooted = false;   // one ring from the well per visit, at most
+  private locked = false;
+  private wellLooted = false;
   private solids!: Phaser.Physics.Arcade.StaticGroup;
   private placed = new Map<Part, { obj: Phaser.GameObjects.Image | Phaser.GameObjects.Sprite; zone?: Phaser.GameObjects.Zone }>();
-  private layers = new Set<number>();    // drawn layers already there (cobbles 3, bunting 4, wall 5)
+  private layers = new Set<number>();
   private villagers: Phaser.GameObjects.Image[] = [];
   private nobles: Phaser.GameObjects.Image[] = [];
   private carts: Cart[] = [];
-  private shopBusyUntil = new Map<string, number>();   // a shop that just got a delivery waits a while
+  private shopBusyUntil = new Map<string, number>();
   private npcs: { id: NpcId; sprite: Phaser.GameObjects.Image; mark: Phaser.GameObjects.Text; walk?: Phaser.Tweens.Tween }[] = [];
-  private tutorial: Tutorial | null = null;   // the combat training after the cutscene (src/tutorial.ts)
+  private tutorial: Tutorial | null = null;
   private dialog: { box: Phaser.GameObjects.Container; lines: string[]; i: number; typing: Phaser.Time.TimerEvent | null; text: Phaser.GameObjects.Text; onClose?: () => void } | null = null;
-  private afterBounce: (() => void)[] = [];   // bounced home: what waits until Grandpa has spoken
-  private dealCards = false;             // deal the cards with a flip when the shop opens
-  private popCard = -1;                  // the card just bought: pop it
-  private bookShown = -1;                // the ware whose book is open (a new pick opens it with a flourish)
-  private pour = false;                  // a drink was just bought: pour it
+  private afterBounce: (() => void)[] = [];
+  private dealCards = false;
+  private popCard = -1;
+  private bookShown = -1;
+  private pour = false;
   private hand!: ReturnType<typeof handHud>;
-  private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
+  private revealHand = false;
   private natureSeed = 1;
-  private gearTop = 0;                                   // the first row shown in YOUR GEAR (it scrolls)
-  private paths: Phaser.GameObjects.TileSprite[] = [];   // the road and the side paths (paved as the village grows)
+  private gearTop = 0;
+  private paths: Phaser.GameObjects.TileSprite[] = [];
   private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text; luck: Phaser.GameObjects.Text };
-  private pendingGrow = false;  // a purchase raised the level: build when the shop closes
-  private combat!: Combat;      // your weapons, out only in the training yard
+  private pendingGrow = false;
+  private combat!: Combat;
   private dummy!: Sprite;
   private inYard = false;
   private trainText!: Phaser.GameObjects.Text;
-  private hint!: Phaser.GameObjects.Text;       // "WASD move  E use" (hidden in the yard: the meter is there)
-  private hits: { t: number; dmg: number }[] = [];   // recent hits on the dummy, for damage per second
+  private hint!: Phaser.GameObjects.Text;
+  private hits: { t: number; dmg: number }[] = [];
   private totalDmg = 0;
   private bestHit = 0;
 
@@ -206,7 +174,7 @@ export class VillageScene extends Phaser.Scene {
     this.afterBounce = [];
     this.grandpa = null;
     this.paths = [];
-    if (!loadSave().natureSeed) updateSave((x) => ({ ...x, natureSeed: Phaser.Math.Between(1, 1e9) }));   // a new game: a new forest
+    if (!loadSave().natureSeed) updateSave((x) => ({ ...x, natureSeed: Phaser.Math.Between(1, 1e9) }));
     this.natureSeed = loadSave().natureSeed;
     this.placed = new Map();
     this.layers = new Set();
@@ -220,10 +188,7 @@ export class VillageScene extends Phaser.Scene {
     this.totalDmg = 0;
     this.bestHit = 0;
 
-    // the merchant deals new cards every time you come back from the arena (and on a first visit)
     const save = loadSave();
-    // one of five classic merchants (3 cards, mostly his kind) or, now and then, the special one (5,
-    // with a best deal); a save whose deal fits none (an older one, the very first visit) is dealt again
     let specialArrived = false;
     const saved = { kind: save.merchantKind, cards: save.merchantCards, special: save.merchantSpecial };
     if (data.bouncedBack || data.fromRun || !save.merchantCards.length || !dealFits(saved)) {
@@ -233,18 +198,17 @@ export class VillageScene extends Phaser.Scene {
     }
 
     this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
-    makeShopTextures(this);   // the merchant's booth, shop and emporium (unless the team drew them)
+    makeShopTextures(this);
     const solids = this.drawVillage();
     this.solids = solids;
 
-    // the merchant, the bar and the stall change with the stages (PARTS); the signs stay
     this.add.text(STALL.x, STALL.y - 20, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
-    this.add.text(BAR.x, BAR.y - 10, 'TAVERN', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // clear of the level HUD
+    this.add.text(BAR.x, BAR.y - 10, 'TAVERN', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);
     this.cat = placeCatapult(this, CATAPULT.x, CATAPULT.y, ARM_REST, CAT_SCALE);
     this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 22, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
     this.addPeople();
 
-    const start = data.inYard ? { x: YARD.x + 20, y: YARD.y + 18 } : { x: PLAY.x + 44, y: PLAY.y + 112 };   // inYard: dev hook
+    const start = data.inYard ? { x: YARD.x + 20, y: YARD.y + 18 } : { x: PLAY.x + 44, y: PLAY.y + 112 };
     this.player = this.physics.add.sprite(start.x, start.y, 'player').setCollideWorldBounds(true).setDepth(10);
     this.dressHero();
     this.physics.add.collider(this.player, solids);
@@ -255,7 +219,6 @@ export class VillageScene extends Phaser.Scene {
     this.wallet = walletHud(this, PLAY.x + 4, PLAY.y + 4);
     this.wallet.update(loadSave().wallet);
     this.hint = this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, 'WASD move   E use', { ...FONT, color: '#2f5a2a' }).setOrigin(1, 0).setDepth(950);
-    // what's in hand: only once you own a weapon; the very first time it pops up
     this.hand = handHud(this, PLAY.x + 4, PLAY.y + PLAY.height - 20);
     this.refreshHand();
     if (hasWeapon(loadout(save.inventory).weapons) && !save.handRevealed) this.revealHand = true;
@@ -265,10 +228,9 @@ export class VillageScene extends Phaser.Scene {
       g: this.add.graphics().setDepth(950),
       name: this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + 2, '', { ...FONT, color: '#ffffff' }).setOrigin(1, 0).setDepth(950),
       next: this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + 15, '', { ...FONT, color: '#c8e8b8' }).setOrigin(1, 0).setDepth(950),
-      luck: this.add.text(PLAY.x + 4, PLAY.y + 12, '', { ...FONT, color: '#ffcc44' }).setDepth(950),   // under the wallet
+      luck: this.add.text(PLAY.x + 4, PLAY.y + 12, '', { ...FONT, color: '#ffcc44' }).setDepth(950),
     };
 
-    // what the village has built so far appears at once; anything new gets built in front of you
     const seen = Math.min(save.villageSeen, villageLevel(save.spent));
     this.applyLevel(seen, false);
     this.updateLevelHud();
@@ -279,7 +241,6 @@ export class VillageScene extends Phaser.Scene {
 
     drawFrame(this);
     playMusic(this, 'village');
-    // fresh from the cutscene (and not trained yet): Sergeant Brann's combat training (?tutorial: dev hook)
     this.tutorial = null;
     const train = !!data.tutorial || (!!data.fromIntro && !loadSave().tutorialDone);
     if (data.bouncedBack) {
@@ -297,16 +258,16 @@ export class VillageScene extends Phaser.Scene {
       else this.time.delayedCall(900, () => this.doRevealHand());
     }
     if (train) this.time.delayedCall(data.fromIntro ? 1000 : 300, () => this.startTutorial());
-    if (data.openShop) this.openPanel('cards'); // dev hook
-    if (data.openBar) this.openPanel('bar');    // dev hook
+    if (data.openShop) this.openPanel('cards');
+    if (data.openBar) this.openPanel('bar');
   }
 
   update(_t: number, delta: number) {
     this.updateCarts(delta);
     this.updateMarks();
     this.tutorial?.update();
-    if (this.tutorial?.blocking()) {                    // Brann is talking: stand still, and swallow the
-      const JD = Phaser.Input.Keyboard.JustDown;        // village's own presses so none fire later
+    if (this.tutorial?.blocking()) {
+      const JD = Phaser.Input.Keyboard.JustDown;
       JD(this.keys.ENTER); JD(this.keys.E); JD(this.keys.ESC); JD(this.keys.SPACE);
       return;
     }
@@ -315,12 +276,12 @@ export class VillageScene extends Phaser.Scene {
     if (this.panel) { this.panelKeys(); return; }
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    if (this.updateYard()) return;   // in the training yard: fighting the dummy
+    if (this.updateYard()) return;
     steer(this.player, k, 1);
     if (near(this.player, WELL.x, WELL.y, 5)) { this.fallInWell(); return; }
     const atShop = near(this.player, STALL.x, STALL.y + 16, 22);
     const atBar = near(this.player, BAR_DOOR.x, BAR_DOOR.y, 16);
-    const atCatapult = near(this.player, CATAPULT.x - 60, CATAPULT.y + 30, 18);   // at its back, by the bucket
+    const atCatapult = near(this.player, CATAPULT.x - 60, CATAPULT.y + 30, 18);
     const person = this.npcs.find((n) => near(this.player, n.sprite.x, n.sprite.y, 14));
     if (person) this.prompt.setText(`E: talk to ${NPCS[person.id].name}`).setPosition(person.sprite.x, person.sprite.y - 16).setVisible(true);
     else if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
@@ -335,15 +296,13 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  // ---- panels: merchant cards, your gear, the bar ----
-
   private openPanel(mode: Panel) {
     (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     this.mode = mode;
     this.sel = 0;
     this.note = '';
     this.bookShown = -1;
-    this.dealCards = mode === 'cards' && !new URLSearchParams(window.location.search).has('nodeal');   // &nodeal: dev hook, no deal animation
+    this.dealCards = mode === 'cards' && !new URLSearchParams(window.location.search).has('nodeal');
     this.render();
   }
 
@@ -351,13 +310,12 @@ export class VillageScene extends Phaser.Scene {
     this.panel?.destroy();
     this.panel = null;
     this.showLevelHud(true);
-    this.input.setDefaultCursor('default');   // a hand cursor left over from a card under the mouse
+    this.input.setDefaultCursor('default');
     this.prompt.setVisible(false);
     if (this.revealHand) this.time.delayedCall(200, () => this.doRevealHand());
     if (this.pendingGrow) { this.pendingGrow = false; this.time.delayedCall(this.revealHand ? 1800 : 250, () => this.grow()); }
   }
 
-  /** After spending: refresh the level bar, and build when the shop closes if the level went up. */
   private spentChanged(spent: number, seen: number) {
     this.updateLevelHud();
     if (villageLevel(spent) > seen) {
@@ -378,7 +336,6 @@ export class VillageScene extends Phaser.Scene {
     if (JD(k.E) || JD(k.ESC)) this.closePanel();
   }
 
-  /** Merchant cards <-> your gear (Q, or a click on the keys line). */
   private toggleGear() {
     this.mode = this.mode === 'cards' ? 'gear' : 'cards';
     this.sel = 0;
@@ -386,12 +343,6 @@ export class VillageScene extends Phaser.Scene {
     this.render();
   }
 
-  // ---- the mouse in the shop: hover picks, a click buys / wears, the keys line is clickable ----
-
-  /**
-   * A hand cursor over `obj`; hovering it calls `hover`, a left click calls `click`. Both wait one tick:
-   * they re-render the panel, which destroys `obj` itself, and Phaser must finish its input pass first.
-   */
   private clickable<T extends Phaser.GameObjects.GameObject>(obj: T, click: () => void, hover?: () => void): T {
     obj.setInteractive({ useHandCursor: true });
     obj.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.leftButtonDown()) this.time.delayedCall(0, () => { if (this.panel) click(); }); });
@@ -399,7 +350,6 @@ export class VillageScene extends Phaser.Scene {
     return obj;
   }
 
-  /** Mouse over row/card `i`: it becomes the picked one (as A/D would). */
   private hoverPick(i: number) {
     if (this.sel === i) return;
     this.sel = i;
@@ -407,7 +357,6 @@ export class VillageScene extends Phaser.Scene {
     this.render();
   }
 
-  /** The keys line at the bottom of a panel; the parts with an action are clickable (and light up). */
   private keysLine(c: Phaser.GameObjects.Container, x: number, y: number, parts: [string, (() => void)?][]) {
     let px = x;
     for (const [label, act] of parts) {
@@ -442,7 +391,7 @@ export class VillageScene extends Phaser.Scene {
         this.dressHero();
         if ((it.kind === 'melee' || it.kind === 'range') && !after.handRevealed) {
           this.revealHand = true;
-          this.note = `${it.name} bought! Look at your hand.`;   // the hand indicator pops up when you leave
+          this.note = `${it.name} bought! Look at your hand.`;
         }
       }
     } else if (this.mode === 'gear') {
@@ -455,7 +404,7 @@ export class VillageScene extends Phaser.Scene {
       const id = DRINK_ORDER[this.sel];
       const d = DRINKS[id];
       const paid = s.drink === id ? null : pay(s.wallet, d.price);
-      if (s.drink === id) this.note = `You already have the ${d.name}. Drunk at the next fight.`;   // no paying twice for the same mug
+      if (s.drink === id) this.note = `You already have the ${d.name}. Drunk at the next fight.`;
       else if (!paid) this.note = `${d.name} is ${d.price} rings.`;
       else {
         sfx(this, 'buy');
@@ -474,7 +423,6 @@ export class VillageScene extends Phaser.Scene {
     for (const o of [h.g, h.name, h.next, h.luck]) o.setVisible(on);
   }
 
-  /** One frame + title for every panel. Returns [container, background graphics, x, y, w, h]. */
   private frame(title: string, sub: string, npc: string, border: number, w: number, h: number) {
     this.panel?.destroy();
     const x = (WIDTH - w) / 2;
@@ -487,7 +435,7 @@ export class VillageScene extends Phaser.Scene {
     c.add(bg);
     const who = npc === 'merchant' ? this.robed({ key: 'merchant_0', anim: 'merchant' }).anim ?? npc : npc;
     const face = this.anims.exists(who) ? this.add.sprite(x + 11, y + 11, `${who}_0`).play(who) : this.add.image(x + 11, y + 11, who);
-    if (face.height > 20) face.setOrigin(0.5, 0).setY(y + 1).setCrop(0, 0, face.width, 20);   // a tall portrait (the farmer): head and shoulders
+    if (face.height > 20) face.setOrigin(0.5, 0).setY(y + 1).setCrop(0, 0, face.width, 20);
     c.add(face);
     c.add(this.add.text(x + 22, y + 4, title, { ...FONT, color: '#ffcc44' }));
     c.add(this.add.text(x + 22, y + 13, sub, { ...FONT, color: '#a898c8' }));
@@ -497,20 +445,18 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private render() {
-    this.showLevelHud(false);   // it would peek out at a window's top-right corner
+    this.showLevelHud(false);
     if (this.mode === 'cards') this.renderCards();
     else if (this.mode === 'gear') this.renderGear();
     else this.renderBar();
   }
 
-  /** "The Ranger is here: mostly range." (the banner after a run) */
   private whoCame() {
     const kind = loadSave().merchantKind;
     const sells = MERCHANT_SELLS[kind];
     return `The ${MERCHANT_NAMES[kind]} is here: ${sells ? `mostly ${KIND_NAMES[sells].toLowerCase()}` : 'a bit of everything'}.`;
   }
 
-  /** The merchant's offers: his random cards, then (special merchant only) the best deal. */
   private offers(): { id: CatalogId; price: number; full: number; discount: number; special: boolean }[] {
     const s = loadSave();
     const list = s.merchantCards.map((id) => ({ id, price: item(id).price, full: item(id).price, discount: 0, special: false }));
@@ -519,20 +465,11 @@ export class VillageScene extends Phaser.Scene {
     return list;
   }
 
-  /**
-   * The merchant's rug: his wares lie on it (3 from a classic merchant, 5 from the special one: 4 +
-   * the best deal, glowing gold, its tag with the old price crossed out). Each has a price tag on a
-   * string. The picked one (mouse over it, or A/D) lifts a little and a book opens next to it with
-   * its name, stats and what it does. The wares drop onto the rug when the shop opens; a bought one pops.
-   */
   private renderCards() {
     const s = loadSave();
     const offers = this.offers();
     const who = MERCHANT_LOOK[s.merchantKind];
     const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
-    // his rug, big and sharp (in his robe's colour), at every village level: it is the shop's look.
-    // Its painted clutter is dimmed so the wares stand out. From level 4 his booth's crates stand on
-    // it (src/merchantShops.ts); the plank counter and velvet floors are no longer used here.
     const floor = shopFloor(villageLevel(s.spent));
     const robe = MERCHANT_ROBES[s.merchantKind];
     const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
@@ -540,34 +477,28 @@ export class VillageScene extends Phaser.Scene {
     if (rug) {
       c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
       c.addAt(this.add.graphics().fillStyle(0x000000, VEIL).fillRect(x + 1, y + 22, w - 2, h - 36)
-        .fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);   // title and keys line
+        .fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);
     }
     const money = walletValue(s.wallet);
     if (!offers.length) c.add(this.add.text(x + w / 2, y + h / 2, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
     const slot = Math.min(60, (w - 20) / Math.max(1, offers.length));
     const x0 = x + w / 2 - (slot * (offers.length - 1)) / 2;
-    // along the front of the rug, a bit strewn (the book opens above), each on a clear patch of cloth,
-    // not on top of an item painted on the rug
     const spots = offers.map((_, i) => {
       const want = { x: Math.round(x0 + i * slot), y: y + 110 + (i % 2 ? 3 : -3) };
       if (!rug) return want;
       const at = clearSpot(this, rug, x + w / 2, y + h / 2, want, 22, { x: Math.min(14, Math.floor((slot - 26) / 2)), y: 8 });
-      return { x: at.x, y: Math.max(at.y, y + 24 + BOOK_H + 22) };   // never up under the open book
+      return { x: at.x, y: Math.max(at.y, y + 24 + BOOK_H + 22) };
     });
     offers.forEach((o, i) => {
       const sold = s.inventory.owned.includes(o.id);
       const picked = i === this.sel;
       const { x: ix, y: iy } = spots[i];
       const ware = this.add.container(ix, iy);
-      // a soft shadow on the rug; the best deal glows gold instead
-      // the picture, outlined like the rug's own items, scaled by the size of the art itself (the outline
-      // adds 2 px, which must not tip it from 2x down to 1x)
       const key = this.wareKey(o.id);
       const probe = crisp(this.add.image(0, 0, key), 40);
       const zoom = probe.scaleX;
       probe.destroy();
       const ic = this.add.image(0, 0, wareArt(this, key)).setScale(zoom);
-      // under it a patch of plain cloth (the painted items fade out around it), then its shadow or glow
       const patch = rug ? clothColor(this, rug) : floor === 'counter' || floor === 'velvet' ? FLOOR_PATCH[floor] : null;
       if (patch !== null) ware.add(clothPatch(this, patch, (ic.displayWidth >> 1) + 3, (ic.displayHeight >> 1) + 2, rug ? VEIL : 0));
       const under = this.add.graphics();
@@ -578,21 +509,19 @@ export class VillageScene extends Phaser.Scene {
       ware.add(under);
       if (sold) ic.setAlpha(0.35);
       ware.add(ic);
-      if (picked && !this.dealCards) {   // the picked one floats a little
+      if (picked && !this.dealCards) {
         ic.y = -3;
         this.tweens.add({ targets: ic, y: -5, yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
         ware.add(this.add.image(10, -12, 'sparkle'));
       }
-      // the price tag on its string (src/shopArt.ts)
       ware.add(priceTag(this, 23, { price: o.price, canPay: money >= o.price, sold, picked, tilt: i % 2 ? 0.06 : -0.06, deal: o.special ? { full: o.full, discount: o.discount } : undefined }));
       c.add(ware);
-      // the mouse: hover picks it (and opens the book), a click buys it
       c.add(this.clickable(this.add.zone(ix, iy + 8, Math.min(slot, 44), 52), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
-      if (this.dealCards) {          // set out on the rug: each drops in and bounces
+      if (this.dealCards) {
         ware.setY(iy - 40).setAlpha(0);
         this.tweens.add({ targets: ware, y: iy, alpha: 1, duration: 420, delay: i * 110, ease: 'Bounce.easeOut' });
       }
-      if (i === this.popCard) {      // just bought: a happy pop with sparkles
+      if (i === this.popCard) {
         this.tweens.add({ targets: ware, scale: 1.18, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
         for (let k = 0; k < 6; k++) {
           const sp = this.add.image(ix + Phaser.Math.Between(-16, 16), iy + Phaser.Math.Between(-16, 16), 'sparkle');
@@ -601,7 +530,6 @@ export class VillageScene extends Phaser.Scene {
         }
       }
     });
-    // the book for the picked ware, open just above it (kept inside the window)
     const o = offers[this.sel];
     if (o) {
       const spineX = Phaser.Math.Clamp(spots[this.sel].x, x + BOOK_PAGE + 8, x + w - BOOK_PAGE - 8);
@@ -615,17 +543,12 @@ export class VillageScene extends Phaser.Scene {
     this.keysLine(c, x + 8, y + h - 11, [['Click or A/D+Enter: buy'], ['Q your gear', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
-  /**
-   * The shop's note ("Bought: ...", "costs ... rings") just above the keys line. One line when it
-   * fits; a long one wraps and grows upward over a dark strip, so it never runs past the frame.
-   */
   private noteLine(c: Phaser.GameObjects.Container, x: number, y: number, w: number, h: number) {
     const t = this.add.text(x + 8, y + h - 13, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: w - 16 } }).setOrigin(0, 1);
     c.add(this.add.graphics().fillStyle(0x000000, 0.6).fillRect(x + 1, t.y - t.height - 2, w - 2, t.height + 2));
     c.add(t);
   }
 
-  /** The picked ware's book (src/shopArt.ts): name, kind and picture; the stats on the right page. */
   private book(sx: number, cy: number, o: ReturnType<VillageScene['offers']>[number], open: boolean, delay: number) {
     const it = item(o.id);
     return shopBook(this, sx, cy, {
@@ -637,32 +560,28 @@ export class VillageScene extends Phaser.Scene {
     }, open, delay);
   }
 
-  /** The picture of a ware: the held weapon, or the team's card art, or its icon. */
   private wareKey(id: CatalogId): string {
     const it = item(id);
     return it.kind === 'melee' || it.kind === 'range' ? `held_${id}` : this.textures.exists(`card_${id}`) ? `card_${id}` : `icon_${id}`;
   }
 
-  /** The right page: the numbers and what it does. */
   private bookStats(it: CatalogItem): string {
     const out: string[] = [];
     if (it.damage) out.push(`${it.damage} damage`);
     if (it.cooldownMs) out.push(`every ${it.cooldownMs / 1000}s`);
     if (out.length) out.push('');
-    out.push(it.desc);   // armor: its desc already says how much it takes away
+    out.push(it.desc);
     if (it.kind === 'special') out.push('key 1-8');
     else if (it.kind === 'armor') out.push('always worn');
     return out.join('\n');
   }
 
-  /** Everything you own: equip a different weapon or armor. */
   private renderGear() {
     const s = loadSave();
     const inv = s.inventory;
-    const { c, bg, x, y, w, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', heroLook(this, inv.armor).down, 0x6fd13a, 240, 150);   // you, as you are dressed
+    const { c, bg, x, y, w, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', heroLook(this, inv.armor).down, 0x6fd13a, 240, 150);
     if (!inv.owned.length) c.add(this.add.text(x + 10, y + 34, 'Nothing yet: buy a card first.', { ...FONT, color: '#ffffff' }));
     const visible = 9;
-    // scroll only when the pick leaves the visible rows: a mouse hover never moves the list under the mouse
     if (this.sel < this.gearTop) this.gearTop = this.sel;
     if (this.sel >= this.gearTop + visible) this.gearTop = this.sel - visible + 1;
     this.gearTop = Phaser.Math.Clamp(this.gearTop, 0, Math.max(0, inv.owned.length - visible));
@@ -682,11 +601,6 @@ export class VillageScene extends Phaser.Scene {
     this.keysLine(c, x + 8, y + h - 11, [['Click or W/S+Enter: wear'], ['Q cards', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
-  /**
-   * The tavern, The Golden Tankard: one drink, drunk at the start of the next fight. Wooden walls
-   * in a dark-wood frame with iron rivets, the drinks on a parchment menu, barrels, and the big mug
-   * on the counter (it pours when you buy).
-   */
   private renderBar() {
     const s = loadSave();
     this.panel?.destroy();
@@ -697,10 +611,10 @@ export class VillageScene extends Phaser.Scene {
     bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
     c.add([bg, this.add.tileSprite(x, y, w, h, 'floor_wood').setOrigin(0), this.add.rectangle(x, y, w, h, 0x1a0e06, 0.45).setOrigin(0)]);
     const fr = this.add.graphics();
-    fr.fillStyle(0x3a2214).fillRect(x, y, w, 3).fillRect(x, y + h - 3, w, 3).fillRect(x, y, 3, h).fillRect(x + w - 3, y, 3, h);   // dark-wood frame
+    fr.fillStyle(0x3a2214).fillRect(x, y, w, 3).fillRect(x, y + h - 3, w, 3).fillRect(x, y, 3, h).fillRect(x + w - 3, y, 3, h);
     fr.fillStyle(0x8a5a2a).fillRect(x + 3, y + 3, w - 6, 1).fillRect(x + 3, y + h - 4, w - 6, 1).fillRect(x + 3, y + 3, 1, h - 6).fillRect(x + w - 4, y + 3, 1, h - 6);
     for (const [rx, ry] of [[x + 1, y + 1], [x + w - 3, y + 1], [x + 1, y + h - 3], [x + w - 3, y + h - 3], [x + w / 2 - 1, y + 1], [x + w / 2 - 1, y + h - 3]]) {
-      fr.fillStyle(0x9a9aa8).fillRect(rx, ry, 2, 2).fillStyle(0xd8d8e0).fillRect(rx, ry, 1, 1);                                     // iron rivets
+      fr.fillStyle(0x9a9aa8).fillRect(rx, ry, 2, 2).fillStyle(0xd8d8e0).fillRect(rx, ry, 1, 1);
     }
     c.add(fr);
     c.add(this.add.sprite(x + 14, y + 14, 'barkeeper_0').play('barkeeper'));
@@ -708,12 +622,11 @@ export class VillageScene extends Phaser.Scene {
     c.add(this.add.text(x + 26, y + 20, '"One cup each. It warms you for the fight."', { ...FONT, color: '#e8c890' }));
     c.add(this.add.text(x + w - 7, y + 6, `${walletValue(s.wallet)} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
 
-    // the parchment menu
-    const mx0 = x + 8, my0 = y + 32, mw = w - 16, mh = 52;   // the full width: name, effect, price
+    const mx0 = x + 8, my0 = y + 32, mw = w - 16, mh = 52;
     const menu = this.add.graphics();
     menu.fillStyle(0xc8a870).fillRect(mx0 - 1, my0 - 1, mw + 2, mh + 2);
     menu.fillStyle(0xe9d9ae).fillRect(mx0, my0, mw, mh);
-    menu.fillStyle(0xd8c490).fillRect(mx0, my0, mw, 2).fillRect(mx0, my0 + mh - 2, mw, 2);                                           // rolled ends
+    menu.fillStyle(0xd8c490).fillRect(mx0, my0, mw, 2).fillRect(mx0, my0 + mh - 2, mw, 2);
     c.add(menu);
     DRINK_ORDER.forEach((id, i) => {
       const d = DRINKS[id];
@@ -727,14 +640,12 @@ export class VillageScene extends Phaser.Scene {
       c.add(this.add.text(mx0 + mw - 5, ry, inHand ? 'IN HAND' : `${d.price} rings`, { ...FONT, color: ink }).setOrigin(1, 0));
     });
 
-    // the counter, barrels behind it, and the big mug on it: pours when you just bought (half, then
-    // full), else your drink, or knocked over when you have none
-    const top = y + h - 18;                                   // the counter, under the menu on the right
+    const top = y + h - 18;
     const counter = this.add.graphics();
     counter.fillStyle(0x6b4a2b).fillRect(x + 168, top, w - 172, 14).fillStyle(0x8a6040).fillRect(x + 168, top, w - 172, 2).fillStyle(0x4a2e1a).fillRect(x + 168, top + 13, w - 172, 1);
     c.add([this.add.image(x + 224, top, 'barrel').setOrigin(0.5, 1).setScale(1.6), this.add.image(x + 242, top, 'barrel').setOrigin(0.5, 1).setScale(1.6), counter]);
     const mx = x + 192;
-    const my = top + 1;                                       // where the mug stands (its bottom), on the counter
+    const my = top + 1;
     const mug = this.add.image(mx, my, s.drink ? 'beer_full' : 'beer_spilled').setOrigin(0.5, 1);
     const tap = this.add.graphics();
     c.add([tap, mug]);
@@ -744,31 +655,26 @@ export class VillageScene extends Phaser.Scene {
       const draw = () => {
         if (!mug.active) return;
         mug.setTexture(st.f < 0.55 ? 'beer_half' : 'beer_full');
-        tap.clear().fillStyle(0x6b4a2b).fillRect(mx - 7, my - 32, 10, 3);                              // the tap, just above the full mug
-        if (st.f < 1) tap.fillStyle(0xd89a2a).fillRect(mx - 3, my - 29, 2, 29 - mug.height + 4);       // the stream into the mug
+        tap.clear().fillStyle(0x6b4a2b).fillRect(mx - 7, my - 32, 10, 3);
+        if (st.f < 1) tap.fillStyle(0xd89a2a).fillRect(mx - 3, my - 29, 2, 29 - mug.height + 4);
       };
       const tw = this.tweens.add({ targets: st, f: 1, duration: 900, ease: 'Sine.easeOut', onUpdate: draw, onComplete: draw });
       c.once(Phaser.GameObjects.Events.DESTROY, () => tw.stop());
     }
-    if (this.note) c.add(this.add.text(x + 8, y + h - 14, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 150 } }).setOrigin(0, 1));   // grows upward, clear of the keys line and the counter
+    if (this.note) c.add(this.add.text(x + 8, y + h - 14, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: 150 } }).setOrigin(0, 1));
     c.add(this.add.text(x + 8, y + h - 12, 'W/S choose  Enter buy  E leave', { ...FONT, color: '#c8a878' }));
     this.panel = c;
   }
 
-  // ---- what's in hand ----
-
-  /** The hero in the armor he wears (iron: the knight). Again after buying or equipping armor. */
   private dressHero() { dress(this.player, heroLook(this, loadSave().inventory.armor)); }
 
-  /** The indicator shows your equipped weapons; in the village the melee (or ranged) one is "in hand". */
   private refreshHand() {
     const w = loadout(loadSave().inventory).weapons;
     if (!hasWeapon(w)) return;
     this.hand.update(w, 1);
-    if (this.hand.visible) showHandArt(this, w[1]);   // the big picture beside the game
+    if (this.hand.visible) showHandArt(this, w[1]);
   }
 
-  /** The first weapon: the indicator pops up once, with a banner. */
   private doRevealHand() {
     if (!this.revealHand) return;
     this.revealHand = false;
@@ -780,12 +686,6 @@ export class VillageScene extends Phaser.Scene {
     banner(this, 'IN HAND', 'Your weapon, bottom left. Q switches weapons in the fight.');
   }
 
-  // ---- the village grows ----
-
-  /**
-   * Makes the village look like `level`. What this stage replaces goes first (shrinks away in
-   * dust), then the new parts are built (spring up, sparkle). animate = false: just place them.
-   */
   private applyLevel(level: number, animate: boolean) {
     this.pave(level);
     const shown = (p: Part) => p.lvl <= level && level < (p.until ?? 99);
@@ -811,8 +711,8 @@ export class VillageScene extends Phaser.Scene {
       const { key, anim } = wild ?? this.robed(p);
       const obj = anim ? this.add.sprite(x, y, key).play(anim) : this.add.image(x, y, key);
       obj.setDepth(p.depth ?? 5);
-      if (wild) obj.setScale(wild.scale).setY(y + Math.round((1 - wild.scale) * obj.height / 2));   // bigger or smaller, standing on the same spot
-      if (p.swing) {   // a hanging sign: pivot at the top, sways
+      if (wild) obj.setScale(wild.scale).setY(y + Math.round((1 - wild.scale) * obj.height / 2));
+      if (p.swing) {
         obj.setOrigin(0.5, 0);
         this.tweens.add({ targets: obj, angle: { from: -9, to: 9 }, yoyo: true, repeat: -1, duration: 1100, ease: 'Sine.easeInOut' });
       }
@@ -845,7 +745,6 @@ export class VillageScene extends Phaser.Scene {
     if (level >= 6) this.addCarts(2);
   }
 
-  /** Build the levels reached since the player last looked, with a banner. */
   private grow() {
     const save = loadSave();
     const level = villageLevel(save.spent);
@@ -880,7 +779,6 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** Villagers walking up and down the road: one more per level. */
   private addVillagers(count: number) {
     while (this.villagers.length < count) {
       const i = this.villagers.length;
@@ -896,7 +794,6 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** Rich people (stage 5): stroll slowly along the road, stop to look around, go back. */
   private addNobles(count: number) {
     while (this.nobles.length < count) {
       const i = this.nobles.length;
@@ -907,12 +804,11 @@ export class VillageScene extends Phaser.Scene {
         targets: n, x: x2, duration: 90 * (x2 - x1), yoyo: true, repeat: -1, hold: 1400, repeatDelay: 1400, delay: i * 1500, ease: 'Sine.easeInOut',
         onYoyo: () => n.setFlipX(true), onRepeat: () => n.setFlipX(false),
       });
-      this.tweens.add({ targets: n, y: n.y - 1, yoyo: true, repeat: -1, duration: 260 });   // a proud little bob
+      this.tweens.add({ targets: n, y: n.y - 1, yoyo: true, repeat: -1, duration: 260 });
       this.nobles.push(n);
     }
   }
 
-  /** Horse carts (stage 6): they deliver to the shops (see updateCarts). */
   private addCarts(count: number) {
     while (this.carts.length < count) {
       const i = this.carts.length;
@@ -923,7 +819,7 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private drawCobbles(g: Phaser.GameObjects.Graphics) {
-    villageGround.cobbles(g, PLAY.x, PLAY.y + 106, PLAY.width - 48);   // each stone outlined and lit (src/villageArt.ts)
+    villageGround.cobbles(g, PLAY.x, PLAY.y + 106, PLAY.width - 48);
     return g;
   }
 
@@ -944,11 +840,10 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private drawWall(g: Phaser.GameObjects.Graphics) {
-    villageGround.wall(g, PLAY.x + 20, PLAY.y + PLAY.height - 6, PLAY.width - 40);   // coursed stone with a coping
+    villageGround.wall(g, PLAY.x + 20, PLAY.y + PLAY.height - 6, PLAY.width - 40);
     return g;
   }
 
-  /** Smoke from a chimney: a puff now and then that drifts up and fades (stops when the house goes). */
   private smoke(house: Phaser.GameObjects.GameObject, x: number, y: number) {
     const ev = this.time.addEvent({
       delay: 700, loop: true, startAt: Phaser.Math.Between(0, 600), callback: () => {
@@ -959,13 +854,11 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  // ---- people to talk to ----
-
   private addPeople() {
     const spot: Record<NpcId, { x: number; y: number }> = {
-      elder: { x: PLAY.x + 48, y: PLAY.y + 128 },     // by the well
-      kid: { x: PLAY.x + 140, y: PLAY.y + 106 },      // runs along the top of the road
-      sergeant: { x: YARD_GAP.x + YARD_GAP.width + 7, y: YARD.y - 6 },   // beside the training yard's gap
+      elder: { x: PLAY.x + 48, y: PLAY.y + 128 },
+      kid: { x: PLAY.x + 140, y: PLAY.y + 106 },
+      sergeant: { x: YARD_GAP.x + YARD_GAP.width + 7, y: YARD.y - 6 },
     };
     const talked = loadSave().talkedTo;
     (Object.keys(spot) as NpcId[]).forEach((id) => {
@@ -977,15 +870,14 @@ export class VillageScene extends Phaser.Scene {
       if (id === 'kid') {
         walk = this.tweens.add({ targets: sp, x: PLAY.x + 205, duration: 4200, yoyo: true, repeat: -1, hold: 900, repeatDelay: 900, ease: 'Sine.easeInOut',
           onYoyo: () => sp.setFlipX(true), onRepeat: () => sp.setFlipX(false) });
-        this.tweens.add({ targets: sp, y: sp.y - 2, yoyo: true, repeat: -1, duration: 160 });   // he skips
+        this.tweens.add({ targets: sp, y: sp.y - 2, yoyo: true, repeat: -1, duration: 160 });
       } else {
-        this.tweens.add({ targets: sp, scaleY: 1.04, yoyo: true, repeat: -1, duration: 900 + (id === 'elder' ? 300 : 0) });   // breathing
+        this.tweens.add({ targets: sp, scaleY: 1.04, yoyo: true, repeat: -1, duration: 900 + (id === 'elder' ? 300 : 0) });
       }
       this.npcs.push({ id, sprite: sp, mark, walk });
     });
   }
 
-  /** The "!" follows the walking kid; shows while Tobi still has his ring to give. */
   private updateMarks() {
     const s = loadSave();
     for (const n of this.npcs) {
@@ -1007,7 +899,7 @@ export class VillageScene extends Phaser.Scene {
     updateSave((x) => ({ ...x, talkedTo: x.talkedTo.includes(id) ? x.talkedTo : [...x.talkedTo, id] }));
     const npc = this.npcs.find((n) => n.id === id);
     npc?.walk?.pause();
-    if (npc) npc.sprite.setFlipX(npc.sprite.x > this.player.x);   // turn to face you
+    if (npc) npc.sprite.setFlipX(npc.sprite.x > this.player.x);
     if (t.giftRing) {
       const after = updateSave((x) => ({ ...x, kidGiftGiven: true, wallet: addRings(x.wallet, ['classic']), lifetimeRings: addRings(x.lifetimeRings, ['classic']) }));
       this.time.delayedCall(1200, () => { this.wallet.update(after.wallet); sfx(this, 'ring'); floatText(this, this.player.x, this.player.y - 12, '+1 classic ring', '#c8c8d0'); });
@@ -1015,7 +907,6 @@ export class VillageScene extends Phaser.Scene {
     this.openDialog(NPCS[id].sprite, NPCS[id].name, t.lines);
   }
 
-  /** The dialog box: portrait, name, typed lines (Enter for the next). onClose runs after the last. */
   private openDialog(sprite: string, name: string, lines: string[], onClose?: () => void) {
     const w = PLAY.width - 8;
     const h = 38;
@@ -1023,7 +914,7 @@ export class VillageScene extends Phaser.Scene {
     const y = PLAY.y + PLAY.height - h - 4;
     const box = this.add.container(0, 0).setDepth(965);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);   // the signs behind must not show through
+    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
     box.add(bg);
     box.add(this.add.image(x + 14, y + h / 2, sprite).setScale(2));
     box.add(this.add.text(x + 30, y + 4, name, { ...FONT, color: '#ffcc44' }));
@@ -1050,7 +941,7 @@ export class VillageScene extends Phaser.Scene {
     const JD = Phaser.Input.Keyboard.JustDown;
     const k = this.keys;
     if (!(JD(k.ENTER) || JD(k.SPACE) || JD(k.E) || JD(k.ESC))) return;
-    if (d.typing) { d.typing.remove(); d.typing = null; d.text.setText(d.lines[d.i]); return; }   // finish the line first
+    if (d.typing) { d.typing.remove(); d.typing = null; d.text.setText(d.lines[d.i]); return; }
     d.i++;
     if (d.i < d.lines.length) { this.typeLine(); return; }
     d.box.destroy();
@@ -1058,8 +949,6 @@ export class VillageScene extends Phaser.Scene {
     this.npcs.forEach((n) => n.walk?.resume());
     d.onClose?.();
   }
-
-  // ---- the combat training (after the cutscene) ----
 
   private startTutorial() {
     this.tutorial = new Tutorial(this, {
@@ -1072,19 +961,16 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  // ---- the training yard ----
-
-  /** Fence, sign, dummy and the weapons that come out inside it. */
   private addYard() {
     const { x, y, width: w, height: h } = YARD;
     const g = this.add.graphics().setDepth(3);
-    g.fillStyle(0xb8985a, 0.55).fillRect(x, y, w, h);                                  // trampled sand
-    const rail = (x0: number, y0: number, len: number, across: boolean) => villageGround.fence(g, x0, y0, len, across);   // outlined posts and rails
-    rail(x, y, YARD_GAP.x - x, true);                                                  // top, left of the gap
-    rail(YARD_GAP.x + YARD_GAP.width, y, x + w - YARD_GAP.x - YARD_GAP.width, true);   // top, right of the gap
-    rail(x, y + h, w, true);                                                           // bottom
-    rail(x, y, h, false);                                                              // left
-    rail(x + w, y, h, false);                                                          // right
+    g.fillStyle(0xb8985a, 0.55).fillRect(x, y, w, h);
+    const rail = (x0: number, y0: number, len: number, across: boolean) => villageGround.fence(g, x0, y0, len, across);
+    rail(x, y, YARD_GAP.x - x, true);
+    rail(YARD_GAP.x + YARD_GAP.width, y, x + w - YARD_GAP.x - YARD_GAP.width, true);
+    rail(x, y + h, w, true);
+    rail(x, y, h, false);
+    rail(x + w, y, h, false);
     const block = (bx: number, by: number, bw: number, bh: number) => this.solids.add(this.add.zone(bx + bw / 2, by + bh / 2, bw, bh));
     block(x, y - 2, YARD_GAP.x - x, 3);
     block(YARD_GAP.x + YARD_GAP.width, y - 2, x + w - YARD_GAP.x - YARD_GAP.width, 3);
@@ -1092,10 +978,10 @@ export class VillageScene extends Phaser.Scene {
     block(x - 2, y, 3, h);
     block(x + w - 1, y, 3, h);
     this.solids.refresh();
-    this.add.text(x + 3, y + h - 9, 'TRAINING', { ...FONT, color: '#ff9a6a' }).setDepth(4);   // bottom left, clear of the dummy
+    this.add.text(x + 3, y + h - 9, 'TRAINING', { ...FONT, color: '#ff9a6a' }).setDepth(4);
 
     this.dummy = this.physics.add.sprite(DUMMY.x, DUMMY.y, 'dummy').setDepth(9).setImmovable(true);
-    (this.dummy.body as Body).setCircle(8, 0, 5);   // the straw body (16x26 sprite)
+    (this.dummy.body as Body).setCircle(8, 0, 5);
     this.physics.add.collider(this.player, this.dummy);
     this.combat = new Combat(this, {
       player: this.player,
@@ -1112,8 +998,6 @@ export class VillageScene extends Phaser.Scene {
         },
       },
     });
-    // the damage meter: bottom right, in place of the "WASD move  E use" hint (hidden while you train),
-    // clear of the hand HUD bottom left and inside the frame
     this.trainText = this.add.text(PLAY.x + PLAY.width - 4, PLAY.y + PLAY.height - 10, '', { ...FONT, color: '#ffffff', backgroundColor: '#000000aa', padding: { x: 2, y: 0 } })
       .setOrigin(1, 0).setDepth(950).setVisible(false);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.input.setDefaultCursor('default'));
@@ -1124,16 +1008,15 @@ export class VillageScene extends Phaser.Scene {
     return p.x > YARD.x && p.x < YARD.x + YARD.width && p.y > YARD.y && p.y < YARD.y + YARD.height;
   }
 
-  /** Every frame. Inside the fence: weapon out, aim, attack, specials. Returns true while inside. */
   private updateYard(): boolean {
     const inside = this.insideYard();
     if (inside !== this.inYard) {
       this.inYard = inside;
-      this.input.setDefaultCursor(inside ? 'none' : 'default');   // the crosshair replaces the cursor
+      this.input.setDefaultCursor(inside ? 'none' : 'default');
       this.trainText.setVisible(inside);
       this.hint.setVisible(!inside);
       if (inside) {
-        this.combat.setKit(loadout(loadSave().inventory));   // gear may have changed at the merchant
+        this.combat.setKit(loadout(loadSave().inventory));
         this.prompt.setVisible(false);
       } else {
         this.combat.drawAim(false);
@@ -1154,7 +1037,7 @@ export class VillageScene extends Phaser.Scene {
       this.hand.update(this.combat.kit.weapons, this.combat.wIndex, frac);
       showHandArt(this, this.combat.kit.weapons[this.combat.wIndex], frac);
     }
-    const spanMs = 5000;   // damage per second over the last 5 s
+    const spanMs = 5000;
     const now = this.time.now;
     this.hits = this.hits.filter((h) => now - h.t <= spanMs);
     const dps = this.hits.reduce((sum, h) => sum + h.dmg, 0) / (spanMs / 1000);
@@ -1162,7 +1045,6 @@ export class VillageScene extends Phaser.Scene {
     return true;
   }
 
-  /** The dummy: counts the hit, wobbles, never breaks. */
   private hitDummy(dmg: number) {
     this.tutorial?.event('hitDummy');
     this.hits.push({ t: this.time.now, dmg });
@@ -1176,7 +1058,6 @@ export class VillageScene extends Phaser.Scene {
     this.tweens.add({ targets: this.dummy, angle: { from: dmg >= 40 ? 18 : 9, to: 0 }, duration: 380, ease: 'Elastic.easeOut' });
   }
 
-  /** Damage over time on the dummy (poison, health suck). */
   private dummyTicks(count: number, everyMs: number, dmg: number, color: string, label: string) {
     floatText(this, DUMMY.x, DUMMY.y - 22, label, color);
     this.time.addEvent({ delay: everyMs, repeat: count - 1, callback: () => {
@@ -1186,7 +1067,6 @@ export class VillageScene extends Phaser.Scene {
     } });
   }
 
-  /** Specials against the dummy: the same cooldowns and damage as in the arena. */
   private castAtDummy(id: SpecialId) {
     const c = this.combat;
     const it = item(id);
@@ -1212,9 +1092,6 @@ export class VillageScene extends Phaser.Scene {
     c.usedSpecial(id);
   }
 
-  // ---- delivery carts (Ringfall City) ----
-
-  /** The shops a cart could deliver to now: built, not where you stand, not just delivered to. */
   private freeShops() {
     const level = villageLevel(loadSave().spent);
     const now = this.time.now;
@@ -1232,18 +1109,17 @@ export class VillageScene extends Phaser.Scene {
       const sp = c.sprite;
       if (c.state === 'road') {
         if (!c.shop) {
-          // the nearest free shop ahead (in the direction it drives)
           const ahead = this.freeShops().filter((s) => (s.x - sp.x) * c.dir > 2).sort((a, b) => Math.abs(a.x - sp.x) - Math.abs(b.x - sp.x));
           c.shop = ahead[0] ?? null;
         }
-        if (c.shop && near(this.player, c.shop.x, c.shop.stopY, 34)) c.shop = null;   // you went there: pick another shop
+        if (c.shop && near(this.player, c.shop.x, c.shop.stopY, 34)) c.shop = null;
         sp.x += c.dir * speed * dt;
         if (c.shop && Math.abs(sp.x - c.shop.x) < 1.5) {
           sp.x = c.shop.x;
           c.state = 'in';
-          sp.setFlipX(false).play(c.shop.stopY < ROAD_Y ? 'cart_up' : 'cart_down', true);   // turn off the road: back or front view
+          sp.setFlipX(false).play(c.shop.stopY < ROAD_Y ? 'cart_up' : 'cart_down', true);
         } else if (sp.x <= left || sp.x >= right) {
-          c.dir = (sp.x <= left ? 1 : -1);                 // end of the road: turn around
+          c.dir = (sp.x <= left ? 1 : -1);
           sp.x = Phaser.Math.Clamp(sp.x, left, right);
           sp.setFlipX(c.dir < 0);
         }
@@ -1255,15 +1131,15 @@ export class VillageScene extends Phaser.Scene {
           c.state = 'unload';
           c.until = this.time.now + 2600;
           sp.anims.pause();
-          this.tweens.add({ targets: sp, scaleY: 0.92, yoyo: true, repeat: 3, duration: 160 });   // unloading bounce
+          this.tweens.add({ targets: sp, scaleY: 0.92, yoyo: true, repeat: 3, duration: 160 });
           floatText(this, sp.x, sp.y - 12, 'delivery!', '#ffd27a');
         }
       } else if (c.state === 'unload' && c.shop) {
-        if (this.time.now >= c.until || near(this.player, c.shop.x, c.shop.stopY, 30)) {   // done, or you came: leave
+        if (this.time.now >= c.until || near(this.player, c.shop.x, c.shop.stopY, 30)) {
           this.shopBusyUntil.set(c.shop.id, this.time.now + 9000);
           c.state = 'out';
           sp.anims.resume();
-          sp.play(c.shop.stopY < ROAD_Y ? 'cart_down' : 'cart_up', true);           // and come back out
+          sp.play(c.shop.stopY < ROAD_Y ? 'cart_down' : 'cart_up', true);
         }
       } else if (c.state === 'out' && c.shop) {
         sp.y += Math.sign(ROAD_Y + (c.dir > 0 ? 1 : -4) - sp.y) * speed * dt;
@@ -1277,9 +1153,6 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  // ---- the well ----
-
-  /** Step into the hole: you shrink and spin down, splash, then climb out soaked. */
   private fallInWell() {
     this.locked = true;
     this.prompt.setVisible(false);
@@ -1306,7 +1179,6 @@ export class VillageScene extends Phaser.Scene {
     const p = this.player;
     p.setPosition(WELL.x, WELL.y + 13).setScale(1).setRotation(0).setAlpha(1).setVisible(true);
     this.tweens.add({ targets: p, y: p.y - 5, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
-    // drip for a while
     this.time.addEvent({
       delay: 160, repeat: 12, callback: () => {
         const d = this.add.image(p.x + Phaser.Math.Between(-3, 3), p.y + 4, 'drop').setDepth(9);
@@ -1332,17 +1204,14 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  // ---- bounced back from the arena ----
-
-  /** Bounced back by Mossback: comes bouncing in along the road from the east, skids, lies dizzy, gets up. */
   private bounceIn(kept: number) {
-    this.locked = true; // no control until he is back on his feet
+    this.locked = true;
     this.cameras.main.fadeIn(350, 255, 255, 255);
     const roadY = PLAY.y + 112;
     const p = this.player;
     p.setPosition(PLAY.x + PLAY.width + 16, roadY - 40).setRotation(0);
-    const grandpa = !loadSave().grandpaMet;   // only the first time you are bounced home
-    if (grandpa) this.time.delayedCall(1800, () => this.grandpaComes(PLAY.x + 140, roadY));   // he sets off while you are still bouncing
+    const grandpa = !loadSave().grandpaMet;
+    if (grandpa) this.time.delayedCall(1800, () => this.grandpaComes(PLAY.x + 140, roadY));
     const thud = (x: number, y: number, i: number) => {
       sfx(this, 'bounce', 0.6 - i * 0.12);
       dustPuff(this, x, y, 6, 14 - i * 2);
@@ -1354,23 +1223,20 @@ export class VillageScene extends Phaser.Scene {
       { x: PLAY.x + 175, y: roadY, h: 8, ms: 260 },
       { x: PLAY.x + 160, y: roadY, h: 3, ms: 160 },
     ], { spin: -Math.PI * 2, onLand: thud }, () => {
-      // skid to a stop, flat on his back
       this.tweens.add({ targets: p, x: p.x - 8, rotation: -Math.PI / 2, duration: 260, ease: 'Quad.easeOut', onComplete: () => this.dizzy(kept) });
     });
   }
 
   private grandpa: Phaser.GameObjects.Image | null = null;
 
-  /** Grandpa hobbles in from the west along the road to where you landed. */
   private grandpaComes(x: number, y: number) {
     const g = this.add.image(PLAY.x - 8, y, GRANDPA.sprite).setDepth(9).setAlpha(0);
     this.grandpa = g;
     this.tweens.add({ targets: g, alpha: 1, duration: 200 });
     this.tweens.add({ targets: g, x: x - 2, duration: 1500, ease: 'Sine.easeOut' });
-    this.tweens.add({ targets: g, y: y - 1, yoyo: true, repeat: 6, duration: 110 });   // a slow hobble
+    this.tweens.add({ targets: g, y: y - 1, yoyo: true, repeat: 6, duration: 110 });
   }
 
-  /** Back on your feet: the first time Grandpa tells you what happened, after that a banner. */
   private backOnFeet(kept: number) {
     if (this.grandpa) { this.grandpaSpeaks(kept); return; }
     this.locked = false;
@@ -1380,14 +1246,13 @@ export class VillageScene extends Phaser.Scene {
     after.forEach((f) => f());
   }
 
-  /** Grandpa tells you what happened (once per save). Control (and any village growth) after. */
   private grandpaSpeaks(kept: number) {
     updateSave((s) => ({ ...s, grandpaMet: true }));
     const g = this.grandpa;
     if (g) { this.tweens.killTweensOf(g); g.setPosition(this.player.x - 14, this.player.y).setAlpha(1).setFlipX(false); }
     this.openDialog(GRANDPA.sprite, GRANDPA.name, bouncedBackLines(kept), () => {
       this.locked = false;
-      if (g) {   // and off he goes, back west
+      if (g) {
         g.setFlipX(true);
         this.tweens.add({ targets: g, x: PLAY.x - 10, duration: 2400, ease: 'Sine.easeIn', onComplete: () => g.destroy() });
         this.tweens.add({ targets: g, y: g.y - 1, yoyo: true, repeat: 10, duration: 110 });
@@ -1399,7 +1264,6 @@ export class VillageScene extends Phaser.Scene {
     });
   }
 
-  /** Stars circle his head, then he hops back onto his feet. */
   private dizzy(kept: number) {
     const p = this.player;
     const stars = [0, 1, 2].map(() => this.add.image(p.x, p.y - 8, 'sparkle').setDepth(12));
@@ -1419,14 +1283,6 @@ export class VillageScene extends Phaser.Scene {
     this.wallet.update(loadSave().wallet);
   }
 
-  // ---- catapult ----
-
-  /**
-   * The launch. 1 you hop into the bucket (the arm dips under you); 2 the winch ratchets the arm
-   * down, click by click, its rope pulling tight; 3 the rope snaps, the arm whips over and slams
-   * into the padded stop, the whole catapult rocks; 4 you fly off spinning with a trail, smaller and
-   * smaller toward his lair, a twinkle where you vanish; 5 the white flash into the arena.
-   */
   private launch() {
     this.locked = true;
     this.prompt.setVisible(false);
@@ -1434,14 +1290,13 @@ export class VillageScene extends Phaser.Scene {
     body.setVelocity(0, 0).enable = false;
     const { arm, winch } = this.cat;
     const state = { r: ARM_REST };
-    let sag = 3;   // the rope: slack at rest, tight once the winch turns
+    let sag = 3;
     const follow = () => {
       arm.setRotation(state.r);
       const b = seat(this.cat, state.r);
       this.player.setPosition(b.x, b.y);
       if (sag >= 0) drawRope(this.cat, state.r, sag);
     };
-    // 1. a hop into the bucket
     const from = { x: this.player.x, y: this.player.y };
     const to = seat(this.cat, ARM_REST);
     const hop = { t: 0 };
@@ -1451,10 +1306,9 @@ export class VillageScene extends Phaser.Scene {
       onUpdate: () => this.player.setPosition(from.x + (to.x - from.x) * hop.t, from.y + (to.y - from.y) * hop.t - Math.sin(hop.t * Math.PI) * 12),
       onComplete: () => {
         sfx(this, 'land', 0.4);
-        this.tweens.add({ targets: state, r: ARM_REST + 0.05, duration: 90, yoyo: true, onUpdate: follow, onComplete: windUp });   // the arm dips under you
+        this.tweens.add({ targets: state, r: ARM_REST + 0.05, duration: 90, yoyo: true, onUpdate: follow, onComplete: windUp });
       },
     });
-    // 2. the winch: three clicks, the rope pulling tight, you crouching lower
     const windUp = () => {
       sag = 0;
       follow();
@@ -1472,9 +1326,8 @@ export class VillageScene extends Phaser.Scene {
       };
       click(0);
     };
-    // 3. the rope snaps, the arm whips over and slams into the stop
     const release = () => {
-      sag = -1;   // no rope from here on
+      sag = -1;
       this.cat.rope.clear();
       this.snapRope(winch.x, winch.y);
       this.player.setScale(1, 1.15);
@@ -1483,14 +1336,12 @@ export class VillageScene extends Phaser.Scene {
         onComplete: () => {
           this.fly();
           this.slam();
-          // the arm bounces off the stop and wobbles to rest there
           this.tweens.add({ targets: state, r: ARM_FIRE - 0.35, duration: 160, yoyo: true, repeat: 1, ease: 'Sine.easeOut', onUpdate: () => arm.setRotation(state.r) });
         },
       });
     };
   }
 
-  /** Two frayed ends of rope flying off when it snaps. */
   private snapRope(x: number, y: number) {
     for (const dir of [-1, 1]) {
       const bit = this.add.rectangle(x + dir * 3, y - 2, 5, 1, 0xd8c8a0).setDepth(9);
@@ -1498,20 +1349,18 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
-  /** The arm hits the padded stop: thunk, the whole catapult rocks back on its wheels, dust. */
   private slam() {
     sfx(this, 'launch');
     this.cameras.main.shake(180, 0.012);
     const { base, winch, arm, pin } = this.cat;
-    for (const part of [base, winch, arm, pin]) this.tweens.add({ targets: part, y: part.y - 3, duration: 90, yoyo: true, ease: 'Quad.easeOut' });   // all together: nothing comes apart
-    dustPuff(this, CATAPULT.x - 40, CATAPULT.y + 34, 5, 8);   // under the wheels (texture x 8 and 31, at 2x)
+    for (const part of [base, winch, arm, pin]) this.tweens.add({ targets: part, y: part.y - 3, duration: 90, yoyo: true, ease: 'Quad.easeOut' });
+    dustPuff(this, CATAPULT.x - 40, CATAPULT.y + 34, 5, 8);
     dustPuff(this, CATAPULT.x + 6, CATAPULT.y + 34, 5, 8);
   }
 
-  /** You fly: a high arc east, spinning, smaller and smaller toward the lair, a trail behind, a twinkle, the flash. */
   private fly() {
     const start = { x: this.player.x, y: this.player.y };
-    const end = { x: PLAY.x + PLAY.width - 18, y: PLAY.y + 14 };   // the far sky over his lair
+    const end = { x: PLAY.x + PLAY.width - 18, y: PLAY.y + 14 };
     const t = { p: 0 };
     this.player.setScale(1.25);
     let lastGhost = 0;
@@ -1519,9 +1368,9 @@ export class VillageScene extends Phaser.Scene {
       targets: t, p: 1, duration: 950, ease: 'Sine.easeOut',
       onUpdate: () => {
         const x = start.x + (end.x - start.x) * t.p;
-        const y = start.y + (end.y - start.y) * t.p - Math.sin(t.p * Math.PI) * 46;   // up over the top, then away
+        const y = start.y + (end.y - start.y) * t.p - Math.sin(t.p * Math.PI) * 46;
         this.player.setPosition(x, y).setScale(1.25 * (1 - 0.85 * t.p)).setRotation(t.p * Math.PI * 5);
-        if (this.time.now - lastGhost > 45 && t.p < 0.9) {     // the trail: fading copies of you
+        if (this.time.now - lastGhost > 45 && t.p < 0.9) {
           lastGhost = this.time.now;
           const ghost = this.add.image(x, y, this.player.texture.key).setScale(this.player.scaleX).setRotation(this.player.rotation).setAlpha(0.45).setDepth(8);
           this.tweens.add({ targets: ghost, alpha: 0, scale: ghost.scale * 0.6, duration: 260, onComplete: () => ghost.destroy() });
@@ -1529,24 +1378,17 @@ export class VillageScene extends Phaser.Scene {
       },
       onComplete: () => {
         this.player.setVisible(false);
-        // the twinkle where you vanish
         const star = this.add.image(end.x, end.y, 'sparkle').setDepth(20).setScale(0.5);
         sfx(this, 'ring', 0.5);
         this.tweens.add({ targets: star, scale: 3, angle: 90, duration: 220, yoyo: true, ease: 'Quad.easeOut' });
         this.time.delayedCall(380, () => {
-          this.cameras.main.fadeOut(400, 255, 255, 255);   // white flash: the jump cut into the arena
+          this.cameras.main.fadeOut(400, 255, 255, 255);
           this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('play', { landing: true }));
         });
       },
     });
   }
 
-  // ---- the village itself ----
-
-  /**
-   * Trees and bushes differ in every game: some trees have apples, some bushes berries, and each is a bit
-   * bigger or smaller. Picked from the save's seed, so the same tree looks the same every time you come back.
-   */
   private wild(p: Part): { key: string; anim?: undefined; scale: number } | null {
     const tree = p.key === 'tree' || p.key === 'tree_apple';
     if (!tree && !p.key.startsWith('bush_')) return null;
@@ -1557,7 +1399,6 @@ export class VillageScene extends Phaser.Scene {
     return { key, scale: [0.8, 0.9, 1, 1, 1.1, 1.2][rnd.between(0, 5)] };
   }
 
-  /** The merchant and his blanket in this deal's robe colour (when its sprites exist). */
   private robed(p: { key: string; anim?: string }): { key: string; anim?: string } {
     const robe = MERCHANT_ROBES[loadSave().merchantKind];
     if (p.anim === 'merchant' && this.anims.exists(`merchant_${robe}`)) return { key: `merchant_${robe}_0`, anim: `merchant_${robe}` };
@@ -1565,26 +1406,24 @@ export class VillageScene extends Phaser.Scene {
     return p;
   }
 
-  /** The paths are paved as the village grows: dirt in the camp, cobblestone from level 3, stone brick from level 5. */
   private pave(level: number) {
     const key = level >= 5 ? 'path_brick' : level >= 3 ? 'path_cobble' : 'path_dirt';
     for (const p of this.paths) if (p.texture.key !== key) p.setTexture(key);
   }
 
   private drawVillage(): Phaser.Physics.Arcade.StaticGroup {
-    this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'grass').setOrigin(0).setDepth(0);   // the ground
+    this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'grass').setOrigin(0).setDepth(0);
     const path = (x: number, y: number, w: number, h: number) =>
       this.paths.push(this.add.tileSprite(x, y, w, h, 'path_dirt').setOrigin(0).setDepth(0).setTilePosition(x, y));
-    path(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);                                          // main road
-    path(STALL.x - 6, STALL.y + 14, 12, 90);                                                   // path to the stall
-    path(BAR_DOOR.x - 6, BAR_DOOR.y - 2, 12, 104 - (BAR_DOOR.y - PLAY.y) + 2);                 // path to the bar
-    // the well (src/villageArt.ts): a ring of stones round dark water, posts, a crossbeam, rope and bucket
+    path(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);
+    path(STALL.x - 6, STALL.y + 14, 12, 90);
+    path(BAR_DOOR.x - 6, BAR_DOOR.y - 2, 12, 104 - (BAR_DOOR.y - PLAY.y) + 2);
     this.add.image(WELL.x, WELL.y, 'well').setOrigin(0.5, 16 / 22).setDepth(2);
     const solids = this.physics.add.staticGroup();
     const block = (x: number, y: number, w: number, h: number) => solids.add(this.add.zone(x, y, w, h));
-    block(WELL.x - 9, WELL.y - 6, 2, 10);                   // the well's posts; the hole itself is open: you can fall in
+    block(WELL.x - 9, WELL.y - 6, 2, 10);
     block(WELL.x + 9, WELL.y - 6, 2, 10);
-    block(CATAPULT.x - 17, CATAPULT.y + 26, 72, 8);        // the catapult's bed and wheels (2x)
+    block(CATAPULT.x - 17, CATAPULT.y + 26, 72, 8);
     solids.refresh();
     return solids;
   }

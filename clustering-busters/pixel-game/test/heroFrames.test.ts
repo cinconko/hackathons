@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { feet, heroFrame } from '../src/heroFrames.ts';
 
-// A tiny 6x12 hero like the farmer: rows 0-8 the body (cols 1-4), rows 9-10 the trousers (solid
-// across cols 1-4), row 11 the feet (left col 1, right col 4, a gap between them).
 const W = 6;
 const H = 12;
 function hero(): Uint8ClampedArray {

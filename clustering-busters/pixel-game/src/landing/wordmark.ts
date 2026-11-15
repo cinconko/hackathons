@@ -1,11 +1,5 @@
 import { paintRing, RING_LOOKS, RING_SIZE, type RingLook } from '../ringArt';
 
-// The hero's wordmark: RINGFALL built from pixel rings (5x7 letters, one ring per pixel), RING in
-// gold, FALL in silver (the page is black), and here and there a lucky rare (blue) or super rare (pink) ring. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
-// fly off, spin, fall, then slide back home. Every tile knocked counts in the "Rings knocked" tag.
-// With nobody steering, he walks through the word on his own now and then.
-// prefers-reduced-motion: the word is drawn once, nobody walks, nothing flies.
-
 const GLYPHS: Record<string, string[]> = {
   R: ['1111.', '1...1', '1...1', '1111.', '1.1..', '1..1.', '1...1'],
   I: ['11111', '..1..', '..1..', '..1..', '..1..', '..1..', '11111'],
@@ -16,27 +10,23 @@ const GLYPHS: Record<string, string[]> = {
   L: ['1....', '1....', '1....', '1....', '1....', '1....', '11111'],
 };
 const WORD = 'RINGFALL';
-const COLS = WORD.length * 6;                            // 5 wide + a gap each, one more between RING and FALL, minus the last gap
+const COLS = WORD.length * 6;
 const ROWS = 7;
-const PAD = 0.6;                                         // cells of room around the word (shadows, the hero's head)
+const PAD = 0.6;
 
 interface Tile {
-  hx: number; hy: number;          // home, in cells
-  x: number; y: number; r: number; // now, in cells / radians
+  hx: number; hy: number;
+  x: number; y: number; r: number;
   vx: number; vy: number; vr: number;
   kind: Kind;
   state: 'home' | 'fly' | 'back';
-  t: number;                       // seconds in the current state
+  t: number;
 }
 
-// One ring per pixel of the letters: the game's own ring (src/ringArt.ts), with a hard shadow one
-// pixel down-right, drawn once per kind into a small canvas and stamped for every ring of the word.
-// RING is gold rings with pearls, FALL black rings with gold stones; the lucky ones are the game's
-// rare and super rare rings exactly as you pick them up.
 type Kind = 'gold' | 'dark' | 'rare' | 'super';
 const LOOKS: Record<Kind, { look: RingLook; shadow: string }> = {
   gold: { look: { H: 0xfff3c4, B: 0xffcc44, D: 0xb8862a, w: 0xffffff, g: 0xf4f4f8, d: 0xc8c8d0 }, shadow: '#111111' },
-  dark: { look: { H: 0xffffff, B: 0xc8c8d0, D: 0x8a8a96, w: 0xfff3c4, g: 0xffcc44, d: 0xb8862a }, shadow: '#000000' },   // silver (the classic ring): the page is all black
+  dark: { look: { H: 0xffffff, B: 0xc8c8d0, D: 0x8a8a96, w: 0xfff3c4, g: 0xffcc44, d: 0xb8862a }, shadow: '#000000' },
   rare: { look: RING_LOOKS.rare, shadow: '#111111' },
   super: { look: RING_LOOKS.superRare, shadow: '#111111' },
 };
@@ -50,14 +40,11 @@ function ringSprite(k: Kind): HTMLCanvasElement {
   paintRing(LOOKS[k].look, (color, x, y) => { g.fillStyle = hex(color); g.fillRect(x, y, 1, 1); });
   return c;
 }
-/** Which rings are lucky: fixed, so the word looks the same every visit (about 1 in 19 rare, 2 super rare). */
 const luck = (n: number, word: number): Kind => (n === 17 || n === 71) ? 'super' : ((n * 37) % 19 === 4 ? 'rare' : (word === 0 ? 'gold' : 'dark'));
 
 export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null, heroImg: HTMLImageElement | null, still: boolean) {
   const ctx = canvas.getContext('2d')!;
-  // ---- the hero ----
   const hero = { x: -3, px: -3, y: 4, tx: -3, ty: 4, face: 1, on: false, step: 0 };
-  // On wide screens one line, RING FALL; on phones two lines, RING over FALL, so the tiles stay big.
   const tiles: Tile[] = [];
   let W = 0, H = 0, stacked: boolean | null = null;
   function layout(two: boolean) {
@@ -66,7 +53,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     tiles.length = 0;
     let col = 0, top = 0;
     for (const [i, ch] of Array.from(WORD).entries()) {
-      if (i === 4) { if (two) { col = 0; top = ROWS + 1; } else col += 1; }   // RING and FALL: a gap, or a new line
+      if (i === 4) { if (two) { col = 0; top = ROWS + 1; } else col += 1; }
       GLYPHS[ch].forEach((row, y) => Array.from(row).forEach((c, x) => {
         if (c !== '1') return;
         const hx = col + x + PAD, hy = top + y + PAD;
@@ -78,7 +65,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     H = (two ? ROWS * 2 + 1 : ROWS) + PAD * 2 + 0.6;
     hero.y = hero.ty = H / 2;
   }
-  let cell = 20;                                        // CSS pixels per cell, set by fit()
+  let cell = 20;
   let knocked = 0;
 
   function fit() {
@@ -89,14 +76,14 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(H * cell * dpr);
     canvas.style.height = `${H * cell}px`;
-    ctx.setTransform(dpr * cell, 0, 0, dpr * cell, 0, 0); // draw in cells from here on
+    ctx.setTransform(dpr * cell, 0, 0, dpr * cell, 0, 0);
     ctx.imageSmoothingEnabled = false;
     draw();
   }
 
-  let steered = 0;                                      // when a person last moved him (performance.now)
-  let auto = -1;                                        // seconds into a walk-through, -1 = none
-  const HERO_H = 3.4;                                   // cells tall
+  let steered = 0;
+  let auto = -1;
+  const HERO_H = 3.4;
 
   function toCells(e: PointerEvent) {
     const b = canvas.getBoundingClientRect();
@@ -118,7 +105,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
       if (t.state !== 'home') continue;
       const dx = t.x + 0.5 - hero.x, dy = t.y + 0.5 - (hero.y);
       if (Math.abs(dx) > reach || Math.abs(dy) > HERO_H / 2 + 0.4) continue;
-      const push = (hero.x - hero.px) * 6;                // faster swipes throw further
+      const push = (hero.x - hero.px) * 6;
       t.state = 'fly'; t.t = 0;
       t.vx = Math.sign(dx || hero.face) * (3 + Math.random() * 5) + push;
       t.vy = -(8 + Math.random() * 7);
@@ -128,13 +115,12 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     if (counter) counter.textContent = String(knocked);
   }
 
-  // ---- drawing ----
   const sprites = Object.fromEntries((Object.keys(LOOKS) as Kind[]).map((k) => [k, ringSprite(k)])) as Record<Kind, HTMLCanvasElement>;
   function tile(t: Tile) {
     ctx.save();
     ctx.translate(t.x + 0.5, t.y + 0.5);
     ctx.rotate(t.r);
-    const s = 1.1, n = RING_SIZE + 1;                     // rings a little over a cell: they nearly touch
+    const s = 1.1, n = RING_SIZE + 1;
     ctx.drawImage(sprites[t.kind], -s / 2, -s / 2, s * n / RING_SIZE, s * n / RING_SIZE);
     ctx.restore();
   }
@@ -145,7 +131,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     const bob = Math.abs(Math.sin(hero.step)) * 0.25;
     ctx.save();
     ctx.translate(hero.x, hero.y - bob);
-    ctx.fillStyle = 'rgba(17,17,17,0.22)';                // his shadow stays on the ground
+    ctx.fillStyle = 'rgba(17,17,17,0.22)';
     ctx.fillRect(-w * 0.45, h / 2 + bob - 0.12, w * 0.9, 0.22);
     ctx.scale(hero.face, 1);
     if (img) ctx.drawImage(img, -w / 2, -h / 2, w, h);
@@ -156,26 +142,24 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     ctx.clearRect(0, 0, W, H);
     for (const t of tiles) if (t.state === 'home') tile(t);
     drawHero();
-    for (const t of tiles) if (t.state !== 'home') tile(t); // flying tiles go over him
+    for (const t of tiles) if (t.state !== 'home') tile(t);
   }
 
-  // ---- the loop: runs only while something moves and the word is on screen ----
   let raf = 0, last = 0, visible = true;
   function wake() { if (!raf && visible && !still) { last = performance.now(); raf = requestAnimationFrame(frame); } }
   function frame(now: number) {
     raf = 0;
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
-    // the walk-through when nobody steers: left to right along the word, a little wave in it
     if (!hero.on && auto < 0 && now - steered > 4000) { auto = 0; hero.x = -3; hero.y = H / 2; }
     if (auto >= 0) {
       auto += dt;
       hero.tx = -3 + auto * 9;
-      hero.ty = H / 2 + Math.sin(auto * 2.2) * (H / 2 - 1.2);   // weaves through both lines on phones
+      hero.ty = H / 2 + Math.sin(auto * 2.2) * (H / 2 - 1.2);
       if (hero.tx > W + 3) { auto = -1; steered = now; }
     }
     hero.px = hero.x;
-    const k = 1 - Math.pow(0.0005, dt);                   // eased follow, framerate-independent
+    const k = 1 - Math.pow(0.0005, dt);
     hero.x += (hero.tx - hero.x) * k;
     hero.y += (hero.ty - hero.y) * k;
     const moved = hero.x - hero.px;
@@ -191,7 +175,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
       if (t.state === 'fly') {
         t.vy += 30 * dt;
         t.x += t.vx * dt; t.y += t.vy * dt; t.r += t.vr * dt;
-        if (t.t > 1.3) { t.state = 'back'; t.t = 0; t.vx = t.x; t.vy = t.y; t.vr = t.r; } // remember where it started back from
+        if (t.t > 1.3) { t.state = 'back'; t.t = 0; t.vx = t.x; t.vy = t.y; t.vr = t.r; }
       } else {
         const p = Math.min(1, t.t / 0.55), e = 1 - Math.pow(1 - p, 3);
         t.x = t.vx + (t.hx - t.vx) * e;
@@ -202,13 +186,13 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     }
     draw();
     if (busy) raf = requestAnimationFrame(frame);
-    else setTimeout(wake, 4200);                           // idle: come back for the next walk-through
+    else setTimeout(wake, 4200);
   }
 
   new IntersectionObserver(([e]) => { visible = e.isIntersecting; if (visible) wake(); }).observe(canvas);
   new ResizeObserver(() => fit()).observe(canvas.parentElement!);
   heroImg?.addEventListener('load', () => { draw(); wake(); });
   fit();
-  steered = performance.now() - 3000;                       // the first walk-through comes a second after load
+  steered = performance.now() - 3000;
   wake();
 }

@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# Big source art (art/) -> game-size sprites (public/media/sprites/<key>.png).
-#
-# The team draws big (hundreds of pixels); the game is a 320x180 grid. This shrinks every picture
-# to its size in game pixels and saves it under the sprite key the game looks for. Run it after
-# adding or changing a file in art/:   npm run art     (needs ImageMagick: brew install imagemagick)
-#
-# One line per sprite:  <source in art/>  <key>  <width>x<height>  <mode>
-#   cut   a cutout: trim the empty border, shrink, hard edges (alpha is either on or off)
-#   tile  a texture the game repeats (grass, water, planks): shrink the whole picture
-#   ttile like tile, but trim the empty border first (a tile drawn on a bigger canvas)
-#   cover fill exactly that size, cropping what sticks out (backgrounds)
-#   bob   like cut, but the figure sits 1 pixel lower (frame 2 of an idle animation)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=public/media/sprites
@@ -41,17 +29,15 @@ make Grass.png            grass           32x32   tile
 make Water_LilyPad.avif   water           37x37   tile
 make WoodenFloor.jpg      floor_wood      64x36   tile
 make WoodenWall.png       wall_wood       30x20   tile
-# Paths: dirt (camp), cobblestone (village), stone brick (town); the village paves as it grows
 make Path_1.png           path_dirt       32x32   ttile
 make Path_2.png           path_cobble     40x40   ttile
 make Path_3.png           path_brick      40x40   ttile
 make Sky03.avif           sky             312x172 cover
 
-# The merchant: one robe colour per deal, the blanket matches. merchant_0/1 + blanket = default.
 make Merchant/Merchant_Green.png              merchant_0  16x18 cut
 make Merchant/Merchant_Green.png              merchant_1  16x18 bob
 make Merchant/Blanket/March_Blanket_Original.png blanket  36x18 cut
-make Merchant/Blanket/March_Blanket_Original.png rug      249x168 cut   # big: behind the shop cards
+make Merchant/Blanket/March_Blanket_Original.png rug      249x168 cut
 for c in DarkBlue Gray Green Orange Red Special; do
   k=$(echo "$c" | tr '[:upper:]' '[:lower:]')
   make "Merchant/Merchant_$c.png"              "merchant_${k}_0" 16x18 cut
@@ -60,19 +46,13 @@ for c in DarkBlue Gray Green Orange Red Special; do
   make "Merchant/Blanket/March_Blanket_$c.png" "rug_$k"          249x168 cut
 done
 
-# The boss: one picture; boot makes the stage colours, the key and the hit flash, the arena moves it.
-# Armor you can see on the hero (front view; it serves every direction). 16 tall: a little shorter than the merchant (18).
 for m in copper bronze iron steel magnetite; do make "Armor/$m.png" "hero_$m" 12x16 cut; done
-# The hero himself: the farmer (no armour; it replaces the old 8x10 placeholder everywhere), and in leather
 make Hero/farmer.png             player          9x16 cut
 make Hero/leather.png            hero_leather    9x16 cut
 make Boss_Ver02.png              boss_art        32x35 cut
-# Campfire: level 1 wood only, level 2 in a ring of stones (boot adds the flicker frames).
 make Campfire/Campfire_1.png     campfire_wood   18x17 cut
 make Campfire/Campfire_2.png     campfire_stone  16x18 cut
 
-# Spells (fireball, freeze): the orb flies (their HUD icon is a potion, below); the casting hand flashes when you
-# cast; the ring bursts where it hits. Drawn at game scale.
 for s in fireball freeze; do
   make "Spells/$s.png"       "proj_$s"       8x10  cut
   make "Spells/${s}_held.png"  "proj_${s}_cast" 14x12 cut
@@ -80,17 +60,13 @@ for s in fireball freeze; do
 done
 make Spells/fireball_potion.png  icon_fireball   7x9   cut
 make Spells/fireball_potion.png  card_fireball   16x19 cut
-# Fireball, Freeze, Health suck and Poison are shown as potions (HUD icon + merchant card), kept tall like the drawings
 make Spells/freeze_potion.png    icon_freeze     6x9   cut
 make Spells/freeze_potion.png    card_freeze     12x19 cut
 make Supplies/health_potion.png  icon_healthSuck 8x9   cut
 make Supplies/health_potion.png  card_healthSuck 16x19 cut
 make Spells/poison_potion.png    icon_poison     6x9   cut
 make Spells/poison_potion.png    card_poison     13x19 cut
-# Fisherman's supplies
 make Supplies/health_potion.png  supply_potion   11x13 cut
-# The bar: the team's beer mugs, drawn at game size. full = your drink, half = while it pours,
-# spilled = no drink yet; the full one, small, is the drink icon (bar menu, the hanging sign).
 make Bar/full_beer.png           beer_full       21x24 cut
 make Bar/half_empty_beer.png     beer_half       21x21 cut
 make Bar/spilled_beer.png        beer_spilled    26x16 cut

@@ -2,17 +2,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { fireFrame, flame, FLICKER } from '../src/fireFrames.ts';
 
-// a 7x8 fire: a flame (orange) on rows 0-4, logs (brown) on rows 5-7
 const W = 7;
 const H = 8;
 function fire(): Uint8ClampedArray {
   const d = new Uint8ClampedArray(W * H * 4);
   const put = (x: number, y: number, r: number, g: number, b: number) => d.set([r, g, b, 255], (y * W + x) * 4);
-  put(3, 0, 255, 200, 60);                                         // the tip
+  put(3, 0, 255, 200, 60);
   for (let x = 2; x <= 4; x++) put(x, 1, 255, 150, 40);
   for (let y = 2; y <= 4; y++) for (let x = 1; x <= 5; x++) put(x, y, 240, 120, 30);
-  for (let y = 5; y < H; y++) for (let x = 0; x < W; x++) put(x, y, 110, 60, 40);   // logs
-  put(0, 6, 230, 140, 60);                                         // an orange log end: not flame (below the logs' top)
+  for (let y = 5; y < H; y++) for (let x = 0; x < W; x++) put(x, y, 110, 60, 40);
+  put(0, 6, 230, 140, 60);
   return d;
 }
 const px = (d: Uint8ClampedArray, x: number, y: number) => [...d.subarray((y * W + x) * 4, (y * W + x) * 4 + 4)];

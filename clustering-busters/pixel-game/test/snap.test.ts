@@ -10,7 +10,7 @@ test('text pixels are snapped fully on or fully off, colours kept (no grey fog w
 });
 
 test("the font's faint fringe stays off (an O must not grow a tail and read as Q)", () => {
-  const d = new Uint8ClampedArray([255, 255, 255, 87, 255, 255, 255, 250]);   // 87 = the strongest fringe measured on Silkscreen 8 px
+  const d = new Uint8ClampedArray([255, 255, 255, 87, 255, 255, 255, 250]);
   snapAlpha(d);
   assert.deepEqual([d[3], d[7]], [0, 255]);
 });

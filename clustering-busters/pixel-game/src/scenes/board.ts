@@ -5,13 +5,8 @@ import { BOARD_SIZE, type Score } from '../game/leaderboard';
 import { boardFor, loadNick } from '../leaderboard';
 import { fadeToScene, FONT, title } from '../ui';
 
-// The leaderboard: the fastest recovered treasuries, nickname and time. After a win (the result
-// screen, or the ending's THE END card) it shows your place, your row in gold; from the menu (L)
-// just the board. Enter goes on to `after` (the village after a win, else the menu).
-
 export interface BoardData { timeMs?: number; after?: string; fromRun?: boolean }
 
-/** 1:23.4 (the board needs tenths: seconds alone tie too often). */
 export function boardTime(ms: number): string {
   const t = Math.floor(ms / 100);
   const m = Math.floor(t / 600);
@@ -41,10 +36,9 @@ export class BoardScene extends Phaser.Scene {
         this.add.text(70, y, `${rank}.`, { ...FONT, color }).setOrigin(1, 0);
         this.add.text(78, y, s.nick, { ...FONT, color });
         this.add.text(WIDTH - 70, y, boardTime(s.timeMs), { ...FONT, color }).setOrigin(1, 0);
-        if (rank <= 3) this.add.image(64 - 14, y + 4, `ring_${['superRare', 'rare', 'classic'][rank - 1]}`);   // medals
+        if (rank <= 3) this.add.image(64 - 14, y + 4, `ring_${['superRare', 'rare', 'classic'][rank - 1]}`);
       };
       b.top.slice(0, BOARD_SIZE).forEach((s, i) => row(44 + i * 11, i + 1, s, mine(s)));
-      // your run, below the top 10 if it did not make it
       if (b.rank && b.rank > BOARD_SIZE && data.timeMs !== undefined && me) {
         this.add.text(WIDTH / 2, 44 + BOARD_SIZE * 11, '...', { ...FONT, color: '#666666' }).setOrigin(0.5, 0);
         row(44 + BOARD_SIZE * 11 + 8, b.rank, { nick: me, timeMs: data.timeMs }, true);
@@ -60,7 +54,7 @@ export class BoardScene extends Phaser.Scene {
       gone = true;
       fadeToScene(this, after, after === 'village' ? { fromRun: !!data.fromRun } : {}, 400);
     };
-    this.time.delayedCall(400, () => {   // a held key from the last screen must not skip this one
+    this.time.delayedCall(400, () => {
       this.input.keyboard?.once('keydown-ENTER', go);
       this.input.keyboard?.once('keydown-ESC', go);
       this.input.once('pointerdown', go);

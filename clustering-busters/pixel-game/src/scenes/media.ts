@@ -4,9 +4,6 @@ import { drawFrame } from '../frame';
 import { mediaStatus, soundStatus } from '../media';
 import { FONT } from '../ui';
 
-// ?scene=media: the art checklist. Every sprite the game uses, with its size and whether it
-// comes from a file (ART) or is still the placeholder drawn in code (DRAWN). The last page lists
-// the music and sound effects. Hover a sprite for its full name and file path.
 const COLS = 8;
 const ROWS = 3;
 const PER_PAGE = COLS * ROWS;
@@ -20,7 +17,6 @@ export class MediaScene extends Phaser.Scene {
   constructor() { super('media'); }
 
   create() {
-    // ?scene=media&show=cart_0,cartf_0 : inspect sprites big (whole-step scale, side by side)
     const show = new URLSearchParams(window.location.search).get('show');
     if (show) { this.inspect(show.split(',').filter((k) => this.textures.exists(k))); return; }
     this.page = 0;
@@ -56,7 +52,7 @@ export class MediaScene extends Phaser.Scene {
     keys.forEach((k, i) => {
       const z = sizes[i];
       this.add.image(x + (z.width * scale) / 2, PLAY.y + 18 + (maxH * scale) / 2, k).setScale(scale);
-      this.add.text(x + (z.width * scale) / 2, PLAY.y + 22 + maxH * scale + (i % 2) * 10, `${k} ${z.width}x${z.height}`, { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0);   // staggered: no overlap
+      this.add.text(x + (z.width * scale) / 2, PLAY.y + 22 + maxH * scale + (i % 2) * 10, `${k} ${z.width}x${z.height}`, { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0);
       x += (z.width + gap) * scale;
     });
     this.add.text(PLAY.x + 4, PLAY.y + 3, `INSPECT  x${scale}`, { ...FONT, color: '#ffcc44' });
@@ -64,7 +60,7 @@ export class MediaScene extends Phaser.Scene {
     drawFrame(this);
   }
 
-  private pages() { return Math.ceil(this.items.length / PER_PAGE) + 1; }   // + the sound page
+  private pages() { return Math.ceil(this.items.length / PER_PAGE) + 1; }
 
   private turn(d: number) { this.page = (this.page + d + this.pages()) % this.pages(); this.render(); }
 
@@ -90,7 +86,7 @@ export class MediaScene extends Phaser.Scene {
       const img = this.add.image(x + cw / 2, y + 14, it.key);
       img.setScale(Math.min(2, 22 / Math.max(it.w, it.h, 1)));
       c.add(img);
-      const fit = Math.floor((cw - 4) / 5.4);              // letters that fit the cell (Silkscreen: ~5 px a letter + spacing)
+      const fit = Math.floor((cw - 4) / 5.4);
       const name = it.key.length > fit ? `${it.key.slice(0, fit - 1)}~` : it.key;
       c.add(this.add.text(x + cw / 2, y + 26, name, { ...FONT, color: it.art ? '#8fe08f' : '#aaaaaa' }).setOrigin(0.5, 0));
       const zone = this.add.zone(x + cw / 2, y + ch / 2, cw - 2, ch - 3).setInteractive();

@@ -1,14 +1,4 @@
-// The leaderboard API (a Vercel Function; the site is public, so these checks are the only guard).
-//
-//   GET  /api/scores                     -> { top: [{ nick, timeMs }], total }
-//   POST /api/scores { nick, timeMs }    -> { top, total, rank }   (the win is saved first)
-//
-// The table is public.scores in Supabase (db/scores.sql). This file talks to it through
-// Supabase's REST API with the service-role key, which lives only in Vercel's server env
-// (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY): the browser never sees a database key. Every name
-// and time is checked again here with the same rules the game uses (src/game/leaderboard.ts),
-// because anything sent from a browser can be faked.
-// '.js', not '.ts': Vercel compiles this function to JavaScript but keeps the import path as written
+// Keep '.js': Vercel keeps import paths as written, and a '.ts' path crashes this function (ERR_MODULE_NOT_FOUND).
 import { BOARD_SIZE, cleanNick, rankFor, validTime, type Score } from '../src/game/leaderboard.js';
 
 declare const process: { env: Record<string, string | undefined> };
@@ -32,7 +22,6 @@ function db(path: string, init: RequestInit & { count?: boolean } = {}) {
   });
 }
 
-/** "0-9/123" -> 123 (PostgREST's Content-Range carries the total count). */
 const totalOf = (res: Response): number => Number(res.headers.get('content-range')?.split('/')[1] ?? 0) || 0;
 
 async function board(): Promise<{ top: Score[]; total: number }> {
@@ -51,6 +40,7 @@ export async function GET(): Promise<Response> {
   }
 }
 
+// Never trust the browser: re-check every name and time here; the service-role key must stay server-side.
 export async function POST(request: Request): Promise<Response> {
   const raw = await request.text();
   if (raw.length > 512) return json({ error: 'Too big.' }, 413);
@@ -63,7 +53,6 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const saved = await db('scores', { method: 'POST', body: JSON.stringify({ nick, time_ms: timeMs }), headers: { Prefer: 'return=minimal' } });
     if (!saved.ok) throw new Error(`insert: ${saved.status}`);
-    // your place: how many recorded times are strictly faster
     const faster = await db(`scores?select=id&time_ms=lt.${timeMs}&limit=1`, { count: true });
     if (!faster.ok) throw new Error(`rank: ${faster.status}`);
     return json({ ...(await board()), rank: rankFor(totalOf(faster)) });

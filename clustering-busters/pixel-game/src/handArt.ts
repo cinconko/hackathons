@@ -1,13 +1,7 @@
-// The big picture of the weapon in hand, in the black space beside the game canvas.
-// The game scales by whole steps, so most screens have black bars around it; this panel lives
-// there (outside the canvas, plain HTML). Detailed art: public/media/sprites/art_<weapon>.png
-// (e.g. art_sword.png). Until that exists, the weapon's sprite is shown big and tilted.
-// It lives inside the game's screen box (#screen), so it also shows in fullscreen. No room beside
-// the game inside that box (e.g. fullscreen at an exact zoom) = the panel hides.
 import Phaser from 'phaser';
 import { FISTS, item, weapon, type WeaponId } from './game/rules';
 
-const MIN_ROOM = 96;         // the black space must be at least this wide (CSS px)
+const MIN_ROOM = 96;
 let el: HTMLDivElement | null = null;
 let pic: HTMLImageElement;
 let title: HTMLDivElement;
@@ -15,7 +9,7 @@ let info: HTMLDivElement;
 let fill: HTMLDivElement;
 let ready: HTMLDivElement;
 let shownId = '';
-let wanted = false;          // a scene wants it shown (it may still not fit)
+let wanted = false;
 const urls = new Map<string, { url: string; w: number; h: number; art: boolean }>();
 
 function ensure() {
@@ -39,24 +33,23 @@ function ensure() {
   (document.getElementById('screen') ?? document.body).appendChild(el);
 }
 
-/** Fits the panel into the widest black margin beside the canvas (call after every rescale). */
 export function placeHandArt() {
   if (!el) return;
   const canvas = document.querySelector('canvas');
   if (!canvas) return;
   const r = canvas.getBoundingClientRect();
-  const box = el.parentElement === document.body                  // the screen box (or the whole window)
+  const box = el.parentElement === document.body
     ? { left: 0, right: window.innerWidth } : el.parentElement!.getBoundingClientRect();
   const room = Math.min(r.left - box.left, box.right - r.right) - 16;
   if (!wanted || room < MIN_ROOM) { el.style.display = 'none'; return; }
   const w = Math.min(room, 280);
   el.style.width = `${w}px`;
   el.style.height = `${Math.min(r.height - 16, 420)}px`;
-  el.style.left = `${box.left + Math.max(8, (r.left - box.left - w) / 2)}px`;   // centred in the left black space
+  el.style.left = `${box.left + Math.max(8, (r.left - box.left - w) / 2)}px`;
   el.style.top = `${r.top + (r.height - Math.min(r.height - 16, 420)) / 2}px`;
   el.style.display = 'flex';
   const p = urls.get(shownId);
-  if (p) {                                                       // as big as fits, keeping pixels crisp
+  if (p) {
     const max = w * 0.72;
     const scale = p.art ? Math.min(max / p.w, 220 / p.h) : Math.max(1, Math.floor(Math.min(max / p.w, 150 / p.h)));
     pic.style.width = `${Math.round(p.w * scale)}px`;
@@ -73,7 +66,6 @@ function picture(scene: Phaser.Scene, id: WeaponId) {
   return key;
 }
 
-/** Show the weapon in hand. ready: 0..1 how far it has recharged. */
 export function showHandArt(scene: Phaser.Scene, id: WeaponId, readyFrac = 1) {
   ensure();
   wanted = true;

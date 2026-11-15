@@ -11,8 +11,6 @@ import {
 
 const fixed = (v: number) => () => v;
 
-// ---- the chart -------------------------------------------------------------------------
-
 test('catalog matches the team chart: [cz name, damage, cooldown s, price]', () => {
   const chart: Record<string, [string, number | undefined, number | undefined, number]> = {
     sling: ['prak', 5, 0.5, 100], javelin: ['oštěp', 10, 1, 120], bow: ['luk', 20, 2, 150], crossbow: ['kuše', 40, 4, 180], handCannon: ['píšťala', 60, 6, 200],
@@ -63,8 +61,6 @@ test('armor takes its share of the damage; the shield blocks all; never below 1'
   assert.equal(damageTaken(20, 0.3, true), 0);
 });
 
-// ---- rings and paying ------------------------------------------------------------------
-
 test('rings are money: classic 5, rare 25, super rare 100; a new game has 100', () => {
   assert.equal(walletValue({ classic: 3, rare: 2, superRare: 1 }), 165);
   assert.equal(walletValue(startingWallet()), 100);
@@ -73,10 +69,10 @@ test('rings are money: classic 5, rare 25, super rare 100; a new game has 100', 
 
 test('paying uses the cheapest rings first and gives change in classic rings', () => {
   assert.deepEqual(pay({ classic: 20, rare: 0, superRare: 0 }, 80), { classic: 4, rare: 0, superRare: 0 });
-  assert.deepEqual(pay({ classic: 1, rare: 3, superRare: 0 }, 75), { classic: 1, rare: 0, superRare: 0 }); // 5 + 75 = 80, change 1 classic
-  assert.deepEqual(pay({ classic: 0, rare: 0, superRare: 1 }, 75), { classic: 5, rare: 0, superRare: 0 });        // 100, change 25 = 5 classic
+  assert.deepEqual(pay({ classic: 1, rare: 3, superRare: 0 }, 75), { classic: 1, rare: 0, superRare: 0 });
+  assert.deepEqual(pay({ classic: 0, rare: 0, superRare: 1 }, 75), { classic: 5, rare: 0, superRare: 0 });
   assert.equal(pay({ classic: 3, rare: 0, superRare: 0 }, 20), null);
-  assert.equal(pay({ classic: 9, rare: 0, superRare: 0 }, 7), null); // not a multiple of 5
+  assert.equal(pay({ classic: 9, rare: 0, superRare: 0 }, 7), null);
 });
 
 test('paying never creates or loses value', () => {
@@ -92,8 +88,6 @@ test('paying never creates or loses value', () => {
   }
 });
 
-// ---- the village shop ------------------------------------------------------------------
-
 test('buying: once only, needs the rings, equips what you bought', () => {
   const r = buyItem(startingWallet(), startingInventory(), 'dagger');
   assert.ok(r.ok);
@@ -107,15 +101,13 @@ test('buying: once only, needs the rings, equips what you bought', () => {
 test('equip only what you own; loadout follows the inventory', () => {
   let inv = { ...startingInventory(), owned: ['sword', 'dagger', 'bow', 'steel', 'shield', 'fireball'] as CatalogId[] };
   inv = equip(equip(equip(inv, 'sword'), 'bow'), 'steel');
-  assert.equal(equip(inv, 'spear'), inv); // not owned: unchanged
+  assert.equal(equip(inv, 'spear'), inv);
   const l = loadout(inv);
   assert.deepEqual(l.weapons, ['fists', 'sword', 'bow']);
-  assert.deepEqual(l.specials, ['fireball', 'shield']); // chart order
+  assert.deepEqual(l.specials, ['fireball', 'shield']);
   assert.equal(l.armor, 0.5);
   assert.deepEqual(loadout(startingInventory()).weapons, ['fists']);
 });
-
-// ---- boss, drops, fisherman, treasury ---------------------------------------------------
 
 test('boss has 3 stages split by HP thirds', () => {
   assert.equal(bossStage(BOSS_MAX_HP), 1);
@@ -187,7 +179,6 @@ test('village levels grow with rings spent', () => {
   assert.equal(villageLevel(99999), VILLAGE_LEVELS.length);
   assert.deepEqual(villageProgress(275), { level: 2, name: 'Tent camp', next: 400, frac: 0.5 });
   assert.equal(villageProgress(5000).next, null);
-  // thresholds only go up
   for (let i = 1; i < VILLAGE_LEVELS.length; i++) assert.ok(VILLAGE_LEVELS[i].at > VILLAGE_LEVELS[i - 1].at);
 });
 
@@ -218,7 +209,6 @@ test('a bigger village: Mossback drops more rings (+15% per level, capped at lev
   const rate = (l: number) => { const rng = seededRng(9); let n = 0; for (let i = 0; i < 40000; i++) if (hitDrop(rng, l)) n++; return n / 40000; };
   assert.ok(Math.abs(rate(1) - 0.15) < 0.01);
   assert.ok(Math.abs(rate(6) - 0.2625) < 0.012);
-  // the rare guarantees still hold at every level
   for (let l = 1; l <= 6; l++) assert.ok(stageDrop(seededRng(l), l).rings.some((r) => r !== 'classic'));
 });
 
@@ -242,7 +232,7 @@ test('the special merchant\'s best deal: a top item you do not own, 25-40% off, 
   }
   assert.ok(seen > 100, `only ${seen} special merchants in 3000 deals`);
   assert.equal(discountedPrice(250, 0.3), 175);
-  assert.equal(discountedPrice(350, 0.35), 225);   // 227.5 rounded down to whole classic rings
+  assert.equal(discountedPrice(350, 0.35), 225);
 });
 
 test('the special card falls back to the best item left, and disappears when you own everything', () => {
@@ -259,8 +249,6 @@ test('buying the special card charges the discounted price', () => {
   assert.ok(r.ok);
   if (r.ok) assert.equal(walletValue(r.wallet), 200 - 175);
 });
-
-// ---- the finale (stage 3 special moves) -------------------------------------------------
 
 test('the finale moves take turns, the giant ball first', () => {
   assert.deepEqual([0, 1, 2, 3].map(finaleMove), ['giantBall', 'slamRain', 'giantBall', 'slamRain']);
@@ -279,7 +267,7 @@ test('rain falls inside the arena, never two drops on top of each other', () => 
   for (const s of spots) {
     assert.ok(s.x >= area.x + 6 && s.x <= area.x + area.width - 6 && s.y >= area.y + 6 && s.y <= area.y + area.height - 6);
   }
-  for (const a of spots) for (const b of spots) if (a !== b) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= FINALE.slam.dropGap - 1.5);   // rounding to whole pixels
+  for (const a of spots) for (const b of spots) if (a !== b) assert.ok(Math.hypot(a.x - b.x, a.y - b.y) >= FINALE.slam.dropGap - 1.5);
 });
 
 test('every stage is faster than the one before: he walks faster and fires more often', () => {

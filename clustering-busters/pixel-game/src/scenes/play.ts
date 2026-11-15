@@ -12,53 +12,29 @@ import { loadSave, updateSave } from '../save';
 import { banner as showBanner, clearBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
 import { BOOK_H, BOOK_PAGE, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 
-// The boss fight. Rules (the team's weapons chart, stages, drops, the fisherman, armor) come
-// from game/rules.ts; this scene moves sprites, reads input and draws.
-//
-//   catapult ─► landing ─► fight (weapons: Q, specials: 1-8) ─► boss dies, drops the key
-//   ─► take the key ─► hidden door in the west wall ─► treasury
-//   lose ─► Mossback smashes you ─► you bounce back to the village (no death screen)
-//   your weapons (aim, attacks, shots, the bomb): combat.ts, shared with the village training yard
-//
-// Every timer runs on fightMs, which stops while the shop is open and during hit-stop.
-//
-// Feel / readability:
-//   aim       crosshair cursor (red = an attack now would hit), held weapon points at it,
-//             reach drawn on the ground (swing arc / shot line / bomb circle)
-//   swing     the held weapon sweeps through its arc (fists jab, ranged weapons recoil)
-//   hit-stop  a few ms freeze on every solid hit, longer for big hits
-//   facing    the hero turns up / down / sideways toward the aim
-//   telegraph aimed shots and dashes show a red line first, the bullet ring a red circle
-
 type Sprite = Phaser.Physics.Arcade.Sprite;
 type Body = Phaser.Physics.Arcade.Body;
 export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
 
 const FISHER_X = WIDTH / 2;
-const PLANK = 0x7a5530;     // the fisherman's dock (his shop): plank colour, for the patch under each ware
-const NET_SHADE = 0.25;     // how dark the net lies over the planks
+const PLANK = 0x7a5530;
+const NET_SHADE = 0.25;
 const FISHER_Y = PLAY.y + PLAY.height - 26;
-const WALL = 8;                                              // the west wall's thickness
+const WALL = 8;
 const DOOR = { x: PLAY.x + WALL / 2 + 2, y: PLAY.y + PLAY.height / 2 };
 const SPECIAL_KEYS = ['ONE', 'TWO', 'THREE', 'FOUR', 'FIVE', 'SIX', 'SEVEN', 'EIGHT'] as const;
 
 const asSprite = (o: unknown) => o as Sprite;
 
 interface Telegraph { kind: 'aimed' | 'dash' | 'ring'; angle: number; fireAt: number; from: number }
-/**
- * The boss moves as one piece (the team's drawing is never cut): he waddles when he walks, rears back
- * when you are in reach, lunges and squashes when he hits you, swells while charging a shot and
- * recoils when he fires. A kick is a short one-off move on top of that.
- */
 interface BossKick { kind: 'smash' | 'throw' | 'slam' | 'flick'; angle: number; at: number; ms: number }
-// His attacks. The warnings are drawn from the same numbers, so they show exactly where the balls go.
-const RING_BALLS = 10;           // stage 1: balls in a full circle, fixed directions
-const SPIRAL_ARMS = 4;           // stage 3: balls per spiral burst, the burst turns SPIRAL_TURN each time
+const RING_BALLS = 10;
+const SPIRAL_ARMS = 4;
 const SPIRAL_TURN = 0.35;
-const SPIRAL_WARN_MS = 400;      // the next spiral burst is shown this long before it fires
-const DASH_SPEED = 150;          // stage 3 charge: px/s for DASH_MS
+const SPIRAL_WARN_MS = 400;
+const DASH_SPEED = 150;
 const DASH_MS = 350;
-const MELEE_REACH = 30;          // closer than this (centre to centre) and he rears back to strike
+const MELEE_REACH = 30;
 
 export class PlayScene extends Phaser.Scene {
   private rng: R.Rng = Math.random;
@@ -66,8 +42,8 @@ export class PlayScene extends Phaser.Scene {
   private boss!: Sprite;
   private fisher!: Phaser.GameObjects.Image;
   private fisherPrompt!: Phaser.GameObjects.Text;
-  private bullets!: Phaser.Physics.Arcade.Group;   // his
-  private combat!: Combat;                         // your weapons, aim and shots
+  private bullets!: Phaser.Physics.Arcade.Group;
+  private combat!: Combat;
   private pickups!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Graphics;
   private tgG!: Phaser.GameObjects.Graphics;
@@ -75,21 +51,20 @@ export class PlayScene extends Phaser.Scene {
   private door!: Phaser.GameObjects.Image;
   private keyIcon!: Phaser.GameObjects.Image;
   private specialIcons: Phaser.GameObjects.Image[] = [];
-  private cdG!: Phaser.GameObjects.Graphics;               // cooldown shading, ON TOP of the icons
-  private cdTexts: Phaser.GameObjects.Text[] = [];          // seconds left on each recharging special
+  private cdG!: Phaser.GameObjects.Graphics;
+  private cdTexts: Phaser.GameObjects.Text[] = [];
   private texts!: { hp: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; status: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
   private hand!: ReturnType<typeof handHud>;
   private walletUi!: ReturnType<typeof walletHud>;
   private keys!: Keys;
 
-  // fight state (reset in create, because Phaser reuses the scene object)
   private kit!: R.Loadout;
   private fightMs = 0;
   private hp = R.PLAYER_HP;
   private wallet: R.Wallet = R.emptyWallet();
-  private rings: R.Rarity[] = [];                // found this run
-  private buffs = { damage: 0, speed: 0 };       // the fisherman's supplies, this fight only
-  private immuneNoteAt = 0;                                       // "immune" feedback, at most every 300 ms
+  private rings: R.Rarity[] = [];
+  private buffs = { damage: 0, speed: 0 };
+  private immuneNoteAt = 0;
   private invulnUntil = 0;
   private shieldUntil = 0;
   private bossHp = R.BOSS_MAX_HP;
@@ -101,17 +76,16 @@ export class PlayScene extends Phaser.Scene {
   private knockUntil = 0;
   private spiralAngle = 0;
   private telegraph: Telegraph | null = null;
-  private bossView!: Phaser.GameObjects.Image;   // what you see; this.boss is the (invisible) body
-  private heldBall!: Phaser.GameObjects.Image;   // the ball in his fist (or over his head) before he throws
-  // stage 3 finale (rules.ts FINALE): giant ball and slam rain, taking turns
+  private bossView!: Phaser.GameObjects.Image;
+  private heldBall!: Phaser.GameObjects.Image;
   private finale: { kind: R.FinaleMove; phase: 'charge' | 'rise' | 'hunt' | 'lock' | 'fall'; at: number; dealt: number; x: number; y: number } | null = null;
   private finaleCount = 0;
   private nextFinaleAt = Infinity;
   private giant: { img: Phaser.GameObjects.Image; x0: number; y0: number; ang: number; start: number; flightMs: number; tx: number; ty: number } | null = null;
   private rain: { x: number; y: number; at: number }[] = [];
-  private dark!: Phaser.GameObjects.Rectangle;    // the arena darkens while he charges the giant ball
-  private bossHands = 'a';                        // which hand frame he shows (boot.ts HAND_FRAMES)
-  private bossFlashing = false;                   // the white hit flash: the hands wait
+  private dark!: Phaser.GameObjects.Rectangle;
+  private bossHands = 'a';
+  private bossFlashing = false;
   private bossKick: BossKick | null = null;
   private bossMotion = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
   private dashAngle = 0;
@@ -131,24 +105,23 @@ export class PlayScene extends Phaser.Scene {
   private sold = new Set<number>();
   private shop: Phaser.GameObjects.Container | null = null;
   private shopNote = '';
-  private shopSel = 0;            // the ware picked on his net (mouse over it, A/D)
-  private shopBookShown = -1;     // whose book is open: a new pick unfolds it
-  private shopDeal = false;       // the shop just opened: lay the wares out
-  private shopPop = -1;           // the ware just bought: pop it
-  private fightTweens: Phaser.Tweens.Tween[] = [];       // frozen while the shop is open
-  private bobber: Phaser.GameObjects.GameObject[] = [];   // his line and float: only while he is here
+  private shopSel = 0;
+  private shopBookShown = -1;
+  private shopDeal = false;
+  private shopPop = -1;
+  private fightTweens: Phaser.Tweens.Tween[] = [];
+  private bobber: Phaser.GameObjects.GameObject[] = [];
   private devOpenShop = false;
-  private hitStopUntil = 0;   // real time (performance.now), not fight time
+  private hitStopUntil = 0;
   private inHitStop = false;
-  private drinkNote = '';     // the bar drink kicking in, shown on landing
-  private villageLvl = 1;     // the bigger the village, the more rings Mossback drops
+  private drinkNote = '';
+  private villageLvl = 1;
 
   constructor() { super('play'); }
 
   create(data: PlayData = {}) {
     const save = loadSave();
     const startStage = (data.stage === 2 || data.stage === 3 ? data.stage : 1) as R.Stage;
-    // the bar's drink is drunk now: it lasts this fight only
     const drink = save.drink ? R.DRINKS[save.drink] : null;
     if (drink) updateSave((s) => ({ ...s, drink: null }));
     const base = R.loadout(save.inventory);
@@ -207,12 +180,10 @@ export class PlayScene extends Phaser.Scene {
     this.fisherPrompt = this.add.text(FISHER_X, FISHER_Y - 16, 'E: shop', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(950).setVisible(false);
 
     this.player = this.physics.add.sprite(PLAY.x + 70, PLAY.y + PLAY.height / 2, 'player').setCollideWorldBounds(true).setDepth(10);
-    dress(this.player, heroLook(this, save.inventory.armor));   // iron armor: the knight
+    dress(this.player, heroLook(this, save.inventory.armor));
     this.boss = this.physics.add.sprite(PLAY.x + PLAY.width - 50, PLAY.y + PLAY.height / 2, `boss_${startStage}`).setCollideWorldBounds(true).setDepth(9);
-    // the body is his chest and belly, not the arms: radius 11 centred at (16, 17) of the 32x35 sprite
     const bw = this.boss.width, bh = this.boss.height, r = Math.min(11, Math.floor(Math.min(bw, bh) / 2) - 1);
     (this.boss.body as Body).setCircle(r, bw / 2 - r, bh / 2 - r);
-    // Scaling a physics sprite resizes its hitbox, so the moves happen on a separate picture.
     this.boss.setVisible(false);
     this.bossView = this.add.image(this.boss.x, this.boss.y, `boss_${startStage}`).setDepth(9);
     this.heldBall = this.add.image(0, 0, 'bullet').setDepth(10).setVisible(false);
@@ -241,7 +212,6 @@ export class PlayScene extends Phaser.Scene {
       },
     });
     this.keys = addKeys(this);
-    // the custom crosshair replaces the system cursor, only in the arena
     this.input.setDefaultCursor('none');
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => { this.input.setDefaultCursor('default'); hideHandArt(); });
 
@@ -251,7 +221,6 @@ export class PlayScene extends Phaser.Scene {
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
       hp: this.add.text(PLAY.x + WALL + 66, PLAY.y + 2, '', FONT).setDepth(950),
-      // under the boss bar, left-aligned on it: centred, a long status ran into the 8 special icons
       boss: this.add.text(WIDTH / 2 - 50, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setDepth(950),
       status: this.add.text(WIDTH / 2 - 50, PLAY.y + 18, '', { ...FONT, color: '#b8e0a0' }).setDepth(950),
       retailer: this.add.text(PLAY.x + PLAY.width - 3, PLAY.y + 2, '', { ...FONT, color: '#9fd3ff' }).setOrigin(1, 0).setDepth(950),
@@ -262,11 +231,10 @@ export class PlayScene extends Phaser.Scene {
       this.add.text(x, PLAY.y + 21, String(i + 1), { ...FONT, color: '#888888' }).setOrigin(0.5, 0).setDepth(950);
       return this.add.image(x, PLAY.y + 16, `icon_${id}`).setDepth(945);
     });
-    // drawn above the icons (946+): the old shading sat under them (940) and never showed
     this.cdG = this.add.graphics().setDepth(946);
     this.cdTexts = this.specialIcons.map((icon) => this.add.text(icon.x, icon.y - 4, '', { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0).setDepth(947));
     this.hand = handHud(this, PLAY.x + WALL + 3, PLAY.y + PLAY.height - 19);
-    if (hasWeapon(this.kit.weapons)) this.hand.show();   // nothing before your first weapon
+    if (hasWeapon(this.kit.weapons)) this.hand.show();
     this.walletUi = walletHud(this, PLAY.x + PLAY.width - 128, PLAY.y + PLAY.height - 9);
     this.walletUi.update(this.wallet);
     const luckPct = Math.round((R.ringLuck(this.villageLvl) - 1) * 100);
@@ -275,12 +243,11 @@ export class PlayScene extends Phaser.Scene {
     drawFrame(this);
     playMusic(this, 'arena');
     if (data.bossDead) { this.bossHp = 0; this.killBoss(); }
-    if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); }); // dev hook
+    if (data.lose) this.time.delayedCall(400, () => { this.hp = 0; this.thrownOut(); });
     if (data.landing) this.land();
     else if (startStage === 1 && !data.bossDead) this.banner('MOSSBACK', 'Stage 1 of 3');
   }
 
-  /** Fell out of the catapult's sky: a shadow grows, the hero drops in, dust and a shake, then fight. */
   private land() {
     this.landed = false;
     this.cameras.main.fadeIn(350, 255, 255, 255);
@@ -328,8 +295,6 @@ export class PlayScene extends Phaser.Scene {
     this.drawHud();
   }
 
-  // ---- hit-stop: a tiny freeze that makes hits feel heavy --------------------------------
-
   private hitStop(ms: number) {
     if (this.shop || this.ended) return;
     this.hitStopUntil = Math.max(this.hitStopUntil, performance.now() + ms);
@@ -340,7 +305,6 @@ export class PlayScene extends Phaser.Scene {
     this.time.paused = true;
   }
 
-  /** True while frozen; resumes everything when the freeze is over. */
   private hitStopping(): boolean {
     if (performance.now() < this.hitStopUntil) return true;
     this.endHitStop();
@@ -355,23 +319,19 @@ export class PlayScene extends Phaser.Scene {
     this.time.paused = false;
   }
 
-  // ---- player ------------------------------------------------------------------------
-
   private damageMul() { return 1 + this.buffs.damage; }
 
   private movePlayer() {
-    this.combat.face(steer(this.player, this.keys, 1 + this.buffs.speed));   // faces the aim
+    this.combat.face(steer(this.player, this.keys, 1 + this.buffs.speed));
   }
 
   private actionKeys() {
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
-    this.combat.keys(k);   // attack (press or hold), Q: next weapon
+    this.combat.keys(k);
     this.kit.specials.forEach((id, i) => { if (JD(k[SPECIAL_KEYS[i]])) this.cast(id); });
     if (JD(k.E) && this.nearFisher()) this.openShop();
   }
-
-  // ---- specials (number keys) --------------------------------------------------------
 
   private cast(id: R.SpecialId) {
     const it = R.item(id);
@@ -419,7 +379,6 @@ export class PlayScene extends Phaser.Scene {
     if (used) c.usedSpecial(id);
   }
 
-  /** Damage over time: poison ticks and the health suck. */
   private updateEffects() {
     const S = R.SPECIAL;
     while (this.fightMs < this.poisonUntil && this.fightMs >= this.poisonNextTick) {
@@ -427,13 +386,12 @@ export class PlayScene extends Phaser.Scene {
       this.damageBoss(S.poisonTickDmg, { hitStop: false, drops: false, color: '#6fd13a' });
     }
     while (this.fightMs < this.suckUntil && this.fightMs >= this.suckNextTick && !this.bossDead) {
-      this.suckNextTick += 500;            // 2 hp/s = 1 hp every 0.5 s
+      this.suckNextTick += 500;
       this.damageBoss(S.suckPerSec / 2, { hitStop: false, drops: false, color: '#e03a4a' });
       this.hp = Math.min(this.kit.maxHp, this.hp + S.suckPerSec / 2);
     }
   }
 
-  /** Returns whether the hit landed (a shield block counts: the blow still came down). */
   private hurtPlayer(raw: number): boolean {
     if (this.ended || this.bossDead || this.fightMs < this.invulnUntil) return false;
     const shielded = this.fightMs < this.shieldUntil;
@@ -454,21 +412,13 @@ export class PlayScene extends Phaser.Scene {
     return true;
   }
 
-  // ---- boss --------------------------------------------------------------------------
-
-  /** The pose his arms should be in now: from the warning before a shot, or just after one. */
   private applyBossTexture() { this.bossView.setTexture(this.bossTexture()); }
 
-  /** This stage's picture with his hands in the current frame (no hand frames: the plain one). */
   private bossTexture() {
     const k = `boss_${this.stage}_${this.bossHands}`;
     return this.textures.exists(k) ? k : `boss_${this.stage}`;
   }
 
-  /**
-   * His hands: spread wide while he puffs up for the ring and when he smashes, pulled in while he
-   * winds up a shot or a charge or rears back, otherwise writhing (faster while he walks).
-   */
   private animateHands(near: boolean) {
     const now = this.fightMs;
     const t = this.telegraph;
@@ -486,14 +436,9 @@ export class PlayScene extends Phaser.Scene {
 
   private kickBoss(kind: BossKick['kind'], angle: number, ms: number) { this.bossKick = { kind, angle, at: this.fightMs, ms }; }
 
-  /**
-   * Where his hands are, from the centre of the 32x35 drawing (boot.ts BOSS_HANDS): the fist at the
-   * end of each straight-out arm, and the point between his two top claws (over his head).
-   */
   private static readonly FIST = { left: { x: -14, y: -8 }, right: { x: 13, y: -8 } };
   private static readonly OVERHEAD = { x: 0, y: -17 };
 
-  /** A point on his drawing -> the arena, following how the picture leans and squashes right now. */
   private onBoss(local: { x: number; y: number }) {
     const v = this.bossView;
     const c = Math.cos(v.rotation), sn = Math.sin(v.rotation);
@@ -501,50 +446,45 @@ export class PlayScene extends Phaser.Scene {
     return { x: v.x + lx * c - ly * sn, y: v.y + lx * sn + ly * c };
   }
 
-  /** His throwing fist: the straight-out arm on the side he throws toward. */
   private throwHand(angle: number) {
     return this.onBoss(Math.cos(angle) < 0 ? PlayScene.FIST.left : PlayScene.FIST.right);
   }
 
-  /**
-   * Every frame: where the picture sits around the body, how far it leans and how it squashes.
-   * The steady part (walk, rear back, wind-up, charge) eases in; a kick (smash, throw, slam, flick) plays on top.
-   */
   private animateBoss(delta: number) {
     const now = this.fightMs;
-    if (this.finale?.kind === 'slamRain') { this.heldBall.setVisible(false); return; }   // in the air: the leap's tweens move him
+    if (this.finale?.kind === 'slamRain') { this.heldBall.setVisible(false); return; }
     const t = this.telegraph;
     const body = this.boss.body as Body;
-    const side = (angle: number) => (Math.cos(angle) < 0 ? -1 : 1);          // -1: toward the left
+    const side = (angle: number) => (Math.cos(angle) < 0 ? -1 : 1);
     const goal = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1 };
     const near = Phaser.Math.Distance.Between(this.boss.x, this.boss.y, this.player.x, this.player.y) < MELEE_REACH;
-    const wound = t ? Phaser.Math.Clamp((now - t.from) / Math.max(1, t.fireAt - t.from), 0, 1) : 0;   // 0 -> 1 until he lets go
-    let ball: { at: { x: number; y: number }; scale: number } | null = null;   // in his hands: a point on the drawing
+    const wound = t ? Phaser.Math.Clamp((now - t.from) / Math.max(1, t.fireAt - t.from), 0, 1) : 0;
+    let ball: { at: { x: number; y: number }; scale: number } | null = null;
     const fin = this.finale;
-    if (fin?.kind === 'giantBall') {                           // straining under a huge ball growing over his head
+    if (fin?.kind === 'giantBall') {
       const w = Phaser.Math.Clamp((now - fin.at) / R.FINALE.ball.chargeMs, 0, 1);
       Object.assign(goal, { sx: 1 - 0.05 * w, sy: 1 + 0.15 * w, dy: -4 * w, rot: 0.05 * w * Math.sin(now / 25) });
       const scale = 1 + 4 * w;
       ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };
-    } else if (t?.kind === 'ring') {                           // rising up, a ball growing between his top claws
+    } else if (t?.kind === 'ring') {
       Object.assign(goal, { sx: 1 - 0.04 * wound, sy: 1 + 0.12 * wound, dy: -3 * wound });
       const scale = 1 + 1.2 * wound;
-      ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };   // resting on the claws as it grows
-    } else if (t?.kind === 'aimed') {                          // winding up: leaning back, the ball in his fist
+      ball = { at: { x: PlayScene.OVERHEAD.x, y: PlayScene.OVERHEAD.y - 2 * scale }, scale };
+    } else if (t?.kind === 'aimed') {
       const s = side(t.angle);
       Object.assign(goal, { rot: -0.22 * s * wound, dx: -3 * s * wound, dy: -1, sy: 1.04 });
       ball = { at: s < 0 ? PlayScene.FIST.left : PlayScene.FIST.right, scale: 1 + 0.5 * wound };
-    } else if (t?.kind === 'dash') {                           // crouching, about to charge
+    } else if (t?.kind === 'dash') {
       Object.assign(goal, { rot: -0.12 * side(t.angle), sx: 1.12, sy: 0.88, dy: 2 });
-    } else if (now < this.dashUntil) {                         // charging: leaning hard, stretched
+    } else if (now < this.dashUntil) {
       Object.assign(goal, { rot: 0.28 * side(this.dashAngle), sx: 0.92, sy: 1.08 });
-    } else if (near) {                                         // in reach: rearing back to strike
+    } else if (near) {
       const s = side(this.angleToPlayer());
       Object.assign(goal, { rot: -0.2 * s, dx: -2 * s, dy: -2, sx: 1.06, sy: 1.1 });
-    } else if (body.velocity.length() > 4) {                   // walking: a heavy waddle, faster each stage
+    } else if (body.velocity.length() > 4) {
       const phase = now * (0.009 + 0.003 * this.stage);
       Object.assign(goal, { rot: 0.1 * Math.sin(phase), dy: -2 * Math.abs(Math.sin(phase)) });
-    } else {                                                   // standing: breathing
+    } else {
       goal.dy = -Math.round((Math.sin(now / 420) + 1) / 2);
     }
     const m = this.bossMotion;
@@ -557,15 +497,15 @@ export class PlayScene extends Phaser.Scene {
       const p = (now - kick.at) / kick.ms;
       if (p >= 1) this.bossKick = null;
       else {
-        const arc = Math.sin(p * Math.PI);                     // 0 -> 1 -> 0
+        const arc = Math.sin(p * Math.PI);
         const cx = Math.cos(kick.angle), cy = Math.sin(kick.angle);
-        if (kick.kind === 'smash') {                           // lunge at you and flatten on impact
+        if (kick.kind === 'smash') {
           dx += cx * 8 * arc; dy += cy * 8 * arc; rot = 0.3 * side(kick.angle) * arc; sx += 0.2 * arc; sy -= 0.18 * arc;
-        } else if (kick.kind === 'throw') {                    // flinging forward, the whole body behind the arm
+        } else if (kick.kind === 'throw') {
           dx += cx * 6 * arc; dy += cy * 3 * arc; rot = 0.3 * side(kick.angle) * arc; sx += 0.08 * arc;
-        } else if (kick.kind === 'slam') {                     // the ball smashed down: he flattens
+        } else if (kick.kind === 'slam') {
           sx += 0.22 * arc; sy -= 0.2 * arc; dy += 3 * arc;
-        } else {                                               // flick: a quick throw to one side
+        } else {
           rot += 0.16 * side(kick.angle) * arc; dx += cx * 3 * arc;
         }
       }
@@ -575,8 +515,6 @@ export class PlayScene extends Phaser.Scene {
     if (ball) { const at = this.onBoss(ball.at); this.heldBall.setPosition(Math.round(at.x), Math.round(at.y)).setScale(ball.scale); }
     this.animateHands(near);
   }
-
-  // ---- the finale (stage 3): giant ball and slam rain, taking turns (rules.ts FINALE) ----
 
   private startFinale() {
     const now = this.fightMs;
@@ -590,7 +528,7 @@ export class PlayScene extends Phaser.Scene {
       this.floatText(this.boss.x, this.boss.y - 34, 'STOP HIM!', '#ffcc44');
       sfx(this, 'stage', 0.6);
     } else {
-      body.enable = false;                                     // up in the air: can't touch him, can't hit him
+      body.enable = false;
       this.tweens.add({ targets: this.bossView, y: this.bossView.y - 150, scaleX: 1.3, scaleY: 1.3, rotation: 0, duration: R.FINALE.slam.riseMs, ease: 'Quad.easeIn' });
       this.floatText(this.boss.x, this.boss.y - 24, 'LOOK OUT!', '#ff6a6a');
       sfx(this, 'launch', 0.7);
@@ -602,18 +540,17 @@ export class PlayScene extends Phaser.Scene {
     const now = this.fightMs;
     if (f.kind === 'giantBall') {
       body.setVelocity(0, 0);
-      // hit him hard enough (or paralyse / push him) before it is ready: he drops it on himself
       if (R.staggers(f.dealt) || now < this.paralyzedUntil || now < this.knockUntil) this.staggerBoss();
       else if (now >= f.at + R.FINALE.ball.chargeMs) this.throwGiant();
       return;
     }
     const S = R.FINALE.slam;
     if (f.phase === 'rise' && now >= f.at + S.riseMs) Object.assign(f, { phase: 'hunt', at: now });
-    else if (f.phase === 'hunt') {                             // his shadow hunts you...
+    else if (f.phase === 'hunt') {
       f.x += (this.player.x - f.x) * 0.1;
       f.y += (this.player.y - f.y) * 0.1;
       if (now >= f.at + S.huntMs) Object.assign(f, { phase: 'lock', at: now });
-    } else if (f.phase === 'lock' && now >= f.at + S.lockMs) { // ...stops, and down he comes
+    } else if (f.phase === 'lock' && now >= f.at + S.lockMs) {
       Object.assign(f, { phase: 'fall', at: now });
       body.reset(f.x, f.y);
       this.tweens.killTweensOf(this.bossView);
@@ -634,7 +571,6 @@ export class PlayScene extends Phaser.Scene {
     dustPuff(this, f.x, f.y + 12, 10, 20);
     this.shockwave(f.x, f.y, S.radius, 0xff6a3a);
     if (Phaser.Math.Distance.Between(f.x, f.y, this.player.x, this.player.y) < S.radius) this.hurtPlayer(S.dmg);
-    // then the rain: every spot is marked with a red X before its ball lands
     const area = { x: PLAY.x + WALL, y: PLAY.y, width: PLAY.width - WALL, height: PLAY.height };
     R.rainSpots(this.rng, area, Math.floor(S.rainMs / S.rainEveryMs), S.dropGap)
       .forEach((p, i) => this.rain.push({ x: p.x, y: p.y, at: now + S.rainWarnMs + i * S.rainEveryMs }));
@@ -652,10 +588,9 @@ export class PlayScene extends Phaser.Scene {
     this.cameras.main.shake(220, 0.015);
     this.floatText(this.boss.x, this.boss.y - 34, 'STAGGERED!', '#ffee44');
     this.kickBoss('slam', 0, 320);
-    this.damageBoss(F.staggerHit, { color: '#ffee44' });   // the ball came down on his own head
+    this.damageBoss(F.staggerHit, { color: '#ffee44' });
   }
 
-  /** Where the giant ball would go if he threw it now: at you, bursting where you stand or at its range. */
   private giantPath() {
     const F = R.FINALE.ball;
     const from = this.onBoss(PlayScene.OVERHEAD);
@@ -674,7 +609,6 @@ export class PlayScene extends Phaser.Scene {
     sfx(this, 'spell', 0.7);
   }
 
-  /** The giant ball breaks into a ring of balls (starting a little out, so standing in the middle is safe). */
   private burstGiant(x: number, y: number) {
     const F = R.FINALE.ball;
     this.giant?.img.destroy();
@@ -688,7 +622,6 @@ export class PlayScene extends Phaser.Scene {
     sfx(this, 'hit');
   }
 
-  /** The giant ball in flight and the rain: they go on while he does other things. */
   private updateFinaleWorld() {
     const now = this.fightMs;
     const g = this.giant;
@@ -711,7 +644,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private endFinale() {
-    if (this.finale?.kind === 'slamRain') {                    // caught in the air: put him back on the ground
+    if (this.finale?.kind === 'slamRain') {
       this.tweens.killTweensOf(this.bossView);
       this.bossView.setPosition(this.boss.x, this.boss.y).setScale(1);
     }
@@ -731,24 +664,23 @@ export class PlayScene extends Phaser.Scene {
     const now = this.fightMs;
     const st = R.STAGES[this.stage];
     const body = this.boss.body as Body;
-    if (this.finale) { this.runFinale(body); return; }        // a finale move drives him
-    if (now < this.knockUntil) return;                       // pushed: flying back
+    if (this.finale) { this.runFinale(body); return; }
+    if (now < this.knockUntil) return;
     if (now < this.paralyzedUntil) { body.setVelocity(0, 0); return; }
     const slow = now < this.slowUntil ? R.SPECIAL.freezeFactor : 1;
 
-    // a telegraphed attack: stand still while the warning shows, then do it
     if (this.telegraph) {
       body.setVelocity(0, 0);
       if (now < this.telegraph.fireAt) return;
       const t = this.telegraph;
       this.telegraph = null;
       if (t.kind === 'aimed') {
-        const hand = this.throwHand(t.angle);                  // the balls leave from his fist
+        const hand = this.throwHand(t.angle);
         for (const off of [-0.25, 0, 0.25]) this.bullet(hand.x, hand.y, t.angle + off, st.ballSpeed);
         this.kickBoss('throw', t.angle, 220);
       } else if (t.kind === 'ring') {
         for (let i = 0; i < RING_BALLS; i++) this.bullet(this.boss.x, this.boss.y, (i / RING_BALLS) * Math.PI * 2, st.ballSpeed);
-        this.kickBoss('slam', 0, 240);                         // the ball over his head, slammed down: it bursts
+        this.kickBoss('slam', 0, 240);
         this.cameras.main.shake(80, 0.006);
       }
       else { body.setVelocity(Math.cos(t.angle) * DASH_SPEED, Math.sin(t.angle) * DASH_SPEED); this.dashUntil = now + DASH_MS; this.dashAngle = t.angle; }
@@ -768,9 +700,9 @@ export class PlayScene extends Phaser.Scene {
       const angle = Phaser.Math.Angle.Between(this.boss.x, this.boss.y, this.player.x, this.player.y);
       if (st.pattern === 'aimed') this.telegraph = { kind: 'aimed', angle, fireAt: now + R.TELEGRAPH_MS, from: now };
       else if (st.pattern === 'ring') this.telegraph = { kind: 'ring', angle, fireAt: now + 350, from: now };
-      else {   // the spiral is too fast to telegraph: that is what makes stage 3 hard
+      else {
         for (let i = 0; i < SPIRAL_ARMS; i++) this.bullet(this.boss.x, this.boss.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, st.ballSpeed);
-        this.kickBoss('flick', this.spiralAngle, 140);         // a quick throw, side to side as the spiral turns
+        this.kickBoss('flick', this.spiralAngle, 140);
         this.spiralAngle += SPIRAL_TURN;
       }
     }
@@ -784,12 +716,12 @@ export class PlayScene extends Phaser.Scene {
 
   private damageBoss(dmg: number, opts: { hitStop?: boolean; drops?: boolean; color?: string } = {}) {
     if (this.bossDead) return;
-    if (this.fightMs < this.bossInvulnUntil || this.finale?.kind === 'slamRain') {   // changing stage / in the air: say so
+    if (this.fightMs < this.bossInvulnUntil || this.finale?.kind === 'slamRain') {
       if (this.fightMs >= this.immuneNoteAt) { this.floatText(this.boss.x, this.boss.y - 14, 'immune', '#888888'); this.immuneNoteAt = this.fightMs + 300; }
       return;
     }
     const { hitStop = true, drops = true, color = '#ffffff' } = opts;
-    if (this.finale?.kind === 'giantBall') this.finale.dealt += dmg;   // fills the "stop him" meter
+    if (this.finale?.kind === 'giantBall') this.finale.dealt += dmg;
     this.bossHp = Math.max(0, this.bossHp - dmg);
     this.floatText(this.boss.x, this.boss.y - 14, `-${dmg}`, color);
     if (hitStop) {
@@ -797,9 +729,9 @@ export class PlayScene extends Phaser.Scene {
       this.bossView.setTexture('boss_flash');
       this.bossFlashing = true;
       this.time.delayedCall(60, () => { this.bossFlashing = false; if (this.boss.active && !this.bossDead) this.applyBossTexture(); });
-      this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);    // bigger hits freeze longer
+      this.hitStop(dmg >= 60 ? 110 : dmg >= 20 ? 70 : 40);
     }
-    const loose = drops ? R.hitDrop(this.rng, this.villageLvl) : null;   // rarity rolled: hits can knock rare rings loose too
+    const loose = drops ? R.hitDrop(this.rng, this.villageLvl) : null;
     if (loose) this.spawnRing(this.boss.x, this.boss.y, loose);
     if (this.bossHp <= 0) { this.killBoss(); return; }
     const next = R.bossStage(this.bossHp);
@@ -840,8 +772,6 @@ export class PlayScene extends Phaser.Scene {
     this.banner('MOSSBACK FALLS', 'The key fell from his neck. Take it!');
   }
 
-  // ---- drops -------------------------------------------------------------------------
-
   private drop(d: R.Drop) {
     for (const r of d.rings) this.spawnRing(this.boss.x, this.boss.y, r);
   }
@@ -877,7 +807,6 @@ export class PlayScene extends Phaser.Scene {
     this.time.delayedCall(700, () => this.revealDoor());
   }
 
-  /** The key glows and part of the west wall turns out to be a door. */
   private revealDoor() {
     this.doorOpen = true;
     this.door.setVisible(true).setAlpha(0);
@@ -899,8 +828,6 @@ export class PlayScene extends Phaser.Scene {
     for (const c of this.pickups.getChildren() as Sprite[]) if (c.getData('kind') === 'ring') this.addRing(c.getData('rarity') as R.Rarity);
     fadeToScene(this, 'treasury', { found: [...this.rings], wallet: this.wallet, timeMs: Math.round(this.fightMs) }, 500);
   }
-
-  // ---- the fisherman: supplies for rings ---------------------------------------------
 
   private nearFisher(): boolean {
     return this.visit > 0 && Phaser.Math.Distance.Between(this.player.x, this.player.y, FISHER_X, FISHER_Y) < 24;
@@ -926,8 +853,7 @@ export class PlayScene extends Phaser.Scene {
 
   private openShop() {
     this.physics.pause();
-    // freeze the fight's own tweens, one by one: pauseAll would stop the manager, and the shop's
-    // tweens (wares dropping in, the book opening) would never play
+    // Pause the fight's tweens one by one: tweens.pauseAll() also freezes the shop's tweens and the book never opens.
     this.fightTweens = this.tweens.getTweens();
     for (const t of this.fightTweens) t.pause();
     this.time.paused = true;
@@ -935,8 +861,8 @@ export class PlayScene extends Phaser.Scene {
     this.shopSel = 0;
     this.shopBookShown = -1;
     this.shopDeal = true;
-    this.input.setDefaultCursor('default');   // the fight hides the cursor behind its crosshair
-    clearBanner(this);                        // "THE FISHERMAN IS HERE" would wait under the shop
+    this.input.setDefaultCursor('default');
+    clearBanner(this);
     this.renderShop();
   }
 
@@ -945,7 +871,7 @@ export class PlayScene extends Phaser.Scene {
     this.shop = null;
     this.input.setDefaultCursor('none');
     this.physics.resume();
-    for (const t of this.tweens.getTweens()) if (!this.fightTweens.includes(t)) t.remove();   // the shop's, now gone
+    for (const t of this.tweens.getTweens()) if (!this.fightTweens.includes(t)) t.remove();
     for (const t of this.fightTweens) t.resume();
     this.fightTweens = [];
     this.time.paused = false;
@@ -983,11 +909,6 @@ export class PlayScene extends Phaser.Scene {
     this.renderShop();
   }
 
-  /**
-   * The fisherman's dock: his catch of supplies lies on a net over the planks, each with a price tag
-   * on a string. The picked one (mouse over it, A/D) lifts and a book opens above it; a click, Enter
-   * or 1-3 buys. The same tags and book as the ring merchant's rug (src/shopArt.ts).
-   */
   private renderShop() {
     this.shop?.destroy();
     const w = 240;
@@ -996,31 +917,27 @@ export class PlayScene extends Phaser.Scene {
     const y = PLAY.y + (PLAY.height - h) / 2;
     const c = this.add.container(0, 0).setDepth(960);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.85).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);   // the fight fades back (its HUD must not read through)
-    // the dock: planks with seams and nails
+    bg.fillStyle(0x000000, 0.85).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
     for (let i = 0, py = y + 22; py < y + h - 14; i++, py += 8) {
       bg.fillStyle(i % 2 ? 0x6b4a2b : 0x7a5530).fillRect(x, py, w, 8);
       bg.fillStyle(0x4a3018).fillRect(x, py + 7, w, 1);
       for (let nx = x + 10 + (i % 2) * 30; nx < x + w; nx += 60) bg.fillStyle(0x3a2a1a).fillRect(nx, py + 3, 1, 1);
     }
-    // his net, spread over the front of the dock: a diamond mesh with a rope edge
     const net = { x: x + 10, y: y + 90, w: w - 20, h: 42 };
     bg.fillStyle(0x000000, NET_SHADE).fillRect(net.x, net.y, net.w, net.h);
     bg.lineStyle(1, 0xd8c8a0, 0.4);
     for (let k = -net.h; k < net.w; k += 8) {
       const x1 = net.x + Math.max(0, k);
       const x2 = net.x + Math.min(net.w, k + net.h);
-      bg.lineBetween(x1, net.y + (x1 - net.x - k), x2, net.y + (x2 - net.x - k));                     // down to the right
-      bg.lineBetween(x1, net.y + net.h - (x1 - net.x - k), x2, net.y + net.h - (x2 - net.x - k));     // up to the right
+      bg.lineBetween(x1, net.y + (x1 - net.x - k), x2, net.y + (x2 - net.x - k));
+      bg.lineBetween(x1, net.y + net.h - (x1 - net.x - k), x2, net.y + net.h - (x2 - net.x - k));
     }
     bg.lineStyle(1, 0xc8a86a, 0.9).strokeRect(net.x, net.y, net.w, net.h);
-    // the title band and the keys band, dark so the words read; the frame in his blue
     bg.fillStyle(0x10202a).fillRect(x, y, w, 22).fillRect(x, y + h - 14, w, 14);
     bg.fillStyle(0x2d6fa3).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
     c.add(this.add.image(x + 11, y + 11, 'fisher'));
     c.add(this.add.text(x + 22, y + 4, "THE FISHERMAN'S CATCH", { ...FONT, color: '#ffcc44' }));
-    // his line, or what just happened ("Bought: Boots.", "Not enough rings")
     c.add(this.add.text(x + 22, y + 13, this.shopNote || '"Fresh from the pond. Rings only."', { ...FONT, color: this.shopNote ? '#ffcc44' : '#9fd3ff' }));
     const money = R.walletValue(this.wallet);
     c.add(this.add.text(x + w - 6, y + 4, `${money} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
@@ -1033,9 +950,6 @@ export class PlayScene extends Phaser.Scene {
       const picked = i === this.shopSel;
       const { x: ix, y: iy } = spots[i];
       const ware = this.add.container(ix, iy);
-      // the ware the merchant's way (src/shopArt.ts): outlined like painted art, laid on a patch of
-      // bare plank where the net is pushed aside, a soft shadow under it. Scaled by the art's own
-      // size (the outline adds 2 px, which must not tip it from 2x down to 1x).
       const probe = crisp(this.add.image(0, 0, `supply_${id}`), 28);
       const zoom = probe.scaleX;
       probe.destroy();
@@ -1050,10 +964,10 @@ export class PlayScene extends Phaser.Scene {
         ware.add(this.add.image(10, -12, 'sparkle'));
       }
       ware.add(priceTag(this, 21, { price: sup.price, canPay: money >= sup.price, sold, picked, tilt: i % 2 ? 0.06 : -0.06 }));
-      ware.add(this.add.text(-24, 16, `${i + 1}`, { ...FONT, color: '#ffcc44' }));   // its key, by the tag
+      ware.add(this.add.text(-24, 16, `${i + 1}`, { ...FONT, color: '#ffcc44' }));
       c.add(ware);
       c.add(this.shopClick(this.add.zone(ix, iy + 6, 48, 48), () => this.buy(i), () => this.shopPick(i)));
-      if (this.shopDeal) {           // tipped out of his bucket onto the net
+      if (this.shopDeal) {
         ware.setY(iy - 36).setAlpha(0);
         this.tweens.add({ targets: ware, y: iy, alpha: 1, duration: 420, delay: i * 110, ease: 'Bounce.easeOut' });
       }
@@ -1084,17 +998,12 @@ export class PlayScene extends Phaser.Scene {
     this.shop = c;
   }
 
-  /** Mouse over ware `i`: it becomes the pick (its book opens). */
   private shopPick(i: number) {
     if (this.shopSel === i) return;
     this.shopSel = i;
     this.renderShop();
   }
 
-  /**
-   * A hand cursor over `obj`; hover and click run after this frame's input pass (they redraw the
-   * shop, which destroys `obj`). The fight's clock is paused while shopping, so not time.delayedCall.
-   */
   private shopClick<T extends Phaser.GameObjects.GameObject>(obj: T, click: () => void, hover?: () => void): T {
     const later = (fn: () => void) => this.events.once(Phaser.Scenes.Events.POST_UPDATE, () => { if (this.shop) fn(); });
     obj.setInteractive({ useHandCursor: true });
@@ -1103,29 +1012,26 @@ export class PlayScene extends Phaser.Scene {
     return obj;
   }
 
-  // ---- drawing: telegraphs, effects, HUD ---------------------------------------------
-
   private drawFx() {
     const t = this.tgG.clear();
     const f = this.fxG.clear();
     const b = this.boss;
     const p = this.player;
     const now = this.fightMs;
-    // The boss's warnings, each showing where the attack really goes (same numbers as the attack).
     const pulse = 0.35 + 0.35 * Math.sin(now / 40);
     const ray = (x: number, y: number, angle: number, from: number, to: number, alpha: number, width = 1) =>
       t.lineStyle(width, 0xff3a3a, alpha).lineBetween(x + Math.cos(angle) * from, y + Math.sin(angle) * from, x + Math.cos(angle) * to, y + Math.sin(angle) * to);
     if (this.telegraph && !this.bossDead) {
       const tg = this.telegraph;
       const wound = Phaser.Math.Clamp((now - tg.from) / Math.max(1, tg.fireAt - tg.from), 0, 1);
-      if (tg.kind === 'ring') {                                // the circle + a ray along each ball's path
+      if (tg.kind === 'ring') {
         const r = 14 + 8 * wound;
         t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(b.x, b.y, r);
         for (let i = 0; i < RING_BALLS; i++) ray(b.x, b.y, (i / RING_BALLS) * Math.PI * 2, r, r + 10 + 30 * wound, 0.3 + pulse);
-      } else if (tg.kind === 'aimed') {                        // three lines from the fist the balls leave from
+      } else if (tg.kind === 'aimed') {
         const o = this.throwHand(tg.angle);
         for (const off of [-0.25, 0, 0.25]) ray(o.x, o.y, tg.angle + off, 0, 150, pulse);
-      } else {                                                 // the dash: a thick line to where he stops, his outline there
+      } else {
         const dist = (DASH_SPEED * DASH_MS) / 1000;
         const r = (this.boss.body as Body).radius;
         ray(b.x, b.y, tg.angle, 0, dist, pulse, 3);
@@ -1133,33 +1039,31 @@ export class PlayScene extends Phaser.Scene {
       }
     } else if (!this.bossDead && !this.finale && R.STAGES[this.stage].pattern === 'spiral'
       && now >= this.bossInvulnUntil && now >= this.paralyzedUntil && now >= this.knockUntil && now >= this.dashUntil) {
-      // the spiral has no wind-up: show the next burst's directions while it comes
       const left = this.nextShotAt - now;
       if (left <= SPIRAL_WARN_MS) {
-        const k = 1 - Math.max(0, left) / SPIRAL_WARN_MS;      // 0 -> 1 as it comes
+        const k = 1 - Math.max(0, left) / SPIRAL_WARN_MS;
         for (let i = 0; i < SPIRAL_ARMS; i++) ray(b.x, b.y, this.spiralAngle + (i * Math.PI * 2) / SPIRAL_ARMS, 14, 14 + 26 * k, 0.15 + 0.6 * k);
       }
     }
-    // the finale's warnings: where the giant ball bursts, where he lands, where the rain falls
     const fin = this.finale;
     const burstMark = (x: number, y: number) => {
       t.lineStyle(1, 0xff3a3a, 0.4 + pulse).strokeCircle(x, y, 9);
       for (let i = 0; i < R.FINALE.ball.burst; i++) ray(x, y, (i / R.FINALE.ball.burst) * Math.PI * 2, 10, 20, 0.25 + pulse);
     };
     if (fin?.kind === 'giantBall' && !this.bossDead) {
-      const g = this.giantPath();                              // the same path the throw will take
+      const g = this.giantPath();
       t.lineStyle(2, 0xff3a3a, pulse).lineBetween(g.from.x, g.from.y, g.tx, g.ty);
       burstMark(g.tx, g.ty);
       const k = Math.min(1, fin.dealt / R.FINALE.ball.staggerDmg);
       const left = Math.max(0, 1 - (now - fin.at) / R.FINALE.ball.chargeMs);
       f.fillStyle(0x000000, 0.75).fillRect(b.x - 17, b.y + 20, 34, 6);
-      f.fillStyle(0xffcc44).fillRect(b.x - 16, b.y + 21, Math.round(32 * k), 3);     // the "stop him" meter
-      f.fillStyle(0xff3a3a).fillRect(b.x - 16, b.y + 24, Math.round(32 * left), 1);  // time left
+      f.fillStyle(0xffcc44).fillRect(b.x - 16, b.y + 21, Math.round(32 * k), 3);
+      f.fillStyle(0xff3a3a).fillRect(b.x - 16, b.y + 24, Math.round(32 * left), 1);
     }
     if (this.giant) burstMark(this.giant.tx, this.giant.ty);
     if (fin?.kind === 'slamRain') {
       const S = R.FINALE.slam;
-      f.fillStyle(0x000000, 0.4).fillEllipse(fin.x, fin.y + 10, 26, 9);                  // his shadow
+      f.fillStyle(0x000000, 0.4).fillEllipse(fin.x, fin.y + 10, 26, 9);
       const k = fin.phase === 'lock' ? (now - fin.at) / S.lockMs : fin.phase === 'fall' ? 1 : 0;
       t.lineStyle(1, 0xff3a3a, fin.phase === 'hunt' || fin.phase === 'rise' ? 0.3 : 0.5 + pulse).strokeCircle(fin.x, fin.y, S.radius);
       if (k > 0) t.fillStyle(0xff3a3a, 0.25 * k).fillCircle(fin.x, fin.y, S.radius);
@@ -1168,35 +1072,30 @@ export class PlayScene extends Phaser.Scene {
       const left = d.at - now;
       if (left > R.FINALE.slam.rainWarnMs) continue;
       t.lineStyle(1, 0xff3a3a, 0.4 + pulse).lineBetween(d.x - 3, d.y - 3, d.x + 3, d.y + 3).lineBetween(d.x - 3, d.y + 3, d.x + 3, d.y - 3);
-      if (left < 260) f.fillStyle(0xff4f7a).fillCircle(d.x, d.y - (40 * left) / 260, 2);   // the ball coming down
+      if (left < 260) f.fillStyle(0xff4f7a).fillCircle(d.x, d.y - (40 * left) / 260, 2);
     }
     if (this.bossDead) return;
-    // status effects on him
     if (now < this.slowUntil) f.fillStyle(0x9fe8ff, 0.25).fillCircle(b.x, b.y, 12);
     if (now < this.poisonUntil) for (let i = 0; i < 3; i++) f.fillStyle(0x6fd13a, 0.8).fillRect(b.x - 8 + i * 7, b.y - 14 - ((now / 8 + i * 9) % 10), 2, 2);
     if (now < this.paralyzedUntil) for (let i = 0; i < 4; i++) {
       const a = now / 150 + i * (Math.PI / 2);
       f.fillStyle(0xffee44).fillRect(b.x + Math.cos(a) * 13, b.y - 4 + Math.sin(a) * 4, 2, 2);
     }
-    // health suck: a red stream from him to you
     if (now < this.suckUntil) for (let i = 0; i < 10; i++) {
       const k = ((now / 400 + i / 10) % 1);
       f.fillStyle(0xe03a4a, 0.9).fillRect(b.x + (p.x - b.x) * k, b.y + (p.y - b.y) * k, 2, 2);
     }
-    // your shield
     if (now < this.shieldUntil) f.lineStyle(1, 0x6aa8ff, 0.6 + 0.3 * Math.sin(now / 80)).strokeCircle(p.x, p.y, 9);
   }
 
   private drawHud() {
     const g = this.hud.clear();
-    // your HP bar (blue edge while shielded)
     const hx = PLAY.x + WALL + 3;
     const hy = PLAY.y + 3;
     g.fillStyle(this.fightMs < this.shieldUntil ? 0x6aa8ff : 0x000000).fillRect(hx - 1, hy - 1, 62, 7);
     g.fillStyle(0x442228).fillRect(hx, hy, 60, 5);
     g.fillStyle(0xe03a4a).fillRect(hx, hy, Math.round((60 * this.hp) / this.kit.maxHp), 5);
     this.texts.hp.setText(`${Math.ceil(this.hp)}`);
-    // specials: dark from the top while recharging, with the seconds left on top
     this.cdG.clear();
     this.specialIcons.forEach((icon, i) => {
       const id = this.kit.specials[i];
@@ -1211,7 +1110,6 @@ export class PlayScene extends Phaser.Scene {
         icon.setAlpha(1);
       }
     });
-    // the boss bar
     const bw = 110;
     const bx = WIDTH / 2 - bw / 2;
     const by = PLAY.y + 4;
@@ -1228,7 +1126,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.hand.visible) {
       const readyFrac = this.combat.readyFrac();
       this.hand.update(this.kit.weapons, this.combat.wIndex, readyFrac);
-      showHandArt(this, this.kit.weapons[this.combat.wIndex], readyFrac);   // the big picture beside the game
+      showHandArt(this, this.kit.weapons[this.combat.wIndex], readyFrac);
     }
     const here = this.visit > 0;
     const secs = Math.ceil((here ? R.msUntilRetailerLeaves(this.fightMs) : R.msUntilRetailer(this.fightMs)) / 1000);
@@ -1243,54 +1141,44 @@ export class PlayScene extends Phaser.Scene {
       const y = PLAY.y + ((i * 97 + (i % 7) * 13) % PLAY.height);
       g.fillStyle(i % 9 === 0 ? 0x3d4a35 : 0x2c3b28).fillRect(x, y, i % 9 === 0 ? 2 : 1, 1);
     }
-    // the west wall (the treasury door hides in it)
     g.fillStyle(0x55555f).fillRect(PLAY.x, PLAY.y, WALL, PLAY.height);
     for (let y = 0; y < PLAY.height; y += 6) g.fillStyle(0x45454f).fillRect(PLAY.x, PLAY.y + y, WALL, 1);
     g.fillStyle(0x6a6a74).fillRect(PLAY.x + WALL - 1, PLAY.y, 1, PLAY.height);
     this.drawPond();
   }
 
-  /**
-   * The fisherman's pond, bottom centre: a round pond in a muddy bank, stones and reeds around it,
-   * the team's water drifting slowly with its lily pads, rings spreading on it, his little dock.
-   * While he is here his line runs from the rod to a bobbing float.
-   */
   private drawPond() {
     const cx = FISHER_X;
-    const cy = PLAY.y + PLAY.height - 6;   // its far half hides under the frame
+    const cy = PLAY.y + PLAY.height - 6;
     const pw = 56;
     const ph = 22;
     const g = this.add.graphics().setDepth(0);
-    g.fillStyle(0x1a2418).fillEllipse(cx, cy, pw + 8, ph + 6);       // the muddy bank
+    g.fillStyle(0x1a2418).fillEllipse(cx, cy, pw + 8, ph + 6);
     g.fillStyle(0x2a3a2a).fillEllipse(cx, cy, pw + 4, ph + 3);
     const shape = () => this.make.graphics({ x: 0, y: 0 }, false).fillStyle(0xffffff).fillEllipse(cx, cy, pw, ph).createGeometryMask();
     const water = this.add.tileSprite(cx - pw / 2, cy - ph / 2, pw, ph, 'water').setOrigin(0).setDepth(0).setTilePosition(0, 10);
     water.setMask(shape());
-    this.tweens.add({ targets: water, tilePositionX: 37, duration: 9000, repeat: -1 });   // the water drifts (one tile, then again)
-    const shade = this.add.graphics().setDepth(0);                                        // the lair is dark: so is its pond
+    this.tweens.add({ targets: water, tilePositionX: 37, duration: 9000, repeat: -1 });
+    const shade = this.add.graphics().setDepth(0);
     shade.fillStyle(0x0a1a2a, 0.35).fillEllipse(cx, cy, pw, ph);
-    shade.lineStyle(1, 0x9fd3ff, 0.35).strokeEllipse(cx, cy, pw - 2, ph - 2);            // light on the water's edge
-    // stones on the bank, reeds at both ends
+    shade.lineStyle(1, 0x9fd3ff, 0.35).strokeEllipse(cx, cy, pw - 2, ph - 2);
     for (const [dx, dy, sz] of [[-26, -6, 3], [-19, -10, 2], [21, -9, 3], [27, -4, 2], [-10, -12, 2]] as const) {
       g.fillStyle(0x5a5a64).fillRect(cx + dx, cy + dy, sz + 1, sz);
       g.fillStyle(0x7a7a84).fillRect(cx + dx, cy + dy, sz, 1);
     }
     for (const [dx, hgt] of [[-31, 9], [-29, 12], [-33, 7], [23, 10], [25, 13]] as const) {
       g.fillStyle(0x4a7a3a).fillRect(cx + dx, cy - 4 - hgt, 1, hgt);
-      if (hgt > 9) g.fillStyle(0x6b4a2b).fillRect(cx + dx, cy - 4 - hgt, 1, 3);         // a cattail
+      if (hgt > 9) g.fillStyle(0x6b4a2b).fillRect(cx + dx, cy - 4 - hgt, 1, 3);
     }
-    // rings spreading on the water, now and then
     for (const [dx, dy, delay] of [[-14, 2, 0], [10, 4, 1300], [-2, -2, 2600]] as const) {
       const r = this.add.ellipse(cx + dx, cy + dy, 6, 2).setStrokeStyle(1, 0xcfe8ff, 0.7).setFillStyle(0, 0).setDepth(0);
       r.setMask(shape());
       this.tweens.add({ targets: r, scaleX: 3, scaleY: 3, alpha: 0, duration: 1800, delay, repeat: -1, repeatDelay: 2200 });
     }
-    // his dock: three planks out over the water, where he stands
     const d = this.add.graphics().setDepth(1);
     d.fillStyle(0x3a2a1a).fillRect(cx - 9, cy - 14, 18, 8);
     for (let i = 0; i < 3; i++) d.fillStyle(i % 2 ? 0x6b4a2b : 0x7a5530).fillRect(cx - 8 + i * 6, cy - 14, 5, 7);
-    d.fillStyle(0x2a1a0a).fillRect(cx - 8, cy - 7, 2, 3).fillRect(cx + 6, cy - 7, 2, 3);   // its posts
-    // his line and float (they fade in and out with him)
+    d.fillStyle(0x2a1a0a).fillRect(cx - 8, cy - 7, 2, 3).fillRect(cx + 6, cy - 7, 2, 3);
     const tip = { x: FISHER_X + 6, y: FISHER_Y - 8 };
     const float = { x: cx + 16, y: cy - 2 };
     const mid = { x: (tip.x + float.x) / 2 + 2, y: tip.y + 3 };
@@ -1312,11 +1200,6 @@ export class PlayScene extends Phaser.Scene {
     this.combat.cleanup();
   }
 
-  /**
-   * Lost the fight: no death screen. Mossback slams the hero, who bounces away across the arena
-   * and out of sight, back to the village (where he bounces in and gets up). The rings picked up
-   * so far are saved first: nothing after this would save them.
-   */
   private thrownOut() {
     if (this.ended) return;
     this.ended = true;
@@ -1350,7 +1233,6 @@ export class PlayScene extends Phaser.Scene {
     });
   }
 
-  /** The last bounce is a big one: up, toward the camera, out of sight. White flash, village. */
   private bounceOut() {
     const p = this.player;
     this.tweens.add({ targets: p, y: PLAY.y - 30, scale: 2.6, rotation: p.rotation - Math.PI * 3, duration: 650, ease: 'Quad.easeOut' });

@@ -1,10 +1,3 @@
-// The combat tutorial on screen (rules: src/game/tutorial.ts). The village creates it after the
-// opening cutscene and tells it about the dummy being hit; everything else it watches itself.
-//
-//   a box at the top: the step and what to do, "Esc: skip"
-//   an arrow bobbing over the target (the yard's gate, then the dummy)
-//   Brann's words in a box at the bottom on the talk steps (Enter goes on, Esc skips)
-//   the dodge drill: a red line from the dummy to where you stand, then a practice ball along it
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from './config';
 import { isTalk, TUTORIAL_TEXT, tutorialNext, tutorialOver, tutorialStart, type TutorialEvent, type TutorialState } from './game/tutorial';
@@ -14,16 +7,16 @@ import { banner, floatText, FONT } from './ui';
 export interface TutorialHooks {
   player: Phaser.GameObjects.Sprite;
   dummy: { x: number; y: number };
-  gate: { x: number; y: number };         // the gap in the yard's fence
+  gate: { x: number; y: number };
   inYard: () => boolean;
-  busy: () => boolean;                    // a shop or a talk is open: Esc closes that, not the training
-  onEnd: (finished: boolean) => void;     // save it, so it never shows again
+  busy: () => boolean;
+  onEnd: (finished: boolean) => void;
 }
 
-const WARN_MS = 800;        // the red line shows this long before the ball flies
+const WARN_MS = 800;
 const BALL_SPEED = 75;
-const BALL_RANGE = 60;      // past this, the ball counts as dodged (it stays inside the yard)
-const DRILL_GAP_MS = 700;   // between one ball and the next
+const BALL_RANGE = 60;
+const DRILL_GAP_MS = 700;
 
 export class Tutorial {
   private state: TutorialState = tutorialStart();
@@ -63,7 +56,6 @@ export class Tutorial {
     this.show();
   }
 
-  /** While Brann talks the player stands still (the village skips its own controls). */
   blocking(): boolean { return !tutorialOver(this.state) && isTalk(this.state); }
 
   get over(): boolean { return tutorialOver(this.state); }
@@ -78,7 +70,6 @@ export class Tutorial {
     else this.setGoal();
   }
 
-  /** Every frame: the arrow, the yard, the dodge drill. */
   update() {
     if (this.over) return;
     const now = this.scene.time.now;
@@ -94,8 +85,6 @@ export class Tutorial {
     this.drill(now);
   }
 
-  // ---- the dodge drill ----
-
   private drill(now: number) {
     this.fx.clear();
     if (this.state.step !== 'dodge') { this.ball?.img.destroy(); this.ball = null; return; }
@@ -103,11 +92,11 @@ export class Tutorial {
     const d = this.hooks.dummy;
     if (!this.ball) {
       if (now < this.nextBallAt) return;
-      const ang = Phaser.Math.Angle.Between(d.x, d.y, p.x, p.y);   // aimed at where you stand now
+      const ang = Phaser.Math.Angle.Between(d.x, d.y, p.x, p.y);
       this.ball = { img: this.scene.add.image(d.x, d.y, 'bullet').setDepth(12).setVisible(false), x0: d.x, y0: d.y, ang, flyAt: now + WARN_MS };
     }
     const b = this.ball;
-    if (now < b.flyAt) {                                            // the warning: the same red line as Mossback's
+    if (now < b.flyAt) {
       const pulse = 0.35 + 0.35 * Math.sin(now / 40);
       this.fx.lineStyle(1, 0xff3a3a, pulse).lineBetween(b.x0, b.y0, b.x0 + Math.cos(b.ang) * BALL_RANGE, b.y0 + Math.sin(b.ang) * BALL_RANGE);
       return;
@@ -116,7 +105,7 @@ export class Tutorial {
     const x = b.x0 + Math.cos(b.ang) * dist;
     const y = b.y0 + Math.sin(b.ang) * dist;
     b.img.setVisible(true).setPosition(Math.round(x), Math.round(y));
-    if (Phaser.Math.Distance.Between(x, y, p.x, p.y) < 6) {        // hit: no harm done, but it does not count
+    if (Phaser.Math.Distance.Between(x, y, p.x, p.y) < 6) {
       floatText(this.scene, p.x, p.y - 12, 'Ouch! Again.', '#ff8a8a');
       this.endBall(now);
     } else if (dist >= BALL_RANGE) {
@@ -132,15 +121,12 @@ export class Tutorial {
     this.nextBallAt = now + DRILL_GAP_MS;
   }
 
-  // ---- what is on screen for each step ----
-
   private goalText(): string {
     const t = TUTORIAL_TEXT[this.state.step];
     const left = this.state.step === 'attack' ? ` (${this.state.count}/3)` : this.state.step === 'dodge' ? ` (${this.state.count}/3)` : '';
     return t.text + left;
   }
 
-  /** The instruction, with the box grown to fit it (long ones wrap onto a second line). */
   private setGoal() {
     this.text.setText(this.goalText());
     const { x, y, w } = this.frame;
@@ -161,14 +147,12 @@ export class Tutorial {
     if (t.talk) { this.talkLine = 0; this.sayLine(); }
   }
 
-  /** Brann's words: one line at a time in a box at the bottom. */
   private sayLine() {
     const lines = TUTORIAL_TEXT[this.state.step].talk ?? [];
     this.talk?.destroy();
     const w = PLAY.width - 8, h = 38, x = PLAY.x + 4, y = PLAY.y + PLAY.height - h - 4;
     const c = this.scene.add.container(0, 0).setDepth(971);
     const bg = this.scene.add.graphics();
-    // solid, and down to the frame: no signs, and no yard damage meter, showing through or below it
     bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, PLAY.y + PLAY.height - y).fillStyle(0xffcc44).fillRect(x, y, w, 1);
     const offer = this.state.step === 'offer' && this.talkLine === lines.length - 1;
     c.add([

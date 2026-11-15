@@ -3,9 +3,6 @@ import { HEIGHT, WIDTH } from '../config';
 import { loadFonts, mediaStatus, queueMedia } from '../media';
 import type { MediaManifest } from '../../tools/media-manifest';
 
-// First scene: reads media/manifest.json (made by the Vite plugin from public/media) and loads
-// every file in it. A missing manifest or a broken file is fine: the boot scene draws a
-// placeholder for any sprite that did not load.
 export class PreloadScene extends Phaser.Scene {
   constructor() { super('preload'); }
 
@@ -18,7 +15,6 @@ export class PreloadScene extends Phaser.Scene {
     const m = this.cache.json.get('media-manifest') as MediaManifest | undefined;
     if (!m || typeof m !== 'object' || !m.sprites) { this.scene.start('boot'); return; }
     mediaStatus.manifest = m;
-    // fonts first (texts are painted once), then the art and sound
     loadFonts(m).then(() => this.loadFiles(m));
   }
 

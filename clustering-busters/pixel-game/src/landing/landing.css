@@ -1,13 +1,4 @@
-/* Ringfall's one page, in the "playable arcade site" style: graph-paper bands and night bands,
-   hard 2px borders with solid offset shadows (no blur), notched pixel corners, tilted sticky notes,
-   chips, a giant tile wordmark you can knock apart. Our colours: parchment, gold, night, with the
-   super-rare pink as a second accent. Fonts: Silkscreen for labels, Alagard for the logo, a heavy
-   system sans for headings and copy (declared in index.html, relative for the itch zip).
-   Motion: .reveal fades/slides in when scrolled into view (src/landing/main.ts adds .in);
-   prefers-reduced-motion keeps everything still. */
-
 :root {
-  /* the reference's clean grid paper and black ink, in the game's own colours (src/ui, src/game/rules.ts) */
   --paper: #f3f3f6;
   --paper-line: rgba(17, 17, 17, 0.07);
   --cream: #ffffff;
@@ -21,9 +12,8 @@
   --gold-dark: #b8862a;
   --red: #d83a3a;
   --green: #6fd13a;
-  --blue: #44aaff;      /* rare ring, only in the odds */
-  --pink: #ff55dd;      /* super rare ring, only in the odds */
-  /* the game's fonts: Alagard for titles, Silkscreen for everything else */
+  --blue: #44aaff;
+  --pink: #ff55dd;
   --title: alagard, serif;
   --sans: silkscreen, ui-monospace, monospace;
   --pixel: silkscreen, ui-monospace, monospace;
@@ -33,12 +23,11 @@
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; background: var(--night); }
 body { margin: 0; background: var(--paper); color: var(--ink); font: 14px/1.75 var(--sans); }
-html, body { overflow-x: clip; }   /* slide-ins from the right must not widen the page on phones (clip keeps sticky working) */
+html, body { overflow-x: clip; }
 img[data-sprite] { image-rendering: pixelated; image-rendering: crisp-edges; }
 a { color: inherit; }
 mark { background: var(--gold); color: var(--ink); padding: 0 4px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 
-/* ---- shared pieces ---- */
 .paper { background-color: var(--paper); color: var(--ink);
   background-image: linear-gradient(var(--paper-line) 1px, transparent 1px), linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
   background-size: 22px 22px; }
@@ -46,7 +35,7 @@ mark { background: var(--gold); color: var(--ink); padding: 0 4px; box-decoratio
 h1, h2, h3 { margin: 0; }
 .big { font: 400 clamp(36px, 5.6vw, 68px)/1.05 var(--title); }
 .big em { font-style: normal; color: var(--gold); }
-.paper .big em { color: var(--ink); background: var(--gold); padding: 0 10px; box-shadow: 4px 4px 0 var(--ink); box-decoration-break: clone; -webkit-box-decoration-break: clone; }   /* gold on parchment is too faint as text: a highlighter block instead */
+.paper .big em { color: var(--ink); background: var(--gold); padding: 0 10px; box-shadow: 4px 4px 0 var(--ink); box-decoration-break: clone; -webkit-box-decoration-break: clone; }
 h3 { font: 400 22px/1.2 var(--title); }
 .sub { font-size: 15px; opacity: 0.75; margin: 10px 0 32px; max-width: 620px; }
 
@@ -61,7 +50,7 @@ h3 { font: 400 22px/1.2 var(--title); }
 .btn.gold { background: var(--gold); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
 .btn.outline { background: var(--cream); color: var(--ink); box-shadow: 4px 4px 0 var(--ink); }
 .night .btn.gold { box-shadow: 4px 4px 0 var(--gold-dark); }
-.btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); transition-duration: 0s; }   /* the press lands at once; the release eases back */
+.btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--ink); transition-duration: 0s; }
 .btn.small { padding: 9px 12px; font-size: 11px; box-shadow: 3px 3px 0 var(--ink); }
 
 .card { background: var(--cream); border: 2px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); }
@@ -71,17 +60,15 @@ h3 { font: 400 22px/1.2 var(--title); }
 .sticker { position: absolute; z-index: 5; display: grid; justify-items: center; gap: 4px; padding: 14px 16px; background: var(--gold); color: var(--ink);
   border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--ink); font: 400 26px/1 var(--title); text-align: center; }
 .sticker small { font: 10px/1.3 var(--pixel); letter-spacing: 1px; max-width: 120px; }
-.sticker::before { content: ''; position: absolute; top: -9px; left: 50%; width: 30px; height: 12px; margin-left: -15px; background: rgba(255, 255, 255, 0.75); border: 1px solid rgba(17, 17, 17, 0.25); transform: rotate(-4deg); }   /* tape */
+.sticker::before { content: ''; position: absolute; top: -9px; left: 50%; width: 30px; height: 12px; margin-left: -15px; background: rgba(255, 255, 255, 0.75); border: 1px solid rgba(17, 17, 17, 0.25); transform: rotate(-4deg); }
 .tag { position: absolute; z-index: 4; font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; background: var(--cream); color: var(--ink);
   border: 2px solid var(--ink); padding: 6px 9px; box-shadow: 3px 3px 0 var(--ink); pointer-events: none; }
 .tag b { color: var(--red); }
 kbd { font: 11px/1 var(--pixel); text-transform: uppercase; color: var(--text); border: 1px solid var(--edge); border-bottom-width: 3px; padding: 5px 7px; background: var(--panel); }
 
-/* reading progress */
 .progress { position: fixed; inset: 0 0 auto 0; height: 4px; z-index: 60; }
 .progress span { display: block; height: 100%; width: 0; background: var(--gold); }
 
-/* ---- the top bar ---- */
 .topbar { position: sticky; border-bottom: 3px solid var(--gold); top: 10px; z-index: 50; margin: 10px auto 0; width: min(1180px, calc(100% - 24px)); display: flex; align-items: center; justify-content: space-between; gap: 16px;
   background: var(--ink); color: var(--text); padding: 10px 14px; clip-path: var(--notch); }
 .logo { display: inline-flex; align-items: center; gap: 8px; font: 22px/1 alagard, serif; color: var(--gold); text-decoration: none; }
@@ -89,14 +76,13 @@ kbd { font: 11px/1 var(--pixel); text-transform: uppercase; color: var(--text); 
 .links a { text-decoration: none; color: var(--muted); }
 .topbar .btn.gold { box-shadow: none; border-color: var(--gold); }
 
-/* ---- the hero: chips, the tile wordmark, the pitch ---- */
 .hero { position: relative; padding: 40px max(16px, calc((100% - 1180px) / 2)) 64px; overflow: hidden; }
 .chips { display: flex; gap: 10px; flex-wrap: wrap; }
 .wordmark-wrap { position: relative; margin: 22px 0 8px; }
 #wordmark { display: block; width: 100%; height: auto; cursor: none; touch-action: pan-y; }
 .tag.knocked { right: 16%; bottom: -10px; transform: rotate(-3deg); }
-.s-boss { right: 0; top: -84px; transform: rotate(7deg); }   /* beside the chips, clear of the word */
-.hero-foot { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 40px; align-items: start; margin-top: 30px; }   /* the pitch line sits at the top, beside the name card */
+.s-boss { right: 0; top: -84px; transform: rotate(7deg); }
+.hero-foot { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 40px; align-items: start; margin-top: 30px; }
 .lead { font: 400 clamp(15px, 1.7vw, 20px)/1.6 var(--sans); max-width: 640px; margin: 0 0 18px; }
 .pitch-row { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin-top: 26px; }
 .hint { font: 11px/1.4 var(--pixel); margin: 10px 0 0; opacity: 0.7; }
@@ -107,8 +93,6 @@ kbd { font: 11px/1 var(--pixel); text-transform: uppercase; color: var(--text); 
 .mouse { width: 22px; height: 34px; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream); position: relative; margin-top: 6px; }
 .mouse::after { content: ''; position: absolute; left: 50%; top: 5px; width: 3px; height: 7px; margin-left: -1.5px; background: var(--ink); animation: wheel 1.4s ease-in-out infinite; }
 
-/* the sign-in: a black arcade cabinet card with a gold frame that breathes, a big field with a
-   blinking caret and "press start" blinking under the button. The page's one call to action. */
 .hero-foot > * { min-width: 0; }
 .start { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: min(440px, 100%); padding: 30px 26px 22px; background: var(--ink); color: var(--text);
   border: 4px solid var(--gold); box-shadow: 10px 10px 0 var(--gold-dark), 0 0 0 0 rgba(255, 204, 68, 0.6); animation: breathe 2.2s ease-in-out infinite; }
@@ -129,10 +113,8 @@ kbd { font: 11px/1 var(--pixel); text-transform: uppercase; color: var(--text); 
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes wheel { 50% { transform: translateY(6px); opacity: 0.3; } }
 
-/* ---- sections ---- */
 section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative; }
 
-/* the arena: the game in the night */
 .arena-head { display: grid; grid-template-columns: 1.1fr 1fr; gap: 32px; align-items: end; margin-bottom: 28px; }
 .keys { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
 .arena-copy { color: var(--muted); margin: 0; }
@@ -161,7 +143,6 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
 .arrows i:first-child { grid-column: 2; animation: press 1.2s steps(1) infinite; }
 @keyframes press { 50% { background: var(--red); } }
 
-/* the story */
 .chapter { display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; margin-bottom: 72px; }
 .chapter:last-child { margin-bottom: 0; }
 .chapter.flip .art { order: 2; }
@@ -181,9 +162,6 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
 .raid .carried { bottom: 150px; left: 102px; }
 .in .raid .stomp, .in .raid .carried, .in.art .raid .stomp, .in.art .raid .carried { animation: march 2.2s ease-in-out infinite; }
 @keyframes march { 0%, 100% { transform: translateX(-40px) rotate(-4deg); } 50% { transform: translateX(40px) rotate(4deg); } }
-/* the catapult, assembled like the game does (src/catapult.ts) at 3x: base 40x22 with the arm's axle
-   at (28, 4), the winch centred at (6, 9), the arm 30x8 turning on its left end (2, 4), a pin on top.
-   The throw goes up and over: the arm swings from 166 deg (lying back) to 297 deg (against the stop). */
 .launch { position: relative; width: 280px; height: 220px; }
 .launch img { position: absolute; }
 .launch .cbase { left: 30px; top: 144px; }
@@ -209,7 +187,6 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
   100% { transform: translate(0, 0); opacity: 1; }
 }
 
-/* Mossback's three stages */
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 24px; }
 .cards .card { position: relative; padding: 30px 20px 26px; overflow: hidden; text-align: center; }
 .cards .num { position: absolute; top: 10px; left: 12px; font: 12px var(--pixel); color: var(--gold); }
@@ -223,7 +200,6 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
 @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @keyframes slide { to { background-position: 24px 0; } }
 
-/* six merchants */
 .robes { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 20px; }
 .robes figure { margin: 0; padding: 18px 10px 14px; text-align: center; }
 .robes figure.gold { background: var(--gold); }
@@ -231,13 +207,11 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
 .robes figcaption { font-weight: 800; }
 .robes small { display: block; font: 10px var(--pixel); text-transform: uppercase; opacity: 0.65; }
 
-/* the village grows */
 .growth { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; align-items: end; }
 .growth li { display: grid; justify-items: center; gap: 10px; padding: 16px 6px; border-bottom: 5px solid var(--gold); }
 .growth span { font: 11px var(--pixel); text-transform: uppercase; color: var(--muted); }
 .growth img { max-width: 100%; }
 
-/* the leaderboard */
 .board ol { list-style: none; padding: 6px 0; margin: 0; max-width: 760px; }
 .board li { display: grid; grid-template-columns: 52px 1fr auto; gap: 12px; align-items: center; padding: 12px 18px; border-top: 1px solid rgba(17, 17, 17, 0.12); font-weight: 700; }
 .board li:first-child { border-top: 0; }
@@ -247,7 +221,6 @@ section { padding: 88px max(16px, calc((100% - 1180px) / 2)); position: relative
 .board li.top .rank { opacity: 1; color: var(--gold-dark); }
 .board li.me { background: var(--gold); }
 
-/* the odds: bars fill as they come into view */
 .group { background: var(--panel); border: 2px solid var(--edge); box-shadow: 6px 6px 0 #000; padding: 22px; margin-bottom: 24px; }
 .group h3 { margin: 0; }
 .group > p { color: var(--muted); margin: 4px 0 16px; }
@@ -268,7 +241,6 @@ footer { display: flex; align-items: center; justify-content: space-between; gap
 footer p { margin: 0; font: 10px/1.5 var(--pixel); text-transform: uppercase; opacity: 0.7; max-width: 520px; }
 footer .logo { color: var(--ink); }
 
-/* ---- scroll reveals ---- */
 .reveal { opacity: 0; transform: translateY(32px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(.2, .8, .2, 1); transition-delay: calc(var(--i, 0) * 100ms); }
 .reveal.from-left { transform: translateX(-60px); }
 .reveal.from-right { transform: translateX(60px); }
@@ -277,13 +249,12 @@ footer .logo { color: var(--ink); }
 
 @media (max-width: 900px) {
   .topbar { flex-wrap: wrap; row-gap: 8px; }
-  /* the nav links: a row you can swipe sideways on a phone (the fade on the right says it scrolls) */
   .links { order: 3; flex: 1 0 100%; gap: 18px; overflow-x: auto; scrollbar-width: none; padding: 4px 0 2px; -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
   .links::-webkit-scrollbar { display: none; }
   .links a { flex: none; padding: 6px 0; }
   .arena-head, .arena-grid, .chapter, .hero-foot { grid-template-columns: minmax(0, 1fr); }
   .hero-foot { gap: 34px; }
-  .start { order: -1; width: 100%; }   /* on phones the sign-in comes right under the word */
+  .start { order: -1; width: 100%; }
   .chapter.flip .art { order: 0; }
   .s-try, .s-play { justify-self: start; }
   .s-boss { top: -40px; font-size: 16px; padding: 8px 10px; }
@@ -297,7 +268,6 @@ footer .logo { color: var(--ink); }
   .odd .meter span { width: var(--w); }
 }
 
-/* ---- the shorter page: odds as tiles, merchants' odds on their cards ---- */
 .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-top: 14px; }
 .tile { display: grid; justify-items: center; gap: 6px; padding: 14px 10px 12px; background: var(--night); border: 1px solid var(--edge); text-align: center; }
 .tile img { height: 40px; width: auto; max-width: 64px; object-fit: contain; }
@@ -311,29 +281,21 @@ footer .logo { color: var(--ink); }
 .odds-badge { display: block; margin-top: 4px; color: var(--ink); font: 400 20px/1 var(--title); }
 @media (prefers-reduced-motion: reduce) { .tile .meter span { width: var(--w); transition: none; } }
 
-/* ---- the apple-design review (electron-f1, approved by the user) ---- */
-/* 1) long copy in the system font, sized in rem; titles stay Alagard, labels and keys Silkscreen */
 :root { --copy: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
 .lead, .sub, .chapter .words p, .cards p, .group > p { font-family: var(--copy); letter-spacing: 0; }
 .lead { font-size: clamp(1rem, 1.7vw, 1.25rem); line-height: 1.55; font-weight: 600; }
 .sub, .chapter .words p { font-size: 1.0625rem; line-height: 1.6; }
 .cards p, .group > p { font-size: 0.9375rem; line-height: 1.55; }
-/* 2) hover only where there is hover (on phones the lift sticks after a tap) */
 @media (hover: hover) {
   .btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--ink); }
   .links a:hover { color: var(--gold); }
 }
-/* 3) instant press, no tap delay */
 .btn { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-/* 4) visible keyboard focus */
 .btn:focus-visible, .links a:focus-visible, .logo:focus-visible, footer a:focus-visible { outline: 3px solid var(--green); outline-offset: 3px; }
-/* 5) restraint on the name card: its loops stop once the player engages */
 .start:focus-within, .start:focus-within .caret, .start:focus-within .blink { animation: none; }
 .start:focus-within .blink { visibility: hidden; }
-/* 7) higher contrast on request */
 @media (prefers-contrast: more) { .sub, .hint, .robes small, footer p { opacity: 1; } }
 
-/* ---- the live top 5 beside the game (Lair sidebar). Dark from the start: panel, edge, gold ranks. ---- */
 .board-card { background: var(--panel); border: 2px solid var(--edge); box-shadow: 6px 6px 0 #000; padding: 14px 16px 12px; color: var(--text); }
 .board-card h3 { display: flex; justify-content: space-between; align-items: baseline; font: 400 22px/1.1 var(--title); color: var(--gold); margin-bottom: 8px; }
 .board-card h3 a { font: 10px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); text-decoration: none; }
@@ -349,14 +311,10 @@ footer .logo { color: var(--ink); }
 .board-card li.me { background: var(--gold); color: var(--ink); margin: 0 -8px; padding: 7px 8px; }
 .board-card li.me .rank, .board-card li.me .time { color: var(--ink); }
 .board-me { margin: 8px 0 0; font: 10px/1.4 var(--pixel); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
-/* your row in the full list further down: dark ink on the gold (the black pass made row text light) */
 .board ol li.me, .board ol li.me .rank, .board ol li.me .time, .board ol li.me .nick { color: var(--ink); opacity: 1; }
-/* nav jumps land below the sticky bar, not under it */
 section, header { scroll-margin-top: 84px; }
 #board-title, #odds-title { scroll-margin-top: 96px; }
 
-/* ---- Only black (our user's choice): every band is night, no paper, no white cards ----
-   Gold stays the accent (buttons, stickers, highlights keep their dark ink on gold). */
 body, .paper { background: var(--night); background-image: none; color: var(--text); }
 .card, .chip, .btn.outline, .tag, .legend, .field, .mouse, .arrows i { background: var(--panel); border-color: var(--edge); color: var(--text); }
 .card, .btn.outline { box-shadow: 6px 6px 0 #000; }

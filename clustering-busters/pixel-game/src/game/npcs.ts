@@ -1,11 +1,3 @@
-// What the village people say. Pure: the lines depend only on your progress, so it is tested
-// without the game running (test/npcs.test.ts).
-//
-//   Elder Mira       by the well: lore and tips that follow your progress
-//   Tobi (a kid)     wanders the square: jokes, dares; the first time, a ring from the well
-//   Sergeant Brann   at the training ground gate: weapons, armor, training
-//   Grandpa          only after Mossback bounced you home: hobbles over and tells you so
-
 export type NpcId = 'elder' | 'kid' | 'sergeant';
 
 export interface Npc { readonly name: string; readonly sprite: string }
@@ -15,10 +7,8 @@ export const NPCS: Readonly<Record<NpcId, Npc>> = {
   sergeant: { name: 'Sergeant Brann', sprite: 'sergeant' },
 };
 
-/** Grandpa is not one of the people you walk up to: he comes to you after a lost fight. */
 export const GRANDPA: Npc = { name: 'Grandpa', sprite: 'grandpa' };
 
-/** What Grandpa says when you land back in the village. kept = rings you brought home anyway. */
 export function bouncedBackLines(kept: number): string[] {
   return [
     'You have been bounced back!',
@@ -26,14 +16,13 @@ export function bouncedBackLines(kept: number): string[] {
   ];
 }
 
-/** What a conversation can know about you. */
 export interface NpcState {
-  wins: number;            // treasuries recovered
-  villageLevel: number;    // 1..6
+  wins: number;
+  villageLevel: number;
   villageName: string;
-  hasWeapon: boolean;      // owns a melee or ranged weapon
+  hasWeapon: boolean;
   ownsArmor: boolean;
-  kidGiftGiven: boolean;   // Tobi already gave his ring
+  kidGiftGiven: boolean;
 }
 
 export interface Talk { lines: string[]; giftRing?: boolean }
@@ -77,7 +66,6 @@ export function talk(id: NpcId, s: NpcState, rng: Rng): Talk {
     if (!s.hasWeapon) lines.push('And for heaven\'s sake, buy a weapon from the merchant. Fists won\'t do.');
     return { lines };
   }
-  // sergeant
   const lines = ['Training ground is through the gate, recruit. The dummy doesn\'t hit back.'];
   lines.push(pick(rng, [
     'Every blade on the merchant\'s chart hits about as hard over time. Fast and small, or slow and big: your choice.',

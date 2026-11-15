@@ -15,7 +15,7 @@ export class MenuScene extends Phaser.Scene {
   create() {
     const save = loadSave();
     this.add.text(WIDTH / 2, 42, 'RINGFALL', title(32)).setOrigin(0.5);
-    this.add.text(WIDTH - 8, 7, 'Fonts: Alagard by Hewett Tsoi, Silkscreen', { ...FONT, color: '#555555' }).setOrigin(1, 0);   // the authors ask for credit
+    this.add.text(WIDTH - 8, 7, 'Fonts: Alagard by Hewett Tsoi, Silkscreen', { ...FONT, color: '#555555' }).setOrigin(1, 0);
     this.add.text(WIDTH / 2, 64, 'Mossback stole the treasury. Go get the rings back.', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
     const prompt = this.add.text(WIDTH / 2, 88, save.seenIntro ? 'Enter: to the village' : 'Press Enter or click to start', { fontFamily: 'silkscreen, monospace', fontSize: '8px', color: '#ffcc44' }).setOrigin(0.5);
     if (save.seenIntro) this.add.text(WIDTH / 2, 100, save.wins ? 'C: the story again   V: the ending' : 'C: watch the story again', FONT).setOrigin(0.5);
@@ -31,7 +31,6 @@ export class MenuScene extends Phaser.Scene {
 
     let gone = false;
     const go = (scene: string, d: object = {}) => { if (gone) return; gone = true; fadeToScene(this, scene, d, 500); };
-    // no name yet: ask for it first (the leaderboard needs one), then start
     const first = save.seenIntro ? 'village' : 'intro';
     const start = () => (loadNick() ? go(first) : go('nick', { next: first }));
     this.input.keyboard?.once('keydown-ENTER', start);
@@ -41,8 +40,6 @@ export class MenuScene extends Phaser.Scene {
     if (save.wins) this.input.keyboard?.once('keydown-V', () => go('outro'));
     this.input.once('pointerdown', start);
 
-    // R: start over as a new player (everything but the mute setting and your name). Shown only when
-    // there is progress to lose, and it asks twice: one stray key must not wipe a whole game.
     const fresh = startingWallet();
     const hasProgress = save.seenIntro || save.wins > 0 || save.spent > 0 || save.inventory.owned.length > 0
       || walletValue(save.wallet) !== walletValue(fresh) || walletValue(save.lifetimeRings) > 0;
@@ -53,9 +50,7 @@ export class MenuScene extends Phaser.Scene {
       let lastPress = -1;
       const disarm = () => { armed?.remove(); armed = null; reset.setText(ASK).setColor('#c86a6a'); };
       this.input.keyboard?.on('keydown-R', (e: KeyboardEvent) => {
-        if (gone || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
-        // The page puts the game to sleep while its screen is scrolled away; asleep, Phaser never
-        // clears its key queue and replays old presses with every new key. Only a fresh press counts.
+        if (gone || e.repeat || e.metaKey || e.ctrlKey) return;
         if (!this.game.loop.running || e.timeStamp <= lastPress) return;
         lastPress = e.timeStamp;
         if (!armed) {
@@ -65,7 +60,7 @@ export class MenuScene extends Phaser.Scene {
         }
         gone = true;
         resetSave();
-        window.location.reload();   // a reload drops every running scene, so nothing old lingers
+        window.location.reload();
       });
       this.input.keyboard?.on('keydown-ESC', disarm);
     }

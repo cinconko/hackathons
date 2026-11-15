@@ -1,28 +1,15 @@
 import type { MerchantKind } from './game/rules';
-// Media orchestration at runtime: what to load from public/media, which sprites still use the
-// placeholder drawn in code, and the sound (music per scene, effects per event).
-//
-//   preload scene: media/manifest.json ──► queueMedia ──► files load
-//   boot scene:    draws a placeholder only for sprites that did not come from a file
-//   any scene:     playMusic(this, 'village') / sfx(this, 'hit'), silent when the file is missing
 import Phaser from 'phaser';
 import type { MediaManifest } from '../tools/media-manifest';
 
-/** One track per scene. File: public/media/audio/music/<key>.ogg (and/or .mp3). */
 export const MUSIC_KEYS = ['menu', 'intro', 'village', 'arena', 'treasury', 'victory'] as const;
-/** One sound per event. File: public/media/audio/sfx/<key>.ogg (and/or .mp3). */
 export const SFX_KEYS = [
   'swing', 'shoot', 'hit', 'hurt', 'block', 'spell', 'ring', 'buy', 'stage', 'victory',
   'door', 'land', 'launch', 'bounce', 'splash', 'levelup',
 ] as const;
-/**
- * The merchant's robe colours. Sprites merchant_<robe>_0/_1 and blanket_<robe>; each deal picks one
- * (robeFor), the blanket matches. Missing files = the default merchant_0/_1 and blanket.
- */
 export const ROBES = ['darkblue', 'gray', 'green', 'orange', 'red', 'special'] as const;
 export type Robe = (typeof ROBES)[number];
 
-/** Each merchant's robe tells you what he mainly sells (rules.ts MERCHANT_SELLS). */
 export const MERCHANT_ROBES: Readonly<Record<MerchantKind, Robe>> = {
   ranger: 'darkblue', smith: 'red', armorer: 'gray', alchemist: 'green', peddler: 'orange', special: 'special',
 };
@@ -30,24 +17,18 @@ export const MERCHANT_ROBES: Readonly<Record<MerchantKind, Robe>> = {
 export type MusicKey =(typeof MUSIC_KEYS)[number];
 export type SfxKey = (typeof SFX_KEYS)[number];
 
-/** What came from files and what the boot scene had to draw (for the checklist screen). */
 export const mediaStatus = {
   manifest: null as MediaManifest | null,
   fromFiles: new Set<string>(),
   placeholders: new Map<string, { w: number; h: number }>(),
 };
 
-/**
- * Loads every font in the manifest (fonts/<name>.ttf -> family <name>) before the first text is
- * drawn: Phaser paints text onto a canvas once, so a late font would never show. A font that
- * fails to load is skipped (the text falls back to monospace).
- */
 export async function loadFonts(m: MediaManifest): Promise<void> {
   await Promise.all(Object.entries(m.fonts ?? {}).map(async ([name, url]) => {
     try {
       const face = new FontFace(name, `url(${url})`);
       await face.load();
-      (document.fonts as unknown as Set<FontFace>).add(face);   // add() exists in browsers; this TS lib lacks its typing
+      (document.fonts as unknown as Set<FontFace>).add(face);
     } catch { console.warn(`[media] could not load the font ${url}`); }
   }));
 }
@@ -63,7 +44,6 @@ export function queueMedia(load: Phaser.Loader.LoaderPlugin, m: MediaManifest): 
 
 let current: { key: string; sound: Phaser.Sound.BaseSound } | null = null;
 
-/** Crossfades to this scene's track. No file = the old track fades out and it stays quiet. */
 export function playMusic(scene: Phaser.Scene, key: MusicKey) {
   const k = `music_${key}`;
   if (current?.key === k) return;
@@ -77,7 +57,6 @@ export function playMusic(scene: Phaser.Scene, key: MusicKey) {
   current = { key: k, sound };
 }
 
-/** Plays an event's sound if its file exists. */
 export function sfx(scene: Phaser.Scene, key: SfxKey, volume = 0.6) {
   const k = `sfx_${key}`;
   if (scene.cache.audio.exists(k)) scene.sound.play(k, { volume });

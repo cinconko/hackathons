@@ -1,13 +1,3 @@
-// Turns the file list of public/media into the manifest the game loads (media/manifest.json).
-// Pure: no file system here, so it is easy to test. vite.config.ts walks the folder and calls it.
-//
-//   sprites/<key>.png|webp            -> sprites[key]        replaces the placeholder drawn in code
-//   sheets/<key>@<w>x<h>.png|webp     -> sheets[key]         a sprite sheet with w x h frames
-//   audio/music/<key>.ogg|mp3|m4a|wav -> music[key]          several formats of one track are grouped
-//   audio/sfx/<key>.ogg|mp3|m4a|wav   -> sfx[key]
-//   fonts/<name>.ttf|otf|woff|woff2   -> fonts[name]         loaded before the first screen
-// Anything else (README.md, .gitkeep, wrong names) is ignored and reported in `skipped`.
-
 export interface SheetEntry { url: string; frameWidth: number; frameHeight: number }
 export interface MediaManifest {
   sprites: Record<string, string>;
@@ -20,14 +10,13 @@ export interface MediaManifest {
 
 const KEY = '[A-Za-z0-9_]+';
 const IMAGE = '(?:png|webp)';
-const AUDIO = ['ogg', 'mp3', 'm4a', 'wav'];   // order = preference: the browser takes the first it can play
+const AUDIO = ['ogg', 'mp3', 'm4a', 'wav'];
 const SPRITE_RE = new RegExp(`^sprites/(${KEY})\\.${IMAGE}$`);
 const SHEET_RE = new RegExp(`^sheets/(${KEY})@(\\d+)x(\\d+)\\.${IMAGE}$`);
 const FONT_RE = new RegExp(`^fonts/(${KEY})\\.(?:ttf|otf|woff2?)$`);
 const AUDIO_RE = new RegExp(`^audio/(music|sfx)/(${KEY})\\.(${AUDIO.join('|')})$`);
 const QUIET = /(^|\/)(README\.md|\.gitkeep|\.DS_Store|manifest\.json)$/;
 
-/** files: paths relative to public/media, with forward slashes. Urls are relative to the page. */
 export function buildManifest(files: readonly string[]): MediaManifest {
   const m: MediaManifest = { sprites: {}, sheets: {}, music: {}, sfx: {}, fonts: {}, skipped: [] };
   for (const f of [...files].sort()) {

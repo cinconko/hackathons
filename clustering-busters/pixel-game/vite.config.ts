@@ -17,10 +17,6 @@ function walk(dir: string): string[] {
   return out;
 }
 
-/**
- * Media orchestration: scans public/media and serves media/manifest.json (dev: fresh on every
- * request, so a dropped-in file shows up after a reload; build: written into dist/media).
- */
 function mediaManifest(): Plugin {
   const manifest = () => {
     const m = buildManifest(walk(MEDIA));
@@ -47,16 +43,12 @@ function mediaManifest(): Plugin {
   };
 }
 
-// base './' = relative asset paths, required for itch.io's subfolder hosting.
-// Phaser in its own file: it never changes, so players' browsers keep it cached when the game updates.
-// It is ~1.2 MB on its own (390 kB gzipped), hence the higher size warning limit.
 export default defineConfig({
   base: './',
   plugins: [mediaManifest()],
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
-      // one page: index.html is the game and everything around it (also what itch.io runs)
       input: { game: join(__dirname, 'index.html') },
       output: { manualChunks: { phaser: ['phaser'] } },
     },

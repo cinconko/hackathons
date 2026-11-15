@@ -1,14 +1,10 @@
-// What every shop draws the same way: the paper price tag on its string, and the book that opens
-// with a ware's name and stats. The ring merchant (village.ts) lays his wares on his rug; the
-// fisherman (play.ts) on his dock. Both build their wares from these.
 import Phaser from 'phaser';
 import { FONT } from './ui';
 
-export const BOOK_PAGE = 70;   // width of one page (game pixels)
-export const BOOK_H = 64;      // height of the book
+export const BOOK_PAGE = 70;
+export const BOOK_H = 64;
 const INK = '#3a2410';
 
-/** Scale team art by whole steps only (1x or 2x), as big as fits `max` pixels: it stays crisp. */
 export function crisp<T extends Phaser.GameObjects.Image>(img: T, max: number): T {
   return img.setScale(Math.max(1, Math.min(2, Math.floor(max / Math.max(img.width, img.height))))) as T;
 }
@@ -18,14 +14,10 @@ export interface TagInfo {
   canPay: boolean;
   sold: boolean;
   picked: boolean;
-  tilt: number;                              // radians: tags hang a little crooked
-  deal?: { full: number; discount: number }; // the best deal: the old price crossed out, the discount
+  tilt: number;
+  deal?: { full: number; discount: number };
 }
 
-/**
- * A price tag hanging `drop` pixels below a ware: the string, then the cream paper with the price
- * and a ring (red ink when you can't pay, SOLD in green once bought). Add both to the ware.
- */
 export function priceTag(s: Phaser.Scene, drop: number, t: TagInfo): Phaser.GameObjects.GameObject[] {
   const string = s.add.graphics().fillStyle(0xd8c8a0).fillRect(0, 10, 1, drop - 15);
   const tag = s.add.container(0, drop).setRotation(t.tilt);
@@ -36,7 +28,7 @@ export function priceTag(s: Phaser.Scene, drop: number, t: TagInfo): Phaser.Game
   const paper = s.add.graphics();
   paper.fillStyle(0x5a3a1a).fillRect(-tw / 2 - 1, -7, tw + 2, 14);
   paper.fillStyle(t.picked ? 0xfff4d0 : 0xe8d8b0).fillRect(-tw / 2, -6, tw, 12);
-  paper.fillStyle(0x5a3a1a).fillRect(-1, -5, 2, 2);   // the hole for the string
+  paper.fillStyle(0x5a3a1a).fillRect(-1, -5, 2, 2);
   tag.add([paper, label]);
   if (!t.sold) tag.add(s.add.image(label.x + label.width / 2 + 5, 0, 'ring_classic'));
   if (t.deal && !t.sold) {
@@ -48,27 +40,22 @@ export function priceTag(s: Phaser.Scene, drop: number, t: TagInfo): Phaser.Game
   return [string, tag];
 }
 
-/** What a book shows: left page name, kind (in its colour) and picture; right page the stats. */
 export interface BookPage { name: string; kind: string; kindColor: string; pic: string; stats: string }
 
-/**
- * An open book, its spine at (sx, cy). `open`: the pages unfold from the spine (a new pick),
- * after `delay` ms; otherwise it is simply there (the shop redrew for another reason).
- */
 export function shopBook(s: Phaser.Scene, sx: number, cy: number, p: BookPage, open: boolean, delay = 0): Phaser.GameObjects.Container {
   const PW = BOOK_PAGE;
   const PH = BOOK_H;
   const b = s.add.container(sx, cy);
   const cover = s.add.graphics();
-  cover.fillStyle(0x000000, 0.4).fillRect(-PW - 3, -PH / 2 + 3, PW * 2 + 8, PH + 4);   // its shadow
-  cover.fillStyle(0x6b2a1a).fillRect(-PW - 4, -PH / 2 - 2, PW * 2 + 8, PH + 4);         // the leather cover
-  cover.fillStyle(0x4a1a10).fillRect(-1, -PH / 2 - 2, 2, PH + 4);                        // the spine
+  cover.fillStyle(0x000000, 0.4).fillRect(-PW - 3, -PH / 2 + 3, PW * 2 + 8, PH + 4);
+  cover.fillStyle(0x6b2a1a).fillRect(-PW - 4, -PH / 2 - 2, PW * 2 + 8, PH + 4);
+  cover.fillStyle(0x4a1a10).fillRect(-1, -PH / 2 - 2, 2, PH + 4);
   b.add(cover);
   const page = (side: -1 | 1) => {
     const pg = s.add.container(0, 0);
     const g = s.add.graphics();
     g.fillStyle(0xf2e6c4).fillRect(side < 0 ? -PW : 1, -PH / 2, PW - 1, PH);
-    g.fillStyle(0xd8c89c).fillRect(side < 0 ? -2 : 1, -PH / 2, 1, PH);                    // the fold's shade
+    g.fillStyle(0xd8c89c).fillRect(side < 0 ? -2 : 1, -PH / 2, 1, PH);
     pg.add(g);
     return pg;
   };
@@ -90,15 +77,8 @@ export function shopBook(s: Phaser.Scene, sx: number, cy: number, p: BookPage, o
   return b;
 }
 
-// ---- wares that belong on the rug ----
+const OUTLINE = [0x1c, 0x12, 0x0e];
 
-const OUTLINE = [0x1c, 0x12, 0x0e];   // the dark brown the rug's own painted items are outlined in
-
-/**
- * A ware drawn the rug's way (cached as `ware_<key>`): hard edges, an icon's square box cut away,
- * and a 1 px dark outline like the potions, barrels and shield painted on the rug. So it looks laid
- * on the rug, not pasted over it.
- */
 export function wareArt(s: Phaser.Scene, key: string): string {
   const out = `ware_${key}`;
   if (s.textures.exists(out) || !s.textures.exists(key)) return s.textures.exists(out) ? out : key;
@@ -112,9 +92,8 @@ export function wareArt(s: Phaser.Scene, key: string): string {
   const img = ctx.getImageData(0, 0, w, h);
   const d = img.data;
   const at = (x: number, y: number) => (y * w + x) * 4;
-  for (let i = 3; i < d.length; i += 4) d[i] = d[i] >= 128 ? 255 : 0;          // hard edges, no fringe
+  for (let i = 3; i < d.length; i += 4) d[i] = d[i] >= 128 ? 255 : 0;
   if (key.startsWith('icon_')) cutBox(d, w, h, at);
-  // the outline: every empty pixel touching the ware turns dark
   const filled = new Uint8Array(w * h);
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) filled[y * w + x] = d[at(x, y) + 3] === 255 ? 1 : 0;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
@@ -130,12 +109,11 @@ export function wareArt(s: Phaser.Scene, key: string): string {
   return out;
 }
 
-/** An icon (boot.ts) is a picture on a square: a dark frame and a coloured fill. Cut both away, from the edge inward. */
 function cutBox(d: Uint8ClampedArray, w: number, h: number, at: (x: number, y: number) => number) {
   const box = new Set<number>();
   const rgb = (i: number) => (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
-  box.add(rgb(at(1, 1)));   // the frame (the picture starts at 1,1)
-  box.add(rgb(at(2, 2)));   // the fill inside it
+  box.add(rgb(at(1, 1)));
+  box.add(rgb(at(2, 2)));
   const seen = new Uint8Array(w * h);
   const stack: [number, number][] = [];
   for (let x = 0; x < w; x++) stack.push([x, 0], [x, h - 1]);
@@ -145,7 +123,7 @@ function cutBox(d: Uint8ClampedArray, w: number, h: number, at: (x: number, y: n
     if (x < 0 || y < 0 || x >= w || y >= h || seen[y * w + x]) continue;
     seen[y * w + x] = 1;
     const i = at(x, y);
-    if (d[i + 3] === 255 && !box.has(rgb(i))) continue;   // the picture itself: stop here
+    if (d[i + 3] === 255 && !box.has(rgb(i))) continue;
     d[i + 3] = 0;
     stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
   }
@@ -153,7 +131,6 @@ function cutBox(d: Uint8ClampedArray, w: number, h: number, at: (x: number, y: n
 
 const busyMaps = new Map<string, { w: number; h: number; busy: Uint8Array; cloth: number }>();
 
-/** Which pixels of a rug picture are painted items (1) and which are plain cloth (0). Cached. */
 function busyMap(s: Phaser.Scene, rugKey: string) {
   const hit = busyMaps.get(rugKey);
   if (hit) return hit;
@@ -164,7 +141,6 @@ function busyMap(s: Phaser.Scene, rugKey: string) {
   const ctx = cv.getContext('2d')!;
   ctx.drawImage(src, 0, 0);
   const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
-  // the cloth = the most common colour in the middle of the rug
   const count = new Map<number, number>();
   for (let y = cv.height / 4; y < (cv.height * 3) / 4; y += 3) for (let x = cv.width / 4; x < (cv.width * 3) / 4; x += 3) {
     const i = (Math.floor(y) * cv.width + Math.floor(x)) * 4;
@@ -183,10 +159,6 @@ function busyMap(s: Phaser.Scene, rugKey: string) {
   return m;
 }
 
-/**
- * Where to lay a ware so it does not cover an item painted on the rug: the least cluttered spot of
- * `size` px within `reach` px of `want` (screen coordinates; the rug's centre is at rugX, rugY).
- */
 export function clearSpot(s: Phaser.Scene, rugKey: string, rugX: number, rugY: number, want: { x: number; y: number }, size = 22, reach = { x: 14, y: 8 }) {
   const m = busyMap(s, rugKey);
   const ox = rugX - m.w / 2;
@@ -203,21 +175,15 @@ export function clearSpot(s: Phaser.Scene, rugKey: string, rugX: number, rugY: n
   let best = { x: want.x, y: want.y, score: Infinity };
   for (let dy = -reach.y; dy <= reach.y; dy += 2) {
     for (let dx = -reach.x; dx <= reach.x; dx += 2) {
-      const score = clutter(want.x + dx, want.y + dy) * 4 + Math.abs(dx) + Math.abs(dy);   // clutter first, then stay close
+      const score = clutter(want.x + dx, want.y + dy) * 4 + Math.abs(dx) + Math.abs(dy);
       if (score < best.score) best = { x: want.x + dx, y: want.y + dy, score };
     }
   }
   return { x: Math.round(best.x), y: Math.round(best.y) };
 }
 
-/** The rug's plain cloth colour (to lay a patch of cloth under a ware). */
 export const clothColor = (s: Phaser.Scene, rugKey: string): number => busyMap(s, rugKey).cloth;
 
-/**
- * A soft patch of the rug's cloth under a ware (rx, ry: its half size): the items painted on the rug
- * fade into plain cloth around it, so the ware lies on the rug instead of on top of a painted potion.
- * `shade` darkens the cloth like the veil over the rug (0.5 = half dark).
- */
 export function clothPatch(s: Phaser.Scene, cloth: number, rx: number, ry: number, shade: number): Phaser.GameObjects.Graphics {
   const k = 1 - shade;
   const c = (Math.round(((cloth >> 16) & 255) * k) << 16) | (Math.round(((cloth >> 8) & 255) * k) << 8) | Math.round((cloth & 255) * k);

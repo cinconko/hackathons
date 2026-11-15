@@ -6,16 +6,12 @@
   <title>Ringfall</title>
   <meta name="description" content="Mossback stole the treasury. Fly the catapult into his lair, beat him, and bring the rings home. How lucky are you?" />
   <style>
-    /* the game's fonts, relative paths: they work on Vercel and in the itch.io zip */
     @font-face { font-family: alagard; src: url('./media/fonts/alagard.ttf'); font-display: swap; }
     @font-face { font-family: silkscreen; src: url('./media/fonts/silkscreen.ttf'); font-display: swap; }
   </style>
   <link rel="stylesheet" href="./src/landing/landing.css" />
 </head>
 <body>
-  <!-- One page: a parchment hero with a wordmark you can knock apart, the game in the night section,
-       then the story, the leaderboard and the odds. Paths stay relative (the itch.io zip runs this
-       too). Sprites: every img[data-sprite] is filled from the running game (src/landing/main.ts). -->
   <div class="progress" aria-hidden="true"><span id="progress"></span></div>
 
   <nav class="topbar" aria-label="Ringfall">
@@ -27,7 +23,6 @@
   <header class="hero paper" id="top">
 
     <div class="wordmark-wrap">
-      <!-- the wordmark, made of rings: RING in gold, FALL in black, a lucky rare or super rare among them; move through it to knock rings out -->
       <canvas id="wordmark" aria-label="Ringfall" role="img"></canvas>
       <span class="tag knocked">Rings knocked: <b id="knocked">0</b></span>
       <img data-sprite="player" data-scale="1" width="10" height="18" alt="" id="hero-sprite" hidden />
@@ -38,7 +33,6 @@
         <p class="lead">One farmer, one catapult. <mark>Bring the rings home.</mark></p>
       </div>
 
-      <!-- sign in with your name: the one thing to do on this page -->
       <form class="start" id="play">
         <h2 class="start-title">Who flies to the lair?</h2>
         <label for="nick">Your name</label>
@@ -54,7 +48,6 @@
   </header>
 
   <main>
-    <!-- the game, in the night -->
     <section class="arena night" id="play-area" aria-labelledby="arena-title">
       <div class="arena-head">
         <div>
@@ -77,7 +70,6 @@
             <div><small>Rings home</small><b id="st-home">0</b></div>
             <div><small>Wallet</small><b id="st-wallet">0</b></div>
           </div>
-          <!-- the live top 5 (src/landing/main.ts refreshes it every 20 s); the full list is further down -->
           <div class="board-card" aria-labelledby="board-card-title">
             <h3 id="board-card-title"><span>Leaderboard</span><a href="#board-title">all &#x2193;</a></h3>
             <ol id="board-top"><li class="muted">asking the town crier...</li></ol>
@@ -87,7 +79,6 @@
       </div>
     </section>
 
-    <!-- the story, told as you scroll -->
     <section class="story paper" id="story" aria-label="The story">
       <div class="chapter">
         <div class="art card reveal from-left">
@@ -117,7 +108,6 @@
       </div>
       <div class="chapter">
         <div class="art card reveal from-left">
-          <!-- the catapult from its parts, like the game builds it (src/catapult.ts), at 3x -->
           <div class="launch">
             <img data-sprite="catapult_base" data-scale="3" width="120" height="66" alt="" class="cbase" />
             <img data-sprite="catapult_winch" data-scale="3" width="21" height="21" alt="" class="cwinch" />
