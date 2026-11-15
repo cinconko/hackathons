@@ -1,5 +1,5 @@
-// The hero's wordmark: RINGFALL built from square tiles (5x7 pixel letters), RING in gold, FALL in
-// night. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
+// The hero's wordmark: RINGFALL built from pixel rings (5x7 letters, one ring per pixel), RING in
+// gold, FALL in black, and here and there a lucky rare (blue) or super rare (pink) ring. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
 // fly off, spin, fall, then slide back home. Every tile knocked counts in the "Rings knocked" tag.
 // With nobody steering, he walks through the word on his own now and then.
 // prefers-reduced-motion: the word is drawn once, nobody walks, nothing flies.
@@ -22,12 +22,38 @@ interface Tile {
   hx: number; hy: number;          // home, in cells
   x: number; y: number; r: number; // now, in cells / radians
   vx: number; vy: number; vr: number;
-  gold: boolean;
+  kind: Kind;
   state: 'home' | 'fly' | 'back';
   t: number;                       // seconds in the current state
 }
 
-const C = { gold: '#ffcc44', goldDark: '#ffcc44', ink: '#111111', night: '#111111', edge: '#3a3a3a', hi: '#fff3c4' };   // RING: gold, black shadow; FALL: black, gold shadow
+// One ring, 8x8 pixels, two thick, like the game's ring pickups: drawn once per kind (with its hard
+// shadow one pixel down-right) into a small canvas, then stamped for every ring of the word.
+type Kind = 'gold' | 'dark' | 'rare' | 'super';
+const RING_PX = ['..####..', '.######.', '##....##', '##....##', '##....##', '##....##', '.######.', '..####..'];
+const SHINE: [number, number][] = [[2, 1], [1, 2], [3, 1]];   // a lit top-left
+const KINDS: Record<Kind, { fill: string; shine: string; shadow: string }> = {
+  gold: { fill: '#ffcc44', shine: '#fff3c4', shadow: '#111111' },
+  dark: { fill: '#111111', shine: '#4a4a4a', shadow: '#ffcc44' },
+  rare: { fill: '#44aaff', shine: '#d2efff', shadow: '#111111' },
+  super: { fill: '#ff55dd', shine: '#ffd6f6', shadow: '#111111' },
+};
+function ringSprite(k: Kind): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = c.height = 9;
+  const g = c.getContext('2d')!;
+  const paint = (dx: number, color: string) => {
+    g.fillStyle = color;
+    RING_PX.forEach((row, y) => Array.from(row).forEach((p, x) => { if (p === '#') g.fillRect(x + dx, y + dx, 1, 1); }));
+  };
+  paint(1, KINDS[k].shadow);
+  paint(0, KINDS[k].fill);
+  g.fillStyle = KINDS[k].shine;
+  for (const [x, y] of SHINE) g.fillRect(x, y, 1, 1);
+  return c;
+}
+/** Which rings are lucky: fixed, so the word looks the same every visit (about 1 in 19 rare, 2 super rare). */
+const luck = (n: number, word: number): Kind => (n === 17 || n === 71) ? 'super' : ((n * 37) % 19 === 4 ? 'rare' : (word === 0 ? 'gold' : 'dark'));
 
 export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null, heroImg: HTMLImageElement | null, still: boolean) {
   const ctx = canvas.getContext('2d')!;
@@ -46,7 +72,7 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
       GLYPHS[ch].forEach((row, y) => Array.from(row).forEach((c, x) => {
         if (c !== '1') return;
         const hx = col + x + PAD, hy = top + y + PAD;
-        tiles.push({ hx, hy, x: hx, y: hy, r: 0, vx: 0, vy: 0, vr: 0, gold: i < 4, state: 'home', t: 0 });
+        tiles.push({ hx, hy, x: hx, y: hy, r: 0, vx: 0, vy: 0, vr: 0, kind: luck(tiles.length, i < 4 ? 0 : 1), state: 'home', t: 0 });
       }));
       col += 6;
     }
@@ -105,21 +131,13 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
   }
 
   // ---- drawing ----
+  const sprites = Object.fromEntries((Object.keys(KINDS) as Kind[]).map((k) => [k, ringSprite(k)])) as Record<Kind, HTMLCanvasElement>;
   function tile(t: Tile) {
     ctx.save();
     ctx.translate(t.x + 0.5, t.y + 0.5);
     ctx.rotate(t.r);
-    const s = 0.92, h = s / 2, sh = 0.16;
-    ctx.fillStyle = t.gold ? C.ink : C.goldDark;          // the hard offset shadow
-    ctx.fillRect(-h + sh, -h + sh, s, s);
-    ctx.fillStyle = t.gold ? C.gold : C.night;
-    ctx.fillRect(-h, -h, s, s);
-    ctx.fillStyle = t.gold ? C.hi : C.edge;               // a lit top-left edge, like the game's tiles
-    ctx.fillRect(-h, -h, s, 0.12);
-    ctx.fillRect(-h, -h, 0.12, s);
-    ctx.lineWidth = 0.07;
-    ctx.strokeStyle = C.ink;
-    ctx.strokeRect(-h, -h, s, s);
+    const s = 1.05;                                       // a ring is 8 of its 9 pixels: they nearly touch
+    ctx.drawImage(sprites[t.kind], -s / 2, -s / 2, s * 9 / 8, s * 9 / 8);
     ctx.restore();
   }
   function drawHero() {
@@ -129,11 +147,11 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
     const bob = Math.abs(Math.sin(hero.step)) * 0.25;
     ctx.save();
     ctx.translate(hero.x, hero.y - bob);
-    ctx.fillStyle = 'rgba(26,20,36,0.25)';                // his shadow stays on the ground
+    ctx.fillStyle = 'rgba(17,17,17,0.22)';                // his shadow stays on the ground
     ctx.fillRect(-w * 0.45, h / 2 + bob - 0.12, w * 0.9, 0.22);
     ctx.scale(hero.face, 1);
     if (img) ctx.drawImage(img, -w / 2, -h / 2, w, h);
-    else { ctx.fillStyle = C.ink; ctx.fillRect(-w / 2, -h / 2, w, h); }
+    else { ctx.fillStyle = '#111111'; ctx.fillRect(-w / 2, -h / 2, w, h); }
     ctx.restore();
   }
   function draw() {
