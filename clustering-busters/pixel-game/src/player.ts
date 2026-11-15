@@ -46,7 +46,7 @@ export const lookOf = (p: Phaser.GameObjects.Sprite): HeroLook => (p.getData('lo
 
 /**
  * Dresses the hero. His hitbox stays the plain hero's 8x10, at his feet: a bigger drawing
- * (the farmer and the knights are 16x28) is not a bigger target and still fits through the gaps.
+ * (the farmer is 10x18, the knights 13x18: the merchant's height) is not a bigger target and still fits through the gaps.
  */
 export function dress(p: Phaser.Physics.Arcade.Sprite, look: HeroLook) {
   p.setData('look', look).setTexture(look.down).setFlipX(false);
