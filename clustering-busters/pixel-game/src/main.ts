@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { HEIGHT, WIDTH } from './config';
 import { installCrispText } from './crispText';
 import { placeHandArt } from './handArt';
-import { loadSave, resetSave, updateSave } from './save';
+import { loadSave, updateSave } from './save';
 import { BootScene } from './scenes/boot';
 import { MediaScene } from './scenes/media';
 import { PreloadScene } from './scenes/preload';
@@ -63,15 +63,7 @@ window.addEventListener('keydown', (e) => {
   updateSave((s) => ({ ...s, muted: game.sound.mute }));
 });
 
-// R (local dev only, never in the deployed build): erase the save and start over as a new player.
-// Only the mute setting stays. A reload drops every running scene, so nothing old lingers.
-if (import.meta.env.DEV) {
-  window.addEventListener('keydown', (e) => {
-    if (typing.on || (e.key !== 'r' && e.key !== 'R') || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
-    resetSave();
-    window.location.reload();
-  });
-}
+// R: a new game lives in the menu (src/scenes/menu.ts): it asks twice, here and on the live site alike.
 
 // Fullscreen: the screen box fills the monitor (browsers only allow it after a key press or a
 // click). F and the page's Fullscreen button both toggle it.
