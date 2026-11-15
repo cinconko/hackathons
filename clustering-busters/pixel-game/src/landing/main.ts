@@ -56,14 +56,17 @@ input.addEventListener('input', () => {
 // The keyboard reaches the game only while you are not typing and the game is awake: asleep,
 // Phaser never empties its key queue (the frame loop does), so presses made while reading the page
 // would all replay at once on the next key. Turning it off drops them; the queue is cleared too.
+// Only the page's own name box counts here (pageTyping): the in-game name screen sets typing.on by
+// itself and never calls syncKeys, so reading typing.on could leave the keyboard off after it.
 let asleep = false;
+let pageTyping = false;
 function syncKeys() {
   const kb = gameOf()?.input.keyboard;
   if (!kb) return;
-  kb.enabled = !typing.on && !asleep;
+  kb.enabled = !pageTyping && !asleep;
   if (!kb.enabled) (kb as unknown as { queue: KeyboardEvent[] }).queue.length = 0;   // public in Phaser, missing from its types
 }
-const keysToGame = (on: boolean) => { typing.on = !on; syncKeys(); };
+const keysToGame = (on: boolean) => { pageTyping = !on; typing.on = !on; syncKeys(); };
 input.addEventListener('focus', () => keysToGame(false));
 input.addEventListener('blur', () => keysToGame(true));
 form.addEventListener('submit', (e) => {

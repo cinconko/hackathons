@@ -77,7 +77,7 @@ export class PlayScene extends Phaser.Scene {
   private specialIcons: Phaser.GameObjects.Image[] = [];
   private cdG!: Phaser.GameObjects.Graphics;               // cooldown shading, ON TOP of the icons
   private cdTexts: Phaser.GameObjects.Text[] = [];          // seconds left on each recharging special
-  private texts!: { hp: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
+  private texts!: { hp: Phaser.GameObjects.Text; boss: Phaser.GameObjects.Text; status: Phaser.GameObjects.Text; retailer: Phaser.GameObjects.Text };
   private hand!: ReturnType<typeof handHud>;
   private walletUi!: ReturnType<typeof walletHud>;
   private keys!: Keys;
@@ -251,7 +251,9 @@ export class PlayScene extends Phaser.Scene {
     this.hud = this.add.graphics().setDepth(940);
     this.texts = {
       hp: this.add.text(PLAY.x + WALL + 66, PLAY.y + 2, '', FONT).setDepth(950),
-      boss: this.add.text(WIDTH / 2, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0).setDepth(950),
+      // under the boss bar, left-aligned on it: centred, a long status ran into the 8 special icons
+      boss: this.add.text(WIDTH / 2 - 50, PLAY.y + 10, '', { ...FONT, color: '#dddddd' }).setDepth(950),
+      status: this.add.text(WIDTH / 2 - 50, PLAY.y + 18, '', { ...FONT, color: '#b8e0a0' }).setDepth(950),
       retailer: this.add.text(PLAY.x + PLAY.width - 3, PLAY.y + 2, '', { ...FONT, color: '#9fd3ff' }).setOrigin(1, 0).setDepth(950),
     };
     this.keyIcon = this.add.image(PLAY.x + WALL + 112, PLAY.y + 5, 'key').setDepth(950).setVisible(false);
@@ -1221,7 +1223,8 @@ export class PlayScene extends Phaser.Scene {
     const now = this.fightMs;
     const status = [now < this.slowUntil ? 'slow' : '', now < this.poisonUntil ? `poison ${Math.ceil((this.poisonUntil - now) / 1000)}s` : '', now < this.paralyzedUntil ? 'stunned' : '']
       .filter(Boolean).join(' ');
-    this.texts.boss.setText(!this.bossDead ? `MOSSBACK ${this.stage}/3${status ? `  ${status}` : ''}` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
+    this.texts.boss.setText(!this.bossDead ? `MOSSBACK ${this.stage}/3` : this.doorOpen ? '<- the hidden door is west' : 'Take the key!');
+    this.texts.status.setText(this.bossDead ? '' : status);
     if (this.hand.visible) {
       const readyFrac = this.combat.readyFrac();
       this.hand.update(this.kit.weapons, this.combat.wIndex, readyFrac);

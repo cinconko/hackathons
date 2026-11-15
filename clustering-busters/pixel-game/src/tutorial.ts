@@ -168,7 +168,8 @@ export class Tutorial {
     const w = PLAY.width - 8, h = 38, x = PLAY.x + 4, y = PLAY.y + PLAY.height - h - 4;
     const c = this.scene.add.container(0, 0).setDepth(971);
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);   // solid: no signs showing through
+    // solid, and down to the frame: no signs, and no yard damage meter, showing through or below it
+    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, PLAY.y + PLAY.height - y).fillStyle(0xffcc44).fillRect(x, y, w, 1);
     const offer = this.state.step === 'offer' && this.talkLine === lines.length - 1;
     c.add([
       bg,
