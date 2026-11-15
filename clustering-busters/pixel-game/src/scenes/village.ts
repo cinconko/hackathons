@@ -462,6 +462,13 @@ export class VillageScene extends Phaser.Scene {
     const offers = this.offers();
     const who = MERCHANT_LOOK[s.merchantKind];
     const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
+    // his rug, big and sharp, behind the cards (in his robe's colour); dark bands keep the title and the keys readable
+    const robe = MERCHANT_ROBES[s.merchantKind];
+    const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
+    if (rug) {
+      c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
+      c.addAt(this.add.graphics().fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);   // title and keys line
+    }
     const cw = 58;
     const ch = 112;
     const gap = 3;
