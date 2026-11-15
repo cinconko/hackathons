@@ -487,8 +487,50 @@ export class BootScene extends Phaser.Scene {
     person('kid', 0xd8823a, 0x4ab84a, () => { px(0xffcc44, 0, 6, 1, 1); }, 9);                                         // small, freckled
     person('sergeant', 0x5a5a64, 0x7a7a84, () => { px(0x9a9aa8, 1, 0, 8, 2); px(0xd83a3a, 4, 7, 2, 3); px(0xdddddd, 9, 4, 1, 7); });   // helmet, armor, spear
 
-    tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
-    tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
+    // The catapult (src/catapult.ts places it): a wheeled siege catapult facing east. Base 40x22, the
+    // arm's axle at (28, 4); the winch at the back is its own sprite so it can turn; the arm 30x8,
+    // pivot at (2, 4), its bucket at the far end opening toward the texture's bottom (= up while it rests).
+    {
+      const DARK = 0x3a2a1a, WOOD = 0x7a5230, LIGHT = 0x9a7040, SHADE = 0x5a3a1a, IRON = 0x8a8a94, ROPE = 0xd8c8a0;
+      tex('catapult_base', 40, 22, () => {
+        // the trestle: two thick slanted posts from the bed up to the axle block, a double brace
+        for (let y = 4; y <= 13; y++) {
+          const t = (y - 4) / 9;
+          const bx = Math.round(25 - 4 * t);   // back post (3 px)
+          const fx = Math.round(30 + 4 * t);   // front post (3 px)
+          px(DARK, bx - 1, y, 1, 1); px(WOOD, bx, y, 2, 1); px(SHADE, bx + 2, y, 1, 1);
+          px(LIGHT, fx, y, 1, 1); px(WOOD, fx + 1, y, 2, 1); px(DARK, fx + 3, y, 1, 1);
+        }
+        px(DARK, 22, 9, 14, 1); px(WOOD, 23, 10, 12, 1); px(SHADE, 23, 11, 12, 1);   // the brace
+        // the axle block on top of the posts, strapped in iron (the pin goes through it and the arm)
+        px(DARK, 24, 1, 10, 6); px(WOOD, 25, 2, 8, 4); px(LIGHT, 25, 2, 8, 1); px(IRON, 24, 3, 10, 1);
+        px(ROPE, 33, 1, 5, 2); px(SHADE, 33, 3, 5, 1); px(SHADE, 35, 4, 1, 9);   // the padded stop the arm slams into
+        // the bed: a long beam with iron end caps; the winch post at the back
+        px(SHADE, 1, 13, 38, 4); px(WOOD, 1, 13, 38, 3); px(LIGHT, 1, 13, 38, 1);
+        px(IRON, 1, 13, 1, 4); px(IRON, 38, 13, 1, 4); px(IRON, 20, 13, 1, 4);
+        px(SHADE, 4, 8, 2, 5); px(SHADE, 7, 8, 2, 5);
+        // two spoked wheels
+        for (const cx of [8, 31]) {
+          g.fillStyle(DARK).fillCircle(cx + 0.5, 17.5, 4.5);
+          g.fillStyle(WOOD).fillCircle(cx + 0.5, 17.5, 3);
+          px(DARK, cx - 2, 17, 6, 1); px(DARK, cx, 15, 1, 6); px(IRON, cx, 17, 1, 1);
+        }
+      });
+      // the iron pin through the axle block and the arm's hub: drawn over the arm, it holds the two together
+      tex('catapult_pin', 5, 5, () => { px(DARK, 1, 0, 3, 5); px(DARK, 0, 1, 5, 3); px(IRON, 1, 1, 3, 3); px(0xd8d8e0, 1, 1, 1, 1); });
+      tex('catapult_winch', 7, 7, () => {
+        g.fillStyle(DARK).fillCircle(3.5, 3.5, 3.5); g.fillStyle(WOOD).fillCircle(3.5, 3.5, 2.5);
+        px(LIGHT, 3, 0, 1, 7); px(LIGHT, 0, 3, 7, 1); px(IRON, 3, 3, 1, 1);
+      });
+      tex('catapult_arm', 30, 8, () => {
+        px(SHADE, 3, 3, 19, 3); px(WOOD, 3, 3, 19, 2); px(LIGHT, 3, 3, 19, 1);    // the beam
+        px(IRON, 9, 3, 1, 3); px(IRON, 15, 3, 1, 3);                             // iron bands
+        g.fillStyle(DARK).fillCircle(2.5, 4.5, 2.5); px(IRON, 2, 4, 1, 1);       // the hub on the axle
+        // the bucket: back wall at the top, open at the bottom
+        px(DARK, 20, 0, 10, 2); px(DARK, 20, 0, 2, 7); px(DARK, 28, 0, 2, 7);
+        px(0x2a1a0a, 22, 2, 6, 4); px(LIGHT, 20, 0, 10, 1); px(IRON, 20, 2, 10, 1);
+      });
+    }
     g.destroy();
 
     // Animations (frames above, or a file sheet with the same keys). Created once for all scenes.
