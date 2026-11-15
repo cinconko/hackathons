@@ -442,7 +442,7 @@ export class VillageScene extends Phaser.Scene {
         this.dressHero();
         if ((it.kind === 'melee' || it.kind === 'range') && !after.handRevealed) {
           this.revealHand = true;
-          this.note = `${this.note} Check your hand when you leave!`;
+          this.note = `${it.name} bought! Look at your hand.`;   // the hand indicator pops up when you leave
         }
       }
     } else if (this.mode === 'gear') {
@@ -611,8 +611,18 @@ export class VillageScene extends Phaser.Scene {
     }
     this.dealCards = false;
     this.popCard = -1;
-    if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44' }));
+    if (this.note) this.noteLine(c, x, y, w, h);
     this.keysLine(c, x + 8, y + h - 11, [['Click or A/D+Enter: buy'], ['Q your gear', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
+  }
+
+  /**
+   * The shop's note ("Bought: ...", "costs ... rings") just above the keys line. One line when it
+   * fits; a long one wraps and grows upward over a dark strip, so it never runs past the frame.
+   */
+  private noteLine(c: Phaser.GameObjects.Container, x: number, y: number, w: number, h: number) {
+    const t = this.add.text(x + 8, y + h - 13, this.note, { ...FONT, color: '#ffcc44', wordWrap: { width: w - 16 } }).setOrigin(0, 1);
+    c.add(this.add.graphics().fillStyle(0x000000, 0.6).fillRect(x + 1, t.y - t.height - 2, w - 2, t.height + 2));
+    c.add(t);
   }
 
   /** The picked ware's book (src/shopArt.ts): name, kind and picture; the stats on the right page. */
@@ -649,7 +659,7 @@ export class VillageScene extends Phaser.Scene {
   private renderGear() {
     const s = loadSave();
     const inv = s.inventory;
-    const { c, bg, x, y, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', heroLook(this, inv.armor).down, 0x6fd13a, 240, 150);   // you, as you are dressed
+    const { c, bg, x, y, w, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', heroLook(this, inv.armor).down, 0x6fd13a, 240, 150);   // you, as you are dressed
     if (!inv.owned.length) c.add(this.add.text(x + 10, y + 34, 'Nothing yet: buy a card first.', { ...FONT, color: '#ffffff' }));
     const visible = 9;
     // scroll only when the pick leaves the visible rows: a mouse hover never moves the list under the mouse
@@ -668,7 +678,7 @@ export class VillageScene extends Phaser.Scene {
       c.add(this.add.text(x + 232, ry, worn ? 'EQUIPPED' : it.kind === 'special' ? 'key 1-8' : '', { ...FONT, color: worn ? '#6fd13a' : '#9fd3ff' }).setOrigin(1, 0));
       c.add(this.clickable(this.add.zone(x + 3, ry - 2, 234, 11).setOrigin(0), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
     });
-    if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44' }));
+    if (this.note) this.noteLine(c, x, y, w, h);
     this.keysLine(c, x + 8, y + h - 11, [['Click or W/S+Enter: wear'], ['Q cards', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
