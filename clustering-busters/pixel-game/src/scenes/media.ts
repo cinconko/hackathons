@@ -34,7 +34,7 @@ export class MediaScene extends Phaser.Scene {
     const sounds = [...s.music, ...s.sfx];
     this.add.text(PLAY.x + 4, PLAY.y + 3, `MEDIA CHECKLIST   art ${art}/${this.items.length}   sounds ${sounds.filter((x) => x.ok).length}/${sounds.length}`, { ...FONT, color: '#ffcc44' });
     this.info = this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 21, '', { ...FONT, color: '#cccccc' });
-    this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 11, 'A/D page   Esc menu   files go in public/media (see its README)', { ...FONT, color: '#666666' });
+    this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 11, 'A/D page   Esc menu   files: public/media', { ...FONT, color: '#666666' });
     const kb = this.input.keyboard!;
     kb.on('keydown-A', () => this.turn(-1));
     kb.on('keydown-LEFT', () => this.turn(-1));
@@ -90,7 +90,8 @@ export class MediaScene extends Phaser.Scene {
       const img = this.add.image(x + cw / 2, y + 14, it.key);
       img.setScale(Math.min(2, 22 / Math.max(it.w, it.h, 1)));
       c.add(img);
-      const name = it.key.length > 7 ? `${it.key.slice(0, 6)}~` : it.key;
+      const fit = Math.floor((cw - 4) / 5.4);              // letters that fit the cell (Silkscreen: ~5 px a letter + spacing)
+      const name = it.key.length > fit ? `${it.key.slice(0, fit - 1)}~` : it.key;
       c.add(this.add.text(x + cw / 2, y + 26, name, { ...FONT, color: it.art ? '#8fe08f' : '#aaaaaa' }).setOrigin(0.5, 0));
       const zone = this.add.zone(x + cw / 2, y + ch / 2, cw - 2, ch - 3).setInteractive();
       zone.on('pointerover', () => this.info.setText(`${it.key}  ${it.w}x${it.h}  ${it.art ? 'ART from file' : `DRAWN: add public/media/sprites/${it.key}.png`}`));

@@ -145,7 +145,7 @@ export class Tutorial {
     this.text.setText(this.goalText());
     const { x, y, w } = this.frame;
     const h = Math.max(22, Math.ceil(this.text.y + this.text.height - y) + 3);
-    this.bg.clear().fillStyle(0x000000, 0.8).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
+    this.bg.clear().fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
   }
 
   private show() {
@@ -168,7 +168,7 @@ export class Tutorial {
     const w = PLAY.width - 8, h = 38, x = PLAY.x + 4, y = PLAY.y + PLAY.height - h - 4;
     const c = this.scene.add.container(0, 0).setDepth(971);
     const bg = this.scene.add.graphics();
-    bg.fillStyle(0x000000, 0.85).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
+    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);   // solid: no signs showing through
     const offer = this.state.step === 'offer' && this.talkLine === lines.length - 1;
     c.add([
       bg,
