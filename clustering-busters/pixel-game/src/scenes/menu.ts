@@ -2,8 +2,8 @@ import Phaser from 'phaser';
 import { playMusic } from '../media';
 import { HEIGHT, WIDTH } from '../config';
 import { drawFrame } from '../frame';
-import { formatTime, walletValue } from '../game/rules';
-import { loadSave } from '../save';
+import { formatTime, startingWallet, walletValue } from '../game/rules';
+import { loadSave, resetSave } from '../save';
 import { fadeToScene, title } from '../ui';
 import { loadNick } from '../leaderboard';
 
@@ -40,6 +40,35 @@ export class MenuScene extends Phaser.Scene {
     this.input.keyboard?.once('keydown-L', () => go('board'));
     if (save.wins) this.input.keyboard?.once('keydown-V', () => go('outro'));
     this.input.once('pointerdown', start);
+
+    // R: start over as a new player (everything but the mute setting and your name). Shown only when
+    // there is progress to lose, and it asks twice: one stray key must not wipe a whole game.
+    const fresh = startingWallet();
+    const hasProgress = save.seenIntro || save.wins > 0 || save.spent > 0 || save.inventory.owned.length > 0
+      || walletValue(save.wallet) !== walletValue(fresh) || walletValue(save.lifetimeRings) > 0;
+    if (hasProgress) {
+      const ASK = 'R: new game (erases your progress)';
+      const reset = this.add.text(WIDTH / 2, 147, ASK, { ...FONT, color: '#c86a6a' }).setOrigin(0.5);
+      let armed: Phaser.Time.TimerEvent | null = null;
+      let lastPress = -1;
+      const disarm = () => { armed?.remove(); armed = null; reset.setText(ASK).setColor('#c86a6a'); };
+      this.input.keyboard?.on('keydown-R', (e: KeyboardEvent) => {
+        if (gone || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
+        // The page puts the game to sleep while its screen is scrolled away; asleep, Phaser never
+        // clears its key queue and replays old presses with every new key. Only a fresh press counts.
+        if (!this.game.loop.running || e.timeStamp <= lastPress) return;
+        lastPress = e.timeStamp;
+        if (!armed) {
+          reset.setText('Press R again to erase everything   Esc: keep it').setColor('#ff5555');
+          armed = this.time.delayedCall(4000, disarm);
+          return;
+        }
+        gone = true;
+        resetSave();
+        window.location.reload();   // a reload drops every running scene, so nothing old lingers
+      });
+      this.input.keyboard?.on('keydown-ESC', disarm);
+    }
 
     drawFrame(this);
     playMusic(this, 'menu');
