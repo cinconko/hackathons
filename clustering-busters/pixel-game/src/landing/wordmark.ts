@@ -1,7 +1,7 @@
 import { paintRing, RING_LOOKS, RING_SIZE, type RingLook } from '../ringArt';
 
 // The hero's wordmark: RINGFALL built from pixel rings (5x7 letters, one ring per pixel), RING in
-// gold, FALL in black, and here and there a lucky rare (blue) or super rare (pink) ring. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
+// gold, FALL in silver (the page is black), and here and there a lucky rare (blue) or super rare (pink) ring. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
 // fly off, spin, fall, then slide back home. Every tile knocked counts in the "Rings knocked" tag.
 // With nobody steering, he walks through the word on his own now and then.
 // prefers-reduced-motion: the word is drawn once, nobody walks, nothing flies.
@@ -36,7 +36,7 @@ interface Tile {
 type Kind = 'gold' | 'dark' | 'rare' | 'super';
 const LOOKS: Record<Kind, { look: RingLook; shadow: string }> = {
   gold: { look: { H: 0xfff3c4, B: 0xffcc44, D: 0xb8862a, w: 0xffffff, g: 0xf4f4f8, d: 0xc8c8d0 }, shadow: '#111111' },
-  dark: { look: { H: 0x5a5a5a, B: 0x2a2a2a, D: 0x111111, w: 0xfff3c4, g: 0xffcc44, d: 0xb8862a }, shadow: '#ffcc44' },
+  dark: { look: { H: 0xffffff, B: 0xc8c8d0, D: 0x8a8a96, w: 0xfff3c4, g: 0xffcc44, d: 0xb8862a }, shadow: '#000000' },   // silver (the classic ring): the page is all black
   rare: { look: RING_LOOKS.rare, shadow: '#111111' },
   super: { look: RING_LOOKS.superRare, shadow: '#111111' },
 };
