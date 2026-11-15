@@ -2,6 +2,11 @@ import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
 import { countRings, formatTime, type Rarity } from '../game/rules';
 import { CutsceneScene, GROUND, type CutsceneEnd, type Shot } from './cutscene';
+import { heroLook } from '../player';
+import { loadSave } from '../save';
+
+/** The hero as he is now: in the armour he wears (the steel knight, the leather farmer...). */
+const heroKey = (s: Phaser.Scene) => heroLook(s, loadSave().inventory.armor).down;
 
 // The ending, after your first recovered treasury: Mossback beaten in his lair, the rings carried
 // home, the feast under fireworks, and a last look at his mountain. Then THE END, your time, and
@@ -46,7 +51,7 @@ export class OutroScene extends CutsceneScene {
         });
         // the hero, the key held high
         // 2x like the key (whatever the hero sprite's size), feet on the floor; the key held just over his head
-        const hero = o.add.image(WIDTH / 2 - 54, PLAY.y + 126, 'player').setOrigin(0.5, 1).setScale(2).setDepth(24);
+        const hero = o.add.image(WIDTH / 2 - 54, PLAY.y + 126, heroKey(o)).setOrigin(0.5, 1).setScale(2).setDepth(24);
         const key = o.add.image(hero.x + 4, hero.y - hero.displayHeight - 6, 'key').setScale(2).setDepth(25);
         o.tweens.add({ targets: key, y: key.y - 3, yoyo: true, repeat: -1, duration: 400 });
         const glint = o.add.image(key.x - 6, key.y - 3, 'sparkle').setDepth(26);
@@ -72,7 +77,7 @@ export class OutroScene extends CutsceneScene {
         const items: Phaser.GameObjects.GameObject[] = [sky, ...clouds, m, ...o.treeLine(ground, 3), ...o.grass(ground, 4)];   // all removed with the shot
         items.push(o.add.tileSprite(PLAY.x, ground + 14, PLAY.width, 9, 'path_dirt').setOrigin(0).setDepth(5));
         // the hero, a chest over his head, rings glinting behind him
-        const hero = o.add.image(PLAY.x + 10, ground + 24, 'player').setOrigin(0.5, 1).setScale(2).setDepth(12);   // feet on the path
+        const hero = o.add.image(PLAY.x + 10, ground + 24, heroKey(o)).setOrigin(0.5, 1).setScale(2).setDepth(12);   // feet on the path
         const chest = o.add.image(hero.x, hero.y - hero.displayHeight - 8, 'chest').setScale(1.5).setDepth(13);
         o.tweens.add({ targets: [hero, chest], x: `+=${PLAY.width - 40}`, duration: 5200, ease: 'Linear' });
         o.tweens.add({ targets: [hero, chest], y: '-=2', yoyo: true, repeat: -1, duration: 180 });
@@ -93,7 +98,7 @@ export class OutroScene extends CutsceneScene {
         const o = s as OutroScene;
         const items = o.nightVillage(true);
         // everyone around the campfire, jumping for joy (above the night, lit by the fire)
-        const folk: [string, number][] = [['villager_a', 184], ['kid', 196], ['player', 208], ['grandpa', 240], ['villager_b', 252], ['elder', 264]];
+        const folk: [string, number][] = [['villager_a', 184], ['kid', 196], [heroKey(o), 208], ['grandpa', 240], ['villager_b', 252], ['elder', 264]];
         folk.forEach(([key, x], i) => {
           const f = o.add.image(PLAY.x + x, 140, key).setOrigin(0.5, 1).setDepth(33).setFlipX(x > 222);
           o.tweens.add({ targets: f, y: f.y - 5, yoyo: true, repeat: -1, duration: 220 + (i % 3) * 40, delay: i * 90, ease: 'Quad.easeOut' });
