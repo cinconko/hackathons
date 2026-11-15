@@ -12,6 +12,9 @@ import { MenuScene } from './scenes/menu';
 import { PlayScene } from './scenes/play';
 import { ResultScene } from './scenes/result';
 import { TreasuryScene } from './scenes/treasury';
+import { BoardScene } from './scenes/board';
+import { NickScene } from './scenes/nick';
+import { typing } from './leaderboard';
 import { VillageScene } from './scenes/village';
 
 installCrispText();                     // every text snapped to whole pixels (no grey fog when scaled up)
@@ -31,7 +34,7 @@ const game = new Phaser.Game({
   // 30 fps machine, so the whole game (movement, bullets, cooldowns, timers) ran at half speed.
   // min 20 fps = one frame never counts for more than 50 ms (no tunnelling through walls).
   fps: { smoothStep: false, min: 20 },
-  scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, OutroScene, MediaScene],
+  scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, OutroScene, NickScene, BoardScene, MediaScene],
 });
 
 // Largest whole-number zoom that fits the screen box (in fullscreen: the whole monitor). Every
@@ -55,7 +58,7 @@ if (screenBox) new ResizeObserver(() => fitCanvas()).observe(screenBox);   // th
 // M mutes all sound (remembered).
 game.sound.mute = loadSave().muted;
 window.addEventListener('keydown', (e) => {
-  if (e.key !== 'm' && e.key !== 'M') return;
+  if (typing.on || (e.key !== 'm' && e.key !== 'M')) return;
   game.sound.mute = !game.sound.mute;
   updateSave((s) => ({ ...s, muted: game.sound.mute }));
 });
@@ -64,7 +67,7 @@ window.addEventListener('keydown', (e) => {
 // Only the mute setting stays. A reload drops every running scene, so nothing old lingers.
 if (import.meta.env.DEV) {
   window.addEventListener('keydown', (e) => {
-    if ((e.key !== 'r' && e.key !== 'R') || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
+    if (typing.on || (e.key !== 'r' && e.key !== 'R') || e.repeat || e.metaKey || e.ctrlKey) return;   // Cmd+R stays a normal reload
     resetSave();
     window.location.reload();
   });
@@ -77,7 +80,7 @@ function toggleFullscreen() {
   else void (screenBox ?? document.documentElement).requestFullscreen().catch(() => { /* blocked: stay windowed */ });
 }
 window.addEventListener('keydown', (e) => {
-  if (e.key !== 'f' && e.key !== 'F') return;
+  if (typing.on || (e.key !== 'f' && e.key !== 'F')) return;
   toggleFullscreen();
 });
 const fsButton = document.getElementById('fullscreen');

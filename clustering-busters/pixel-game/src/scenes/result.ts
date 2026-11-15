@@ -5,6 +5,7 @@ import { drawFrame } from '../frame';
 import { addRings, countRings, formatTime, RARITY_ORDER, RINGS, walletValue, type FightResult } from '../game/rules';
 import { updateSave } from '../save';
 import { fadeToScene, FONT, hex, TITLE_FONT } from '../ui';
+import { submitWin } from '../leaderboard';
 
 // After the treasury: what you found this run. The wallet arrives already counted (the arena
 // and the treasury keep it up to date); this screen saves it. Continue -> back to the village.
@@ -27,6 +28,8 @@ export class ResultScene extends Phaser.Scene {
         bestTimeMs: newBest ? data.timeMs : s.bestTimeMs,
       };
     });
+    // every win goes on the leaderboard (sent now; the board scene shows the answer)
+    const sent = data.won ? submitWin(data.timeMs) : null;
     // the first recovered treasury: no separate results screen, the ending's THE END card shows them
     if (data.won && save.wins === 1) {
       this.scene.start('outro', { timeMs: data.timeMs, newBest, found: data.found, worth: walletValue(save.wallet) });
@@ -48,7 +51,13 @@ export class ResultScene extends Phaser.Scene {
     drawFrame(this);
     this.cameras.main.fadeIn(500);
     playMusic(this, 'victory');
-    const back = () => fadeToScene(this, 'village', { fromRun: true });   // the merchant deals new cards
+    // your place on the leaderboard, when the answer comes
+    const place = this.add.text(WIDTH / 2, 136, '', { ...FONT, color: '#9fd3ff' }).setOrigin(0.5);
+    void sent?.then((b) => { if (b?.rank && this.scene.isActive()) place.setText(`Leaderboard: #${b.rank} of ${b.total}`); });
+    // a win shows the leaderboard first, then the village (the merchant deals new cards)
+    const back = () => (data.won
+      ? fadeToScene(this, 'board', { timeMs: data.timeMs, after: 'village', fromRun: true })
+      : fadeToScene(this, 'village', { fromRun: true }));
     this.time.delayedCall(500, () => {   // a short pause so a held attack key does not skip this screen
       this.input.keyboard?.once('keydown-ENTER', back);
       this.input.once('pointerdown', back);
