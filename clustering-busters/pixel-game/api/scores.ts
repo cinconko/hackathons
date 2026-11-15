@@ -1,4 +1,4 @@
-// The leaderboard API (a Vercel Function; the site's password middleware runs before it).
+// The leaderboard API (a Vercel Function; the site is public, so these checks are the only guard).
 //
 //   GET  /api/scores                     -> { top: [{ nick, timeMs }], total }
 //   POST /api/scores { nick, timeMs }    -> { top, total, rank }   (the win is saved first)
@@ -8,7 +8,8 @@
 // (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY): the browser never sees a database key. Every name
 // and time is checked again here with the same rules the game uses (src/game/leaderboard.ts),
 // because anything sent from a browser can be faked.
-import { BOARD_SIZE, cleanNick, rankFor, validTime, type Score } from '../src/game/leaderboard.ts';
+// '.js', not '.ts': Vercel compiles this function to JavaScript but keeps the import path as written
+import { BOARD_SIZE, cleanNick, rankFor, validTime, type Score } from '../src/game/leaderboard.js';
 
 declare const process: { env: Record<string, string | undefined> };
 
