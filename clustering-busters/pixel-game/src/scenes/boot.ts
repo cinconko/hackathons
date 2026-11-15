@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { makeVillageArt } from '../villageArt';
-import { CATALOG, RINGS, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
+import { CATALOG, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
 import { mediaStatus, ROBES } from '../media';
+import { paintRing, RING_LOOKS, RING_SIZE } from '../ringArt';
 import { loadSave, updateSave } from '../save';
 
 // Draws a placeholder for every sprite that has no file in public/media/sprites (see its README).
@@ -192,13 +193,8 @@ export class BootScene extends Phaser.Scene {
     tex('shadow', 10, 4, () => { g.fillStyle(0x000000, 0.45).fillEllipse(5, 2, 10, 4); });
     tex('sparkle', 5, 5, () => { px(0xffffff, 2, 0, 1, 5); px(0xffffff, 0, 2, 5, 1); px(GOLD, 2, 2); });
 
-    for (const r of RARITY_ORDER) {
-      const c = RINGS[r].color;
-      tex(`ring_${r}`, 7, 7, () => {
-        px(c, 2, 0, 3, 1); px(c, 2, 6, 3, 1); px(c, 0, 2, 1, 3); px(c, 6, 2, 1, 3);
-        px(c, 1, 1); px(c, 5, 1); px(c, 1, 5); px(c, 5, 5); px(0xffffff, 3, 0);
-      });
-    }
+    // the rings: a band and a stone on top, silver/pearl, gold/blue, gold/pink (src/ringArt.ts)
+    for (const r of RARITY_ORDER) tex(`ring_${r}`, RING_SIZE, RING_SIZE, () => paintRing(RING_LOOKS[r], (c, x, y) => px(c, x, y)));
 
     // Fisherman 14x18: straw hat, white beard, green coat, boots, fishing rod.
     tex('fisher', 14, 18, () => {
