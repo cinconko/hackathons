@@ -10,7 +10,7 @@
 // Every timer runs on the scene's clock (`now`), so the arena can stop it for the shop and hit-stop.
 import Phaser from 'phaser';
 import * as R from './game/rules';
-import { lookOf } from './player';
+import { lookOf, setHeroBase } from './player';
 import { sfx } from './media';
 import type { Keys } from './player';
 
@@ -98,8 +98,8 @@ export class Combat {
     const a = this.aimDir();
     const p = this.o.player;
     const look = lookOf(p);
-    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) p.setTexture(a.y < 0 ? look.up : look.down).setFlipX(false);
-    else p.setTexture(look.side).setFlipX(a.x < 0);
+    if (Math.abs(a.y) > Math.abs(a.x) * 1.2) { setHeroBase(p, a.y < 0 ? look.up : look.down); p.setFlipX(false); }
+    else { setHeroBase(p, look.side); p.setFlipX(a.x < 0); }   // the walking or breathing frame of that drawing
   }
 
   /** Where the hero aims: at the cursor once the mouse is used, else the way he walks. */
