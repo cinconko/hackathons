@@ -1,7 +1,7 @@
 import { cleanNick, type Score } from './game/leaderboard';
 
 const NICK_KEY = 'pixel-game:nick';
-const API = '/api/scores';
+const API = (globalThis as { RINGFALL_API?: string }).RINGFALL_API ?? '/api/scores';   // itch.html points this at the website's API
 const TIMEOUT_MS = 6000;
 
 export function loadNick(): string | null {

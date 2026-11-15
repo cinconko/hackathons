@@ -60,7 +60,7 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
-      input: { game: join(__dirname, 'index.html') },
+      input: { game: join(__dirname, 'index.html'), itch: join(__dirname, 'itch.html') },
       output: { manualChunks: { phaser: ['phaser'] } },
     },
   },

@@ -23,6 +23,24 @@ function db(path: string, init: RequestInit & { count?: boolean } = {}) {
   });
 }
 
+// The itch.io build calls this API from its own domain: allow exactly itch.io's origins, nothing else.
+const ITCH = /^https:\/\/([a-z0-9-]+\.)*itch\.(io|zone)$/;
+const itchOrigin = (request: Request) => { const o = request.headers.get('origin') ?? ''; return ITCH.test(o) ? o : null; };
+function cors(request: Request, res: Response): Response {
+  const origin = itchOrigin(request);
+  if (origin) { res.headers.set('Access-Control-Allow-Origin', origin); res.headers.set('Vary', 'Origin'); }
+  return res;
+}
+
+export function OPTIONS(request: Request): Response {
+  const origin = itchOrigin(request);
+  if (!origin) return new Response(null, { status: 204 });
+  return new Response(null, { status: 204, headers: {
+    'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', Vary: 'Origin',
+  } });
+}
+
 const totalOf = (res: Response): number => Number(res.headers.get('content-range')?.split('/')[1] ?? 0) || 0;
 
 async function board(): Promise<{ top: Score[]; total: number }> {
@@ -36,6 +54,10 @@ async function board(): Promise<{ top: Score[]; total: number }> {
 const ticketSecret = () => process.env.SCORE_TICKET_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
 export async function GET(request: Request): Promise<Response> {
+  return cors(request, await getScores(request));
+}
+
+async function getScores(request: Request): Promise<Response> {
   if (new URL(request.url).searchParams.get('run') === 'new') {
     const secret = ticketSecret();
     if (!secret) return json({ error: 'The leaderboard is offline.' }, 503);
@@ -51,6 +73,10 @@ export async function GET(request: Request): Promise<Response> {
 
 // Never trust the browser: re-check every name and time here; the service-role key must stay server-side.
 export async function POST(request: Request): Promise<Response> {
+  return cors(request, await postScore(request));
+}
+
+async function postScore(request: Request): Promise<Response> {
   const raw = await request.text();
   if (raw.length > 512) return json({ error: 'Too big.' }, 413);
   let body: { nick?: unknown; timeMs?: unknown; ticket?: unknown };

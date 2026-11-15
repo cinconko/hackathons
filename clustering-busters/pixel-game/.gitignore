@@ -3,3 +3,4 @@ dist/
 pixel-game-itch.zip
 .vercel
 .env*
+itch-build/

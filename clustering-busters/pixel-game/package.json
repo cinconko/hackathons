@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "npm test && tsc --noEmit && vite build",
     "preview": "vite preview",
-    "itch": "npm run build && rm -f pixel-game-itch.zip && cd dist && zip -qr ../pixel-game-itch.zip . && echo 'pixel-game-itch.zip ready for itch.io upload'",
+    "itch": "npm run build && rm -rf itch-build pixel-game-itch.zip && cp -R dist itch-build && mv itch-build/itch.html itch-build/index.html && rm -f itch-build/robots.txt itch-build/sitemap.xml itch-build/site.webmanifest itch-build/og-image.png && cd itch-build && zip -qr ../pixel-game-itch.zip . && cd .. && rm -rf itch-build && echo 'pixel-game-itch.zip ready for itch.io upload'",
     "test": "node --test 'test/*.test.ts'",
     "art": "tools/import-art.sh"
   },
