@@ -332,3 +332,12 @@ footer .logo { color: var(--ink); }
 .start:focus-within .blink { visibility: hidden; }
 /* 7) higher contrast on request */
 @media (prefers-contrast: more) { .sub, .hint, .robes small, footer p { opacity: 1; } }
+
+/* ---- Only black (our user's choice): every band is night, no paper, no white cards ----
+   Gold stays the accent (buttons, stickers, highlights keep their dark ink on gold). */
+body, .paper { background: var(--night); background-image: none; color: var(--text); }
+.card, .chip, .btn.outline, .tag, .legend, .field, .mouse, .arrows i { background: var(--panel); border-color: var(--edge); color: var(--text); }
+.card, .btn.outline { box-shadow: 6px 6px 0 #000; }
+.field input, footer .logo, .odds-badge { color: var(--text); }
+.mouse::after { background: var(--text); }
+.paper .big em { box-shadow: 4px 4px 0 #000; }
