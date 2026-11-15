@@ -3,16 +3,19 @@ import { HEIGHT, WIDTH } from '../config';
 import { loadFonts, mediaStatus, queueMedia } from '../media';
 import type { MediaManifest } from '../../tools/media-manifest';
 
+const inlineManifest = () => (window as unknown as { __MEDIA__?: MediaManifest }).__MEDIA__;
+
 export class PreloadScene extends Phaser.Scene {
   constructor() { super('preload'); }
 
   preload() {
+    this.load.imageLoadType = 'HTMLImageElement';
     this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => console.warn(`[media] could not load ${file.src}: using the placeholder`));
-    this.load.json('media-manifest', 'media/manifest.json');
+    if (!inlineManifest()) this.load.json('media-manifest', 'media/manifest.json');
   }
 
   create() {
-    const m = this.cache.json.get('media-manifest') as MediaManifest | undefined;
+    const m = inlineManifest() ?? (this.cache.json.get('media-manifest') as MediaManifest | undefined);
     if (!m || typeof m !== 'object' || !m.sprites) { this.scene.start('boot'); return; }
     mediaStatus.manifest = m;
     loadFonts(m).then(() => this.loadFiles(m));

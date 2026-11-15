@@ -2,17 +2,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=public/media/sprites
+PNG=(-strip -define png:compression-level=9 -define png:compression-strategy=1 -define png:compression-filter=5)
 command -v magick >/dev/null || { echo "ImageMagick is missing: brew install imagemagick"; exit 1; }
 
 make() {
   local src="art/$1" key="$2" size="$3" mode="$4" w="${3%x*}" h="${3#*x}"
   case "$mode" in
-    cut)   magick "$src" -trim +repage -filter Box -resize "${size}!" -channel A -threshold 50% +channel "$OUT/$key.png" ;;
+    cut)   magick "$src" -trim +repage -filter Box -resize "${size}!" -channel A -threshold 50% +channel "${PNG[@]}" "$OUT/$key.png" ;;
     bob)   magick "$src" -trim +repage -filter Box -resize "${w}x$((h - 1))!" -channel A -threshold 50% +channel \
-             -background none -gravity south -extent "$size" "$OUT/$key.png" ;;
-    tile)  magick "$src" -filter Box -resize "${size}!" "$OUT/$key.png" ;;
-    ttile) magick "$src" -trim +repage -filter Box -resize "${size}!" "$OUT/$key.png" ;;
-    cover) magick "$src" -filter Box -resize "${size}^" -gravity center -extent "$size" "$OUT/$key.png" ;;
+             -background none -gravity south -extent "$size" "${PNG[@]}" "$OUT/$key.png" ;;
+    tile)  magick "$src" -filter Box -resize "${size}!" "${PNG[@]}" "$OUT/$key.png" ;;
+    ttile) magick "$src" -trim +repage -filter Box -resize "${size}!" "${PNG[@]}" "$OUT/$key.png" ;;
+    cover) magick "$src" -filter Box -resize "${size}^" -gravity center -extent "$size" "${PNG[@]}" "$OUT/$key.png" ;;
   esac
   echo "  $key  $size  <- $1"
 }

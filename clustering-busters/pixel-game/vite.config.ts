@@ -1,7 +1,8 @@
-import { readdirSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
-import { buildManifest } from './tools/media-manifest';
+import { buildManifest, type MediaManifest } from './tools/media-manifest';
 
 const MEDIA = join(__dirname, 'public', 'media');
 
@@ -17,11 +18,13 @@ function walk(dir: string): string[] {
   return out;
 }
 
+const fingerprint = (file: string) => createHash('sha1').update(readFileSync(join(MEDIA, file))).digest('hex').slice(0, 8);
+
 function mediaManifest(): Plugin {
-  const manifest = () => {
-    const m = buildManifest(walk(MEDIA));
+  const manifest = (): MediaManifest => {
+    const m = buildManifest(walk(MEDIA), fingerprint);
     if (m.skipped.length) console.warn(`[media] ignored (check the names, see public/media/README.md): ${m.skipped.join(', ')}`);
-    return JSON.stringify(m, null, 2);
+    return m;
   };
   let outDir = 'dist';
   return {
@@ -32,13 +35,20 @@ function mediaManifest(): Plugin {
         if (!req.url || !req.url.split('?')[0].endsWith('/media/manifest.json')) return next();
         res.setHeader('Content-Type', 'application/json');
         res.setHeader('Cache-Control', 'no-store');
-        res.end(manifest());
+        res.end(JSON.stringify(manifest()));
       });
     },
+    transformIndexHtml(html) {
+      const m = manifest();
+      const json = JSON.stringify(m).replace(/</g, '\\u003c');
+      const warm = `window.__MEDIA__=${json};window.__MEDIA_IMG__=Object.values(__MEDIA__.sprites).concat(Object.values(__MEDIA__.sheets).map(function(s){return s.url})).map(function(u){var i=new Image();i.crossOrigin='anonymous';i.src=u;return i})`;
+      for (const [name, url] of Object.entries(m.fonts)) html = html.split(`'./media/fonts/${name}.ttf'`).join(`'./${url}'`);
+      return html.replace('<head>', `<head>\n  <script>${warm}</script>`);
+    },
     closeBundle() {
-      const dir = join(__dirname, outDir, 'media');
+      const dir = resolve(__dirname, outDir, 'media');
       mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, 'manifest.json'), manifest());
+      writeFileSync(join(dir, 'manifest.json'), JSON.stringify(manifest()));
     },
   };
 }
@@ -46,6 +56,7 @@ function mediaManifest(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [mediaManifest()],
+  resolve: { alias: [{ find: /^phaser$/, replacement: 'phaser/dist/phaser-arcade-physics.min.js' }] },
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {

@@ -17,20 +17,20 @@ const FONT_RE = new RegExp(`^fonts/(${KEY})\\.(?:ttf|otf|woff2?)$`);
 const AUDIO_RE = new RegExp(`^audio/(music|sfx)/(${KEY})\\.(${AUDIO.join('|')})$`);
 const QUIET = /(^|\/)(README\.md|\.gitkeep|\.DS_Store|manifest\.json)$/;
 
-export function buildManifest(files: readonly string[]): MediaManifest {
+export function buildManifest(files: readonly string[], version?: (file: string) => string): MediaManifest {
   const m: MediaManifest = { sprites: {}, sheets: {}, music: {}, sfx: {}, fonts: {}, skipped: [] };
   for (const f of [...files].sort()) {
-    const url = `media/${f}`;
+    const url = () => (version ? `media/${f}?v=${version(f)}` : `media/${f}`);
     let r: RegExpExecArray | null;
-    if ((r = SPRITE_RE.exec(f))) m.sprites[r[1]] = url;
-    else if ((r = SHEET_RE.exec(f))) m.sheets[r[1]] = { url, frameWidth: Number(r[2]), frameHeight: Number(r[3]) };
-    else if ((r = FONT_RE.exec(f))) m.fonts[r[1]] = url;
+    if ((r = SPRITE_RE.exec(f))) m.sprites[r[1]] = url();
+    else if ((r = SHEET_RE.exec(f))) m.sheets[r[1]] = { url: url(), frameWidth: Number(r[2]), frameHeight: Number(r[3]) };
+    else if ((r = FONT_RE.exec(f))) m.fonts[r[1]] = url();
     else if ((r = AUDIO_RE.exec(f))) {
       const group = r[1] === 'music' ? m.music : m.sfx;
-      (group[r[2]] ??= []).push(url);
+      (group[r[2]] ??= []).push(url());
     } else if (!QUIET.test(f)) m.skipped.push(f);
   }
-  const ext = (u: string) => AUDIO.indexOf(u.slice(u.lastIndexOf('.') + 1));
+  const ext = (u: string) => { const path = u.split('?')[0]; return AUDIO.indexOf(path.slice(path.lastIndexOf('.') + 1)); };
   for (const g of [m.music, m.sfx]) for (const k of Object.keys(g)) g[k].sort((a, b) => ext(a) - ext(b));
   return m;
 }
