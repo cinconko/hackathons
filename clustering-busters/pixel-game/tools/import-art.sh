@@ -61,11 +61,11 @@ for c in DarkBlue Gray Green Orange Red Special; do
 done
 
 # The boss: one picture; boot makes the stage colours, the key and the hit flash, the arena moves it.
-# Armor you can see on the hero (front view; it serves every direction). Drawn at game size.
-for m in copper bronze iron steel magnetite; do make "Armor/$m.png" "hero_$m" 16x28 cut; done
+# Armor you can see on the hero (front view; it serves every direction). 18 tall, like the merchant.
+for m in copper bronze iron steel magnetite; do make "Armor/$m.png" "hero_$m" 13x18 cut; done
 # The hero himself: the farmer (no armour; it replaces the old 8x10 placeholder everywhere), and in leather
-make Hero/farmer.png             player          16x28 cut
-make Hero/leather.png            hero_leather    16x28 cut
+make Hero/farmer.png             player          10x18 cut
+make Hero/leather.png            hero_leather    10x18 cut
 make Boss_Ver02.png              boss_art        32x35 cut
 # Campfire: level 1 wood only, level 2 in a ring of stones (boot adds the flicker frames).
 make Campfire/Campfire_1.png     campfire_wood   18x17 cut
