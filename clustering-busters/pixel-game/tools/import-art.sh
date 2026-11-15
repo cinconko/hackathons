@@ -51,11 +51,13 @@ make Sky03.avif           sky             312x172 cover
 make Merchant/Merchant_Green.png              merchant_0  16x18 cut
 make Merchant/Merchant_Green.png              merchant_1  16x18 bob
 make Merchant/Blanket/March_Blanket_Original.png blanket  36x18 cut
+make Merchant/Blanket/March_Blanket_Original.png rug      249x168 cut   # big: behind the shop cards
 for c in DarkBlue Gray Green Orange Red Special; do
   k=$(echo "$c" | tr '[:upper:]' '[:lower:]')
   make "Merchant/Merchant_$c.png"              "merchant_${k}_0" 16x18 cut
   make "Merchant/Merchant_$c.png"              "merchant_${k}_1" 16x18 bob
   make "Merchant/Blanket/March_Blanket_$c.png" "blanket_$k"      36x18 cut
+  make "Merchant/Blanket/March_Blanket_$c.png" "rug_$k"          249x168 cut
 done
 
 # The boss: one picture; boot makes the stage colours, the key and the hit flash, the arena moves it.
