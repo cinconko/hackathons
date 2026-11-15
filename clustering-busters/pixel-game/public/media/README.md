@@ -11,6 +11,18 @@ public/media/
   audio/sfx/<event>.ogg        a sound effect for a game event
 ```
 
+## Drew it big? Put it in `art/` instead
+
+Big pictures (hundreds of pixels, any name, PNG / JPG / AVIF) go in **`pixel-game/art/`**, not
+here. Add one line for the file to `tools/import-art.sh` (source, sprite key, size in game
+pixels, `cut` / `tile` / `cover`) and run **`npm run art`** (needs ImageMagick). It shrinks the
+picture and writes `sprites/<key>.png` here. The originals stay out of the build.
+
+Made this way so far: `tree`, `bush_big(_berry)`, `bush_mid(_berry)`, `cloud`, `grass` (village
+ground), `water` (arena pond), `floor_wood` + `wall_wood` (treasury), `sky` (intro catapult shot),
+and the merchant in six robe colours with a matching blanket (`merchant_<robe>_0/_1`,
+`blanket_<robe>`; each deal picks a robe).
+
 ## What to draw: the checklist
 
 Open the game with **`?scene=media`** (e.g. http://127.0.0.1:5173/?scene=media). It shows every
@@ -26,9 +38,30 @@ page lists the music and sound effects. The browser console also prints a table 
 - **Draw at the game's real size** (the checklist shows it). The game is a 320x180 grid and
   scales up by whole steps itself: do not pre-scale.
 - **Weapons in hand point right**: the game rotates them toward the aim.
-- **The boss has one sprite per stage** (`boss_1` green, `boss_2` orange, `boss_3` red), plus
-  `boss_flash` (all white, shown for a frame when hit) and `boss_nokey` (after the key fell).
+- **The boss is one picture**: `art/Boss.png` -> `npm run art` -> `sprites/boss_art.png` (32x35).
+  The game makes the rest from it: stage 2 orange and stage 3 red glow, the key on his chest,
+  `boss_flash` (white, when hit) and `boss_nokey`. He is animated by moving the whole picture
+  (waddle, rear back, lunge, recoil), so the drawing is never cut. A file named like one of those
+  keys (`boss_2.png`) still wins over the made one.
+- **Campfires**: `art/Campfire/Campfire_1.png` (wood, village level 1) and `Campfire_2.png` (stones,
+  levels 2-3) -> `campfire_wood.png` / `campfire_stone.png`; the game adds the flicker frames.
+- **Spells** (`art/Spells/<spell>.png`, `_held`, `_large`, `_ring`): the orb flies (`proj_<spell>`) and
+  is the HUD icon (`icon_<spell>`), the casting hand flashes when you cast (`proj_<spell>_cast`), the
+  large swirl is the merchant's card (`card_<spell>`), the ring bursts where it hits (`proj_<spell>_hit`).
+  Any projectile gets a cast flash / hit burst just by adding those two files.
+  Fireball, Freeze, Health suck and Poison use potions as their icon and card (`art/Spells/*_potion.png`,
+  `art/Supplies/health_potion.png`).
+- **Supplies**: `supply_<id>` shows next to it in the fisherman's shop (`supply_potion` = the health potion).
+- **No spaces in file names**: `fireball held.png` is skipped. Use `_` (`fireball_held.png`).
+- **Big source art goes in `art/`, not here**: everything in `public/` ships to players.
 - PNG or WebP for images; OGG first for sound, with an MP3 copy if it must play in Safari.
+
+## Weapons in hand
+
+Name the file after the weapon: `dagger`, `sword`, `axe`, `mace`, `warhammer`, `spear`, `slingshot`,
+`bow`, `crossbow`, `javelin`, `handcannon` (`.png`, in `sprites/`). Draw it upright or pointing right,
+on any canvas: the game trims the empty border and turns it to point right in the hero's hand. It is
+also the picture on the merchant's card and in the "in hand" slots.
 
 ## Weapon pictures (optional, big and detailed)
 
@@ -36,6 +69,12 @@ page lists the music and sound effects. The browser console also prints a table 
 big picture of the weapon in hand, shown in the black space beside the game. Any size, drawn as
 detailed as you like, transparent background, the weapon upright. Without it the game shows the
 small sprite blown up.
+
+## Fonts
+
+`fonts/<name>.ttf` (or `.otf`, `.woff`, `.woff2`) is loaded before the first screen under the
+family name `<name>`. Titles use `alagard` (Alagard by Hewett Tsoi, credit required, see
+`CREDITS.md`). It is a pixel font drawn for 16 px: use it at 16 or 32 px only.
 
 ## Music (one per scene)
 

@@ -1,3 +1,4 @@
+import type { MerchantKind } from './game/rules';
 // Media orchestration at runtime: what to load from public/media, which sprites still use the
 // placeholder drawn in code, and the sound (music per scene, effects per event).
 //
@@ -14,7 +15,19 @@ export const SFX_KEYS = [
   'swing', 'shoot', 'hit', 'hurt', 'block', 'spell', 'ring', 'buy', 'stage', 'victory',
   'door', 'land', 'launch', 'bounce', 'splash', 'levelup',
 ] as const;
-export type MusicKey = (typeof MUSIC_KEYS)[number];
+/**
+ * The merchant's robe colours. Sprites merchant_<robe>_0/_1 and blanket_<robe>; each deal picks one
+ * (robeFor), the blanket matches. Missing files = the default merchant_0/_1 and blanket.
+ */
+export const ROBES = ['darkblue', 'gray', 'green', 'orange', 'red', 'special'] as const;
+export type Robe = (typeof ROBES)[number];
+
+/** Each merchant's robe tells you what he mainly sells (rules.ts MERCHANT_SELLS). */
+export const MERCHANT_ROBES: Readonly<Record<MerchantKind, Robe>> = {
+  ranger: 'darkblue', smith: 'red', armorer: 'gray', alchemist: 'green', peddler: 'orange', special: 'special',
+};
+
+export type MusicKey =(typeof MUSIC_KEYS)[number];
 export type SfxKey = (typeof SFX_KEYS)[number];
 
 /** What came from files and what the boot scene had to draw (for the checklist screen). */
@@ -23,6 +36,21 @@ export const mediaStatus = {
   fromFiles: new Set<string>(),
   placeholders: new Map<string, { w: number; h: number }>(),
 };
+
+/**
+ * Loads every font in the manifest (fonts/<name>.ttf -> family <name>) before the first text is
+ * drawn: Phaser paints text onto a canvas once, so a late font would never show. A font that
+ * fails to load is skipped (the text falls back to monospace).
+ */
+export async function loadFonts(m: MediaManifest): Promise<void> {
+  await Promise.all(Object.entries(m.fonts ?? {}).map(async ([name, url]) => {
+    try {
+      const face = new FontFace(name, `url(${url})`);
+      await face.load();
+      (document.fonts as unknown as Set<FontFace>).add(face);   // add() exists in browsers; this TS lib lacks its typing
+    } catch { console.warn(`[media] could not load the font ${url}`); }
+  }));
+}
 
 export function queueMedia(load: Phaser.Loader.LoaderPlugin, m: MediaManifest): number {
   let n = 0;

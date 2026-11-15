@@ -8,8 +8,10 @@ test('sprites, sheets, music and sfx are sorted into the manifest', () => {
     'sheets/player@8x10.png',
     'audio/music/village.mp3', 'audio/music/village.ogg',
     'audio/sfx/hit.wav',
+    'fonts/alagard.ttf',
     'README.md', 'sprites/.gitkeep', 'audio/.gitkeep',
   ]);
+  assert.deepEqual(m.fonts, { alagard: 'media/fonts/alagard.ttf' });
   assert.deepEqual(m.sprites, { boss_1: 'media/sprites/boss_1.png', player: 'media/sprites/player.webp' });
   assert.deepEqual(m.sheets, { player: { url: 'media/sheets/player@8x10.png', frameWidth: 8, frameHeight: 10 } });
   assert.deepEqual(m.music, { village: ['media/audio/music/village.ogg', 'media/audio/music/village.mp3'] }); // ogg first
@@ -25,5 +27,5 @@ test('files with wrong names are reported, not silently used', () => {
 });
 
 test('an empty media folder gives an empty manifest', () => {
-  assert.deepEqual(buildManifest([]), { sprites: {}, sheets: {}, music: {}, sfx: {}, skipped: [] });
+  assert.deepEqual(buildManifest([]), { sprites: {}, sheets: {}, music: {}, sfx: {}, fonts: {}, skipped: [] });
 });

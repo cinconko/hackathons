@@ -1,13 +1,19 @@
 import Phaser from 'phaser';
-import { CATALOG, RINGS, RARITY_ORDER, STAGES, type CatalogId } from '../game/rules';
-import { mediaStatus } from '../media';
+import { makeVillageArt } from '../villageArt';
+import { fireFrame, FLICKER, type FireFrame } from '../fireFrames';
+
+/** The flicker's frames in texture order: campfire_<kind>_0 is the drawing as is. */
+const FIRE_FRAMES: readonly FireFrame[] = ['still', 'left', 'right', 'low'];
+import { CATALOG, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
+import { mediaStatus, ROBES } from '../media';
+import { paintRing, RING_LOOKS, RING_SIZE } from '../ringArt';
 import { loadSave, updateSave } from '../save';
 
 // Draws a placeholder for every sprite that has no file in public/media/sprites (see its README).
 // A file named <key>.png replaces the placeholder with the same key: no code change needed.
 //
 // Dev hooks (URL parameters), to jump to one moment without playing up to it:
-//   ?scene=intro | village | treasury | menu | media   (media = the art and sound checklist)
+//   ?scene=intro | outro | village | treasury | menu | media   (outro = the ending; media = the art and sound checklist)
 //   ?play            start the fight right away (no landing)
 //     &t=30500       fight clock in ms (30500 = the fisherman is there)
 //     &stage=3       start the boss in stage 2 or 3
@@ -16,12 +22,70 @@ import { loadSave, updateSave } from '../save';
 //     &lose          lose at once: watch Mossback bounce you back to the village
 //   &wallet=10,2,1   put rings in the wallet (classic, rare, super rare). Writes the save!
 //   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
-//   ?scene=village&merchant   open the ring merchant's shop at once
+//   ?scene=village&merchant   open the ring merchant's shop at once (&nodeal: cards already on the table)
+//   ?scene=village&yard       start inside the training yard, weapon out
+//   ?scene=village&tutorial   start Sergeant Brann's combat training (normally once, after the cutscene)
 //   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
+/**
+ * The boss's six hands, in boss_art.png pixels (32x35): the box around each hand and the way
+ * "out" (away from his body). A hand frame moves each hand along it: +1 reaches out (drawn over
+ * the drawing, so the hand just looks longer), -1 pulls it in over the end of its arm.
+ */
+const BOSS_W = 32;
+const BOSS_H = 35;
+const BOSS_PAD = 2;   // room around the picture for a hand reaching past its edge
+const BOSS_HANDS: { box: [number, number, number, number]; out: [number, number] }[] = [
+  { box: [8, 0, 12, 2], out: [0, -1] },     // top left claw
+  { box: [20, 1, 23, 3], out: [0, -1] },    // top right claw
+  { box: [0, 7, 3, 11], out: [-1, 0] },     // far left
+  { box: [27, 8, 31, 11], out: [1, 0] },    // far right
+  { box: [5, 16, 9, 20], out: [-1, 1] },    // lower left claw
+  { box: [25, 14, 28, 17], out: [1, 0] },   // lower right
+];
+/** Per hand (same order): how far it moves. Played by the arena (play.ts, bossHands). */
+const HAND_FRAMES: Record<string, number[]> = {
+  a: [0, 0, 0, 0, 0, 0],                  // as drawn
+  b: [1, -1, -1, 1, 1, -1],               // writhing: every other hand reaches
+  c: [-1, 1, 1, -1, -1, 1],               // ... and the others
+  spread: [1, 1, 2, 2, 1, 1],             // all out: puffing up for the ring, smashing
+  grab: [-1, -1, -1, -1, -1, -1],         // all in: winding up a shot or a charge
+};
+
+/** One hand frame: the picture padded by BOSS_PAD, each hand moved along its "out". */
+function moveHands(src: ImageData, shifts: number[]): ImageData {
+  const W = src.width + BOSS_PAD * 2;
+  const H = src.height + BOSS_PAD * 2;
+  const out = new ImageData(W, H);
+  for (let y = 0; y < src.height; y++) {
+    out.data.set(src.data.subarray(y * src.width * 4, (y + 1) * src.width * 4), ((y + BOSS_PAD) * W + BOSS_PAD) * 4);
+  }
+  const at = (x: number, y: number) => ((y + BOSS_PAD) * W + x + BOSS_PAD) * 4;
+  BOSS_HANDS.forEach(({ box: [x0, y0, x1, y1], out: [ox, oy] }, i) => {
+    const n = shifts[i] ?? 0;
+    if (!n) return;
+    const hand: [number, number, Uint8ClampedArray][] = [];
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+      const p = (y * src.width + x) * 4;
+      if (src.data[p + 3] > 0) hand.push([x, y, src.data.slice(p, p + 4)]);
+    }
+    if (n < 0) for (const [x, y] of hand) out.data.fill(0, at(x, y), at(x, y) + 4);   // pulled in: lift it off first
+    for (const [x, y, px] of hand) {
+      const nx = x + ox * n;
+      const ny = y + oy * n;
+      if (nx < -BOSS_PAD || ny < -BOSS_PAD || nx >= src.width + BOSS_PAD || ny >= src.height + BOSS_PAD) continue;
+      out.data.set(px, at(nx, ny));
+    }
+  });
+  return out;
+}
+
 export class BootScene extends Phaser.Scene {
   constructor() { super('boot'); }
 
   create() {
+    this.weaponArt();
+    this.bossArt();
+    this.campfireArt();
     const g = this.make.graphics({ x: 0, y: 0 }, false);
     // A sprite from public/media (loaded by the preload scene) wins; otherwise draw the placeholder.
     const tex = (key: string, w: number, h: number, draw: () => void) => {
@@ -31,6 +95,7 @@ export class BootScene extends Phaser.Scene {
     };
     const px = (color: number, x: number, y: number, w = 1, h = 1, alpha = 1) => g.fillStyle(color, alpha).fillRect(x, y, w, h);
     const GOLD = 0xffcc44;
+    makeVillageArt(this);   // the village's buildings in the catapult's style (src/villageArt.ts)
 
     // Hero 8x10: hair, face, blue tunic, belt, legs.
     tex('player', 8, 10, () => {
@@ -132,19 +197,25 @@ export class BootScene extends Phaser.Scene {
     tex('shadow', 10, 4, () => { g.fillStyle(0x000000, 0.45).fillEllipse(5, 2, 10, 4); });
     tex('sparkle', 5, 5, () => { px(0xffffff, 2, 0, 1, 5); px(0xffffff, 0, 2, 5, 1); px(GOLD, 2, 2); });
 
-    for (const r of RARITY_ORDER) {
-      const c = RINGS[r].color;
-      tex(`ring_${r}`, 7, 7, () => {
-        px(c, 2, 0, 3, 1); px(c, 2, 6, 3, 1); px(c, 0, 2, 1, 3); px(c, 6, 2, 1, 3);
-        px(c, 1, 1); px(c, 5, 1); px(c, 1, 5); px(c, 5, 5); px(0xffffff, 3, 0);
-      });
-    }
+    // the rings: a band and a stone on top, silver/pearl, gold/blue, gold/pink (src/ringArt.ts)
+    for (const r of RARITY_ORDER) tex(`ring_${r}`, RING_SIZE, RING_SIZE, () => paintRing(RING_LOOKS[r], (c, x, y) => px(c, x, y)));
 
     // Fisherman 14x18: straw hat, white beard, green coat, boots, fishing rod.
     tex('fisher', 14, 18, () => {
       px(0xe8c34a, 3, 0, 8, 2); px(0xc9a136, 1, 2, 12, 1); px(0xf2c79a, 4, 3, 6, 3); px(0x000000, 5, 4); px(0x000000, 8, 4);
       px(0xdddddd, 4, 6, 6, 3); px(0x2f6f5e, 3, 9, 8, 6); px(0x3a2a1a, 4, 15, 2, 3); px(0x3a2a1a, 8, 15, 2, 3);
       px(0x8a6a3a, 12, 1, 1, 13); px(0xcccccc, 13, 1, 1, 9, 0.7);
+    });
+    // his supplies (the team's art replaces these: public/media/sprites/supply_<id>.png)
+    tex('supply_potion', 8, 10, () => { px(0x8a6a3a, 3, 0, 2, 2); px(0xcccccc, 3, 2, 2, 1); px(0xd83a3a, 1, 3, 6, 6); px(0xff8a8a, 2, 4, 1, 2); px(0x8a1a1a, 1, 9, 6, 1); });
+    tex('supply_bigPotion', 12, 13, () => {
+      px(0x8a6a3a, 5, 0, 2, 2); px(0xcccccc, 4, 2, 4, 2);
+      g.fillStyle(0xd83a3a).fillCircle(6, 8, 5); px(0xff8a8a, 3, 5, 2, 2); px(GOLD, 2, 8, 8, 1);
+    });
+    tex('supply_whetstone', 12, 7, () => { px(0x6a6a74, 0, 2, 12, 5); px(0x9a9aa8, 1, 2, 10, 2); px(0xdddddd, 2, 2, 4, 1); px(0x4a4a54, 0, 6, 12, 1); px(0x8a6a3a, 9, 0, 3, 2); });
+    tex('supply_boots', 12, 10, () => {
+      px(0x6b4a2b, 1, 0, 4, 7); px(0x6b4a2b, 1, 7, 6, 3); px(0x3a2a1a, 1, 9, 6, 1);
+      px(0x8a6a3a, 6, 1, 4, 6); px(0x8a6a3a, 6, 6, 6, 3); px(0x3a2a1a, 6, 9, 6, 1); px(0x9fe8ff, 10, 2, 2, 1); px(0x9fe8ff, 11, 4, 1, 1);   // a wing flick: speed
     });
 
     // ---- treasury ----
@@ -155,61 +226,65 @@ export class BootScene extends Phaser.Scene {
     tex('door_open', 12, 16, () => { px(0x55555f, 0, 0, 12, 16); px(0x000000, 2, 3, 8, 13); px(0x1a1a24, 3, 4, 6, 12); });
 
     // ---- village ----
-    tex('house', 30, 26, () => {
-      for (let i = 0; i < 10; i++) px(0xa0402f, 10 - i, i, 10 + i * 2, 1);   // roof
-      px(0x7a2f22, 0, 9, 30, 1);
-      px(0xe8d8b0, 2, 10, 26, 16); px(0x6b4a2b, 12, 16, 6, 10); px(GOLD, 16, 21);
-      px(0x9fd3ff, 5, 13, 5, 4); px(0x9fd3ff, 20, 13, 5, 4); px(0x6b4a2b, 7, 13, 1, 4); px(0x6b4a2b, 22, 13, 1, 4);
-    });
     tex('tree', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); });
-    tex('merchant', 10, 14, () => { px(0x6a3fa0, 1, 0, 8, 3); px(0xf2c79a, 2, 3, 6, 4); px(0x000000, 3, 4); px(0x000000, 6, 4); px(0x8a5fc0, 1, 7, 8, 7); px(GOLD, 4, 9, 2, 2); });
-    tex('stall', 40, 20, () => {
-      for (let i = 0; i < 8; i++) px(i % 2 ? 0xffffff : 0xd83a3a, i * 5, 0, 5, 5);                     // awning
-      px(0x6b4a2b, 1, 5, 2, 15); px(0x6b4a2b, 37, 5, 2, 15); px(0x8a6a3a, 0, 12, 40, 8); px(0x6b4a2b, 0, 12, 40, 1);
-      for (let i = 0; i < 5; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0, 0x44aaff][i], 6 + i * 6, 10, 3, 2);  // rings on the counter
+    tex('tree_apple', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); px(0xd83a3a, 3, 7); px(0xd83a3a, 9, 4); px(0xd83a3a, 10, 9); });
+    // bushes (village decoration), the berry ones with red dots
+    const bush = (key: string, w: number, h: number, berries: boolean) => tex(key, w, h, () => {
+      g.fillStyle(0x2f6b2f).fillEllipse(w / 2, h / 2 + 1, w, h - 2); g.fillStyle(0x3f8a3a).fillEllipse(w / 2 - 2, h / 2, w - 8, h - 5);
+      if (berries) for (let i = 0; i < 4; i++) px(0xd83a3a, 3 + i * Math.floor((w - 6) / 4), 3 + (i % 2) * 3);
     });
-    tex('sign', 16, 12, () => { px(0x8a6a3a, 0, 0, 16, 7); px(0x6b4a2b, 7, 7, 2, 5); px(0x3a2a1a, 3, 3, 8, 1); px(0x3a2a1a, 10, 2, 2, 3); px(0x3a2a1a, 12, 3); });
+    bush('bush_big', 19, 11, false);
+    bush('bush_big_berry', 19, 11, true);
+    bush('bush_mid', 23, 10, false);
+    bush('bush_mid_berry', 23, 10, true);
+    // textures the game repeats: village grass, arena pond water, treasury planks
+    tex('grass', 8, 8, () => { px(0x4f8a3a, 0, 0, 8, 8); px(0x5c9a44, 1, 2); px(0x5c9a44, 5, 5); px(0x3f7a30, 6, 1); });
+    // village paths: dirt, then cobblestone, then stone brick as the village grows
+    tex('path_dirt', 8, 8, () => { px(0xc8a86a, 0, 0, 8, 8); px(0xb8985a, 1, 2, 2, 1); px(0xb8985a, 5, 6, 2, 1); px(0xd8bc80, 4, 3); });
+    tex('path_cobble', 8, 8, () => { px(0x3a3a3a, 0, 0, 8, 8); px(0x8a8a8a, 0, 0, 3, 3); px(0x7a7a7a, 4, 0, 4, 3); px(0x7a7a7a, 0, 4, 4, 4); px(0x8a8a8a, 5, 4, 3, 4); });
+    tex('path_brick', 8, 8, () => { px(0x4a4a55, 0, 0, 8, 8); px(0x8a8a99, 0, 0, 7, 3); px(0x8a8a99, 0, 4, 3, 3); px(0x8a8a99, 4, 4, 4, 3); });
+    tex('water', 8, 8, () => { px(0x1e4f7a, 0, 0, 8, 8); px(0x2d6fa3, 1, 2, 3, 1); px(0x2d6fa3, 4, 6, 3, 1); });
+    tex('floor_wood', 8, 8, () => { px(0x8a6040, 0, 0, 8, 8); px(0x6b4a2b, 3, 0, 1, 8); px(0x6b4a2b, 7, 0, 1, 8); px(0x5a3a1a, 0, 5, 3, 1); });
+    tex('wall_wood', 8, 8, () => { px(0x7a5230, 0, 0, 8, 8); px(0x5a3a1a, 0, 3, 8, 1); px(0x5a3a1a, 0, 7, 8, 1); });
+    // the intro's catapult shot: sky and a cloud
+    tex('sky', 8, 8, () => { px(0x87c4ff, 0, 0, 8, 8); });
+    tex('cloud', 24, 19, () => { g.fillStyle(0xffffff).fillCircle(9, 11, 7).fillCircle(16, 10, 6).fillCircle(12, 6, 5); });
+    tex('merchant', 10, 14, () => { px(0x6a3fa0, 1, 0, 8, 3); px(0xf2c79a, 2, 3, 6, 4); px(0x000000, 3, 4); px(0x000000, 6, 4); px(0x8a5fc0, 1, 7, 8, 7); px(GOLD, 4, 9, 2, 2); });
     // The bar: a wide timber building with a hanging mug sign; the barkeeper wears an apron.
+    // the tavern: a timber-framed house, whitewashed walls between dark beams, a straw thatch roof,
+    // a stone chimney, an arched plank door, small leaded windows and a hanging sign with a mug
     tex('bar', 50, 34, () => {
-      for (let i = 0; i < 10; i++) px(0x5a3a2a, 10 - i, i, 30 + i * 2, 1);            // roof
-      px(0x3a2418, 0, 10, 50, 1);
-      px(0x8a6040, 2, 11, 46, 23); px(0x6b4a2b, 2, 11, 46, 1);                          // timber walls
-      for (let x = 2; x < 48; x += 8) px(0x6b4a2b, x, 11, 1, 23);
-      px(0x3a2418, 20, 20, 10, 14); px(0x2a1810, 24, 20, 1, 14); px(GOLD, 28, 27);       // double door
-      px(0xffd27a, 6, 16, 8, 6); px(0xffd27a, 36, 16, 8, 6);                            // warm windows
-      px(0x6b4a2b, 10, 16, 1, 6); px(0x6b4a2b, 40, 16, 1, 6);
+      const BEAM = 0x3a2414, PLASTER = 0xe6dcc2, THATCH = 0xc49a52, THATCH_DARK = 0x8a6a32;
+      px(0x7a7a84, 37, 0, 5, 7); px(0x9a9aa4, 37, 0, 5, 1); px(0x5a5a64, 39, 2, 1, 1); px(0x5a5a64, 37, 4, 1, 1);   // chimney
+      for (let i = 0; i < 11; i++) px(THATCH, 11 - i, 2 + i, 28 + i * 2, 1);                                         // thatch roof
+      for (let i = 0; i < 11; i += 2) for (let x = 12 - i; x < 39 + i; x += 3) px(THATCH_DARK, x, 2 + i, 1, 1);     // straw strokes
+      px(THATCH_DARK, 0, 12, 50, 1);                                                                                // eave
+      px(PLASTER, 2, 13, 46, 21);                                                                                   // walls
+      px(BEAM, 2, 13, 46, 1); px(BEAM, 2, 22, 46, 1); px(BEAM, 2, 33, 46, 1);                                       // beams
+      for (const x of [2, 15, 34, 47]) px(BEAM, x, 13, 1, 21);                                                      // posts
+      for (let i = 0; i < 10; i++) { px(BEAM, 3 + i, 23 + i, 1, 1); px(BEAM, 14 - i, 23 + i, 1, 1); px(BEAM, 35 + i, 23 + i, 1, 1); px(BEAM, 46 - i, 23 + i, 1, 1); }   // X braces
+      for (const wx of [6, 38]) {                                                                                   // leaded windows, warm light
+        px(0xffd27a, wx, 15, 6, 6); px(BEAM, wx - 1, 14, 8, 1); px(BEAM, wx - 1, 21, 8, 1);
+        px(0xb8862a, wx + 2, 15, 1, 6); px(0xb8862a, wx, 17, 6, 1); px(0xfff1b8, wx + 1, 16);
+      }
+      px(0x5a3a22, 19, 21, 12, 13); px(0x5a3a22, 20, 20, 10, 1); px(0x5a3a22, 21, 19, 8, 1);                        // arched door
+      for (const x of [22, 25, 28]) px(0x4a2e1a, x, 20, 1, 14);                                                     // planks
+      px(0x2a2a2a, 19, 24, 5, 1); px(0x2a2a2a, 19, 30, 5, 1); px(GOLD, 27, 27);                                     // iron hinges, handle
+      px(BEAM, 32, 15, 6, 1); px(BEAM, 33, 16, 1, 2); px(BEAM, 37, 16, 1, 2);                                       // the sign's bracket...
+      px(0x8a6040, 32, 18, 7, 5); px(0x5a3a22, 32, 18, 7, 1);                                                       // ...the board...
+      px(0xeeeeee, 34, 19, 2, 3); px(0xd89a2a, 34, 20, 2, 2); px(0xeeeeee, 36, 20, 1, 1);                           // ...and its mug
     });
     tex('barkeeper', 10, 14, () => { px(0x3a2418, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3); px(0x5a3a2a, 2, 5, 6, 1); px(0x8a3a3a, 1, 6, 8, 8); px(0xeeeeee, 3, 7, 4, 7); });
+    // the bar's big mugs (the team's art replaces them): full, half poured, knocked over
+    const glass = (key: string, h: number, beer: number) => tex(key, 21, h, () => {
+      px(0xdddddd, 0, 0, 16, h); px(0x2a2a2a, 1, 1, 14, h - 2); px(0xd89a2a, 1, h - 1 - beer, 14, beer); px(0xdddddd, 16, 6, 4, 9); px(0x2a2a2a, 17, 8, 2, 5);
+    });
+    glass('beer_full', 24, 18);
+    glass('beer_half', 21, 9);
+    tex('beer_spilled', 26, 16, () => { px(0xdddddd, 0, 2, 20, 12); px(0x2a2a2a, 1, 3, 18, 10); px(0xd89a2a, 14, 13, 12, 3); });
     tex('mug', 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(0xc89a3a, 2, 3, 4, 5); px(0xffffff, 2, 2, 4, 2); px(0xc89a3a, 6, 4, 1, 3); px(0x8a6a2a, 2, 7, 4, 1); });
     tex('drop', 2, 2, () => { px(0x6ab8ff, 0, 0, 2, 2); });
     // ---- what the village builds as it grows ----
-    tex('house_big', 32, 36, () => {
-      for (let i = 0; i < 10; i++) px(0x7a2f22, 11 - i, i, 10 + i * 2, 1);              // roof
-      px(0x5a2018, 0, 10, 32, 1);
-      px(0xe8d8b0, 2, 11, 28, 25); px(0x8a6040, 2, 22, 28, 1);                          // two floors
-      px(0x9fd3ff, 5, 13, 5, 5); px(0x9fd3ff, 22, 13, 5, 5); px(0x9fd3ff, 5, 25, 5, 5);
-      px(0x6b4a2b, 13, 26, 6, 10); px(GOLD, 17, 31); px(0x6b4a2b, 4, 18, 7, 1); px(0x6b4a2b, 21, 18, 7, 1);
-    });
-    tex('lantern', 5, 12, () => { px(0x3a3a3a, 2, 3, 1, 9); px(0x3a3a3a, 1, 11, 3, 1); px(0x2a2a2a, 0, 0, 5, 1); px(0xffd27a, 1, 1, 3, 2); });
-    tex('flowers', 14, 5, () => { px(0x3f7a30, 0, 2, 14, 3); for (let i = 0; i < 5; i++) px([0xff6a8a, 0xffee44, 0xffffff, 0xff6a8a, 0xa070ff][i], 1 + i * 3, 1, 2, 2); });
-    tex('fruitstall', 28, 18, () => {
-      for (let i = 0; i < 7; i++) px(i % 2 ? 0xffffff : 0x3a9a3a, i * 4, 0, 4, 4);
-      px(0x6b4a2b, 1, 4, 2, 14); px(0x6b4a2b, 25, 4, 2, 14); px(0x8a6a3a, 0, 11, 28, 7);
-      for (let i = 0; i < 6; i++) px([0xd83a3a, 0xffaa33, 0xffee44, 0xd83a3a, 0x6fd13a, 0xffaa33][i], 3 + i * 4, 8, 3, 3);
-    });
-    tex('tower', 18, 34, () => {
-      px(0x7a7a84, 2, 8, 14, 26); for (let y = 10; y < 34; y += 5) px(0x6a6a74, 2, y, 14, 1);
-      px(0x8a8a94, 0, 4, 18, 5); px(0x8a8a94, 0, 0, 4, 4); px(0x8a8a94, 7, 0, 4, 4); px(0x8a8a94, 14, 0, 4, 4);   // battlements
-      px(0x1a1a24, 7, 14, 4, 6); px(0x3a2418, 6, 26, 6, 8);
-    });
-    tex('flag', 10, 12, () => { px(0x6b4a2b, 0, 0, 1, 12); px(0xffcc44, 1, 0, 8, 2); px(0xd83a3a, 1, 2, 8, 3); px(0xffcc44, 1, 5, 6, 1); });
-    tex('statue', 14, 22, () => {
-      px(0x8a8a94, 0, 16, 14, 6); px(0x6a6a74, 0, 21, 14, 1);                           // plinth
-      px(GOLD, 5, 2, 4, 4); px(0xfff1a8, 5, 2, 1, 1);                                     // head
-      px(GOLD, 4, 6, 6, 6); px(GOLD, 4, 12, 2, 4); px(GOLD, 8, 12, 2, 4);                 // body, legs
-      px(0xdddddd, 10, 0, 1, 9); px(GOLD, 9, 7, 3, 1);                                    // raised sword
-    });
-    tex('well_roof', 24, 8, () => { for (let i = 0; i < 6; i++) px(0x8a3a2a, 6 - i, i, 12 + i * 2, 1); px(0x5a2018, 0, 6, 24, 2); });
     const villager = (key: string, shirt: number, hair: number) => tex(key, 8, 10, () => {
       px(hair, 1, 0, 6, 2); px(0xf2c79a, 1, 2, 6, 3); px(0x000000, 2, 3); px(0x000000, 5, 3);
       px(shirt, 1, 5, 6, 3); px(0x2b2b3a, 1, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
@@ -217,25 +292,15 @@ export class BootScene extends Phaser.Scene {
     villager('villager_a', 0xd8823a, 0x2a1a10);
     villager('villager_b', 0x6aa84a, 0xe8c34a);
     // ---- village stages: camp -> tents -> village -> fountains -> rich town -> city ----
-    // campfire: crossed logs + three flame frames
-    for (let i = 0; i < 3; i++) {
-      tex(`campfire_${i}`, 14, 14, () => {
-        px(0x5a3a1a, 1, 11, 12, 2); px(0x6b4a2b, 3, 10, 8, 1); px(0x777777, 0, 12, 2, 2); px(0x777777, 12, 12, 2, 2);
+    // campfire: crossed logs + three flame frames; level 2 puts a ring of stones around it
+    for (const kind of ['wood', 'stone']) for (let i = 0; i < 3; i++) {
+      tex(`campfire_${kind}_${i}`, 14, 14, () => {
+        px(0x5a3a1a, 1, 11, 12, 2); px(0x6b4a2b, 3, 10, 8, 1);
+        if (kind === 'stone') { px(0x777777, 0, 12, 2, 2); px(0x777777, 12, 12, 2, 2); px(0x8a8a8a, 3, 13, 2, 1); px(0x8a8a8a, 9, 13, 2, 1); }
         const h = [7, 9, 8][i];
         px(0xd83a1a, 4, 11 - h, 6, h); px(0xffaa33, 5, 12 - h + (i % 2), 4, h - 2); px(0xffee88, 6, 13 - h + 2, 2, h - 4);
       });
     }
-    // fountain: stone basin, water, a jet in two heights
-    for (let i = 0; i < 2; i++) {
-      tex(`fountain_${i}`, 26, 22, () => {
-        g.fillStyle(0x8a8a94).fillEllipse(13, 17, 26, 10); g.fillStyle(0x1e4f7a).fillEllipse(13, 16, 20, 6);
-        px(0x8a8a94, 11, 6, 4, 10); px(0x9a9aa4, 9, 6, 8, 2);
-        const top = i ? 0 : 2;
-        px(0x9fd3ff, 12, top, 2, 6 - top); px(0x9fd3ff, 9 + i, top + 2, 1, 3); px(0x9fd3ff, 16 - i, top + 2, 1, 3);
-        px(0xffffff, 12, top); px(0x9fd3ff, 6, 14, 1, 1); px(0x9fd3ff, 19, 14, 1, 1);
-      });
-    }
-    tex('barrel', 10, 12, () => { px(0x6b4a2b, 0, 1, 10, 10); px(0x8a6040, 1, 0, 8, 12); px(0x3a3a3a, 0, 3, 10, 1); px(0x3a3a3a, 0, 8, 10, 1); px(0x999999, 4, 6, 2, 2); });
     // the beer guy (camp) and the barkeeper (bar building): frame 0 mug down, frame 1 mug raised with foam
     const pourer = (key: string, shirt: number, apron: boolean) => {
       for (let i = 0; i < 2; i++) tex(`${key}_${i}`, 12, 14, () => {
@@ -258,17 +323,6 @@ export class BootScene extends Phaser.Scene {
       for (let i = 0; i < 4; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0][i], 4 + i * 7, 5, 3, 2);
       px(0x6b4a2b, 26, 0, 7, 6); px(0x8a6a3a, 27, 1, 5, 4);          // a crate
     });
-    const tent = (key: string, cloth: number, dark: number) => tex(key, 26, 18, () => {
-      for (let i = 0; i < 16; i++) px(i < 8 ? cloth : dark, 12 - Math.floor(i * 0.75), 2 + i, 2 + Math.floor(i * 1.5), 1);
-      px(0x2a1a10, 11, 10, 4, 8); px(0x6b4a2b, 12, 0, 1, 3);
-    });
-    tent('tent_a', 0xe8d8b0, 0xc8b890);
-    tent('tent_b', 0xd8a86a, 0xb8884a);
-    tex('hut', 24, 20, () => {
-      for (let i = 0; i < 7; i++) px(0xc8a84a, 7 - i, i, 10 + i * 2, 1);   // straw roof
-      px(0x8a6040, 2, 7, 20, 13); for (let y = 8; y < 20; y += 3) px(0x6b4a2b, 2, y, 20, 1);
-      px(0x3a2418, 10, 12, 5, 8);
-    });
     // rich people: top hat, long coat, a cane
     const noble = (key: string, coat: number, hat: number) => tex(key, 9, 14, () => {
       px(hat, 2, 0, 5, 3); px(hat, 1, 3, 7, 1); px(0xf2c79a, 2, 4, 5, 3); px(0x000000, 3, 5); px(0x000000, 5, 5);
@@ -276,18 +330,139 @@ export class BootScene extends Phaser.Scene {
     });
     noble('noble_a', 0x5a2a8a, 0x1a1a24);
     noble('noble_b', 0x2a4a8a, 0x3a2418);
-    // horse + cart, two leg frames
-    for (let i = 0; i < 2; i++) tex(`cart_${i}`, 38, 18, () => {
-      px(0x8a6040, 0, 6, 18, 6); px(0x6b4a2b, 0, 5, 18, 1); px(0xc8a84a, 2, 3, 14, 3);        // cart with hay
-      g.fillStyle(0x3a2418).fillCircle(4, 14, 3).fillCircle(14, 14, 3); px(0x999999, 4, 14); px(0x999999, 14, 14);
-      px(0x6b4a2b, 18, 9, 4, 1);                                                             // shaft
-      px(0x7a4a2a, 22, 6, 12, 6); px(0x7a4a2a, 31, 2, 5, 5); px(0x3a2418, 33, 1, 2, 2); px(0x000000, 34, 3);  // horse
-      const a = i ? 1 : 0;
-      px(0x5a3a1a, 23 + a, 12, 2, 5); px(0x5a3a1a, 31 - a, 12, 2, 5); px(0x5a3a1a, 26 - a, 12, 2, 5 - a); px(0x5a3a1a, 29 + a, 12, 2, 5 - a);
-    });
+    // Horse carts, in three views (no rotating a side view: the game is drawn at an angle).
+    // Side (cart_*): horse trotting right, a driver with the reins, a cart with crate, barrel, sack.
+    // Front (cartf_*): coming toward you, the horse's face and chest, the driver behind it.
+    // Back (cartb_*): driving away, the horse's rump and tail, the back of the loaded cart.
+    {
+      const BR = 0x8a5a32, BRD = 0x6b4426, BRL = 0xa8723f, MANE = 0x2e1c10, HOOF = 0x1e140c;
+      const WOOD = 0x9a6a3a, WOODD = 0x6b4a2b, WOODL = 0xb88a4a, WHEEL = 0x3a2414, IRON = 0x8a8a94;
+      const HARNESS = 0xa03a2a, SACK = 0xd8c8a0, SKIN = 0xf2c79a, HAT = 0x5a3a1a, SHIRT = 0x3a7bd5, BLAZE = 0xeeeeee;
+      const straight = (x: number, top: number, len: number) => { px(BRD, x, top, 2, len); px(HOOF, x, top + len, 2, 1); };
+      const lifted = (x: number, top: number) => { px(BRD, x, top, 2, 4); px(BRD, x + 1, top + 4, 2, 2); px(HOOF, x + 1, top + 6, 2, 1); };
+      const crate = (x: number, y: number, w: number, h: number) => {
+        px(WOODL, x, y, w, h); px(WOODD, x, y, w, 1); px(WOODD, x, y + h - 1, w, 1); px(WOODD, x, y, 1, h); px(WOODD, x + w - 1, y, 1, h);
+        for (let k = 1; k < Math.min(w, h) - 1; k++) px(WOODD, x + k, y + k);
+      };
+      const barrel = (x: number, y: number) => { px(BRD, x, y, 4, 5); px(IRON, x, y + 1, 4, 1); px(IRON, x, y + 3, 4, 1); px(BRL, x + 1, y, 1, 5); };
 
-    tex('catapult_base', 26, 14, () => { px(0x6b4a2b, 0, 8, 26, 3); px(0x6b4a2b, 10, 0, 3, 9); px(0x8a6a3a, 11, 0, 1, 9); g.fillStyle(0x3a2a1a).fillCircle(4, 11, 3).fillCircle(21, 11, 3); px(0x999999, 4, 11); px(0x999999, 21, 11); });
-    tex('catapult_arm', 28, 7, () => { px(0x8a6a3a, 0, 2, 22, 2); px(0x6b4a2b, 20, 0, 8, 1); px(0x6b4a2b, 20, 0, 1, 7); px(0x6b4a2b, 27, 0, 1, 7); px(0x6b4a2b, 20, 6, 8, 1); });
+      for (let i = 0; i < 2; i++) tex(`cart_${i}`, 44, 26, () => {
+        // wheel with spokes (they turn: + then x)
+        g.fillStyle(WHEEL).fillCircle(9, 20, 5); g.fillStyle(WOODD).fillCircle(9, 20, 4);
+        if (i === 0) { px(WHEEL, 9, 16, 1, 9); px(WHEEL, 5, 20, 9, 1); } else for (let k = -3; k <= 3; k++) { px(WHEEL, 9 + k, 20 + k); px(WHEEL, 9 + k, 20 - k); }
+        px(IRON, 8, 19, 2, 2);
+        // cart bed, cargo, driver
+        px(WOOD, 1, 13, 20, 4); px(WOODL, 1, 13, 20, 1); px(WOODD, 1, 16, 20, 1);
+        px(WOODD, 6, 13, 1, 3); px(WOODD, 11, 13, 1, 3); px(WOODD, 1, 10, 1, 3);
+        crate(2, 7, 6, 6); barrel(9, 8); px(SACK, 13, 9, 3, 4); px(WOODD, 13, 9, 3, 1);
+        px(WOODD, 16, 12, 5, 1);                                                      // seat
+        px(SHIRT, 17, 6, 4, 6); px(SKIN, 17, 2, 4, 4); px(0x000000, 20, 3); px(HAT, 16, 2, 6, 1); px(HAT, 17, 0, 4, 2); px(SKIN, 21, 8, 2, 1);
+        px(WOODD, 21, 15, 8, 1);                                                      // shaft
+        g.lineStyle(1, MANE, 1).lineBetween(22.5, 8.5, 38.5, 5.5);                    // reins
+        // horse: legs (trotting), tail, body, neck, head
+        if (i === 0) { straight(27, 16, 8); lifted(29, 16); lifted(36, 16); straight(38, 16, 8); }
+        else { lifted(27, 16); straight(29, 16, 8); straight(36, 16, 8); lifted(38, 16); }
+        px(MANE, 23, 10, 2, 2); px(MANE, 22, 12, 2, 5); px(MANE, 23, 17, 1, 2);
+        g.fillStyle(BR).fillEllipse(32, 13, 18, 9);
+        px(BRD, 26, 16, 12, 1); px(BRL, 28, 9, 8, 1);
+        px(BR, 37, 6, 4, 7); px(BR, 38, 4, 4, 3); px(BR, 39, 2, 4, 3); px(BR, 41, 4, 3, 4);
+        px(BRD, 42, 7, 2, 1); px(BLAZE, 42, 3, 1, 3); px(BRD, 39, 0, 1, 2); px(0x000000, 40, 3); px(HOOF, 43, 6);
+        px(MANE, 36, 7, 1, 3); px(MANE, 37, 5, 1, 2); px(MANE, 38, 3, 1, 2);
+        px(HARNESS, 35, 7, 2, 6); px(HARNESS, 30, 9, 1, 8); px(0x5a2a1a, 26, 10, 9, 1);
+      });
+
+      for (let i = 0; i < 2; i++) tex(`cartf_${i}`, 22, 28, () => {
+        // behind: the cart front with cargo and the driver
+        px(WHEEL, 0, 6, 3, 9); px(WHEEL, 19, 6, 3, 9); px(IRON, 1, 10); px(IRON, 20, 10);
+        crate(3, 3, 5, 5); barrel(14, 3);
+        px(WOOD, 3, 8, 16, 5); px(WOODL, 3, 8, 16, 1); px(WOODD, 3, 12, 16, 1);
+        px(HAT, 7, 1, 8, 1); px(HAT, 9, 0, 4, 1); px(SKIN, 9, 2, 4, 3); px(0x000000, 10, 3); px(0x000000, 12, 3); px(SHIRT, 8, 5, 6, 3);
+        px(MANE, 7, 6, 1, 7); px(MANE, 14, 6, 1, 7);                                  // reins down to the bridle
+        // in front: the horse coming at you: a broad chest, a long face with a blaze
+        px(BR, 4, 17, 14, 6); px(BRL, 5, 17, 12, 1); px(BRD, 4, 22, 14, 1);          // chest
+        px(HARNESS, 4, 16, 14, 1); px(HARNESS, 4, 16, 1, 4); px(HARNESS, 17, 16, 1, 4); // collar
+        if (i === 0) { straight(5, 23, 3); px(BRD, 15, 23, 2, 2); px(HOOF, 15, 25, 2, 1); }
+        else { px(BRD, 5, 23, 2, 2); px(HOOF, 5, 25, 2, 1); straight(15, 23, 3); }
+        px(BRD, 7, 11, 2, 3); px(BRD, 13, 11, 2, 3);                                  // ears
+        px(BR, 7, 13, 8, 4); px(BR, 8, 17, 6, 4); px(BRD, 8, 21, 6, 2);               // head, muzzle
+        px(BLAZE, 10, 13, 2, 7); px(MANE, 9, 12, 4, 1);                               // blaze, forelock
+        px(0x000000, 7, 15); px(0x000000, 14, 15); px(HOOF, 9, 22); px(HOOF, 12, 22);  // eyes, nostrils
+      });
+
+      for (let i = 0; i < 2; i++) tex(`cartb_${i}`, 22, 28, () => {
+        // ahead (farther): the horse from behind: ears, neck, a round rump with the breeching strap
+        px(BRD, 8, 0, 2, 2); px(BRD, 12, 0, 2, 2); px(BR, 8, 2, 6, 3); px(MANE, 10, 1, 2, 6);
+        px(BR, 7, 5, 8, 2);
+        px(BR, 6, 7, 10, 1); px(BR, 5, 8, 12, 5); px(BR, 6, 13, 10, 1);              // rump
+        px(BRL, 7, 8, 3, 2); px(BRL, 12, 8, 3, 2); px(BRD, 10, 7, 2, 6);              // two haunches, the spine
+        px(HARNESS, 5, 11, 12, 1); px(HARNESS, 5, 8, 1, 4); px(HARNESS, 16, 8, 1, 4); // breeching strap
+        px(MANE, 10, 9, 2, 6); px(MANE, 9, 14, 4, 2);                                 // tail
+        if (i === 0) { straight(6, 14, 3); px(BRD, 14, 14, 2, 2); px(HOOF, 14, 16, 2, 1); }
+        else { px(BRD, 6, 14, 2, 2); px(HOOF, 6, 16, 2, 1); straight(14, 14, 3); }
+        px(WOODD, 4, 12, 1, 6); px(WOODD, 17, 12, 1, 6);                              // shafts
+        // closer: the back of the loaded cart
+        px(WHEEL, 0, 16, 3, 10); px(WHEEL, 19, 16, 3, 10); px(IRON, 1, 21); px(IRON, 20, 21);
+        crate(4, 14, 5, 5); barrel(13, 15); px(SACK, 9, 16, 4, 3);
+        px(WOOD, 3, 19, 16, 6); px(WOODL, 3, 19, 16, 1); px(WOODD, 3, 24, 16, 1); px(WOODD, 8, 19, 1, 5); px(WOODD, 13, 19, 1, 5);
+      });
+    }
+
+    // ---- the training ground and the people you can talk to ----
+    const person = (key: string, hair: number, top: number, extra: () => void, h = 12) => tex(key, 10, h, () => {
+      px(hair, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3);
+      px(top, 1, 6, 8, h - 8); px(0x2b2b3a, 2, h - 2, 2, 2); px(0x2b2b3a, 6, h - 2, 2, 2); extra();
+    });
+    person('elder', 0xdddddd, 0x6a6a8a, () => { px(0xdddddd, 3, 5, 4, 2); px(0x8a6a3a, 9, 2, 1, 10); });          // white hair + beard, staff
+    person('grandpa', 0xf2c79a, 0x7a5a3a, () => {                                                                     // bald, white tufts, big moustache, cane
+      px(0xdddddd, 1, 1, 1, 3); px(0xdddddd, 8, 1, 1, 3); px(0xffffff, 3, 5, 4, 1); px(0xc8a86a, 3, 7, 4, 3); px(0x5a3a1a, 9, 4, 1, 8); px(0x5a3a1a, 8, 4);
+    }, 13);
+    person('kid', 0xd8823a, 0x4ab84a, () => { px(0xffcc44, 0, 6, 1, 1); }, 9);                                         // small, freckled
+    person('sergeant', 0x5a5a64, 0x7a7a84, () => { px(0x9a9aa8, 1, 0, 8, 2); px(0xd83a3a, 4, 7, 2, 3); px(0xdddddd, 9, 4, 1, 7); });   // helmet, armor, spear
+
+    // The catapult (src/catapult.ts places it): a wheeled siege catapult facing east. Base 40x22, the
+    // arm's axle at (28, 4); the winch at the back is its own sprite so it can turn; the arm 30x8,
+    // pivot at (2, 4), its bucket at the far end opening toward the texture's bottom (= up while it rests).
+    {
+      const DARK = 0x3a2a1a, WOOD = 0x7a5230, LIGHT = 0x9a7040, SHADE = 0x5a3a1a, IRON = 0x8a8a94, ROPE = 0xd8c8a0;
+      tex('catapult_base', 40, 22, () => {
+        // the trestle: two thick slanted posts from the bed up to the axle block, a double brace
+        for (let y = 4; y <= 13; y++) {
+          const t = (y - 4) / 9;
+          const bx = Math.round(25 - 4 * t);   // back post (3 px)
+          const fx = Math.round(30 + 4 * t);   // front post (3 px)
+          px(DARK, bx - 1, y, 1, 1); px(WOOD, bx, y, 2, 1); px(SHADE, bx + 2, y, 1, 1);
+          px(LIGHT, fx, y, 1, 1); px(WOOD, fx + 1, y, 2, 1); px(DARK, fx + 3, y, 1, 1);
+        }
+        px(DARK, 22, 9, 14, 1); px(WOOD, 23, 10, 12, 1); px(SHADE, 23, 11, 12, 1);   // the brace
+        // the axle block on top of the posts, strapped in iron (the pin goes through it and the arm)
+        px(DARK, 24, 1, 10, 6); px(WOOD, 25, 2, 8, 4); px(LIGHT, 25, 2, 8, 1); px(IRON, 24, 3, 10, 1);
+        px(ROPE, 33, 1, 5, 2); px(SHADE, 33, 3, 5, 1); px(SHADE, 35, 4, 1, 9);   // the padded stop the arm slams into
+        // the bed: a long beam with iron end caps; the winch post at the back
+        px(SHADE, 1, 13, 38, 4); px(WOOD, 1, 13, 38, 3); px(LIGHT, 1, 13, 38, 1);
+        px(IRON, 1, 13, 1, 4); px(IRON, 38, 13, 1, 4); px(IRON, 20, 13, 1, 4);
+        px(SHADE, 4, 8, 2, 5); px(SHADE, 7, 8, 2, 5);
+        // two spoked wheels
+        for (const cx of [8, 31]) {
+          g.fillStyle(DARK).fillCircle(cx + 0.5, 17.5, 4.5);
+          g.fillStyle(WOOD).fillCircle(cx + 0.5, 17.5, 3);
+          px(DARK, cx - 2, 17, 6, 1); px(DARK, cx, 15, 1, 6); px(IRON, cx, 17, 1, 1);
+        }
+      });
+      // the iron pin through the axle block and the arm's hub: drawn over the arm, it holds the two together
+      tex('catapult_pin', 5, 5, () => { px(DARK, 1, 0, 3, 5); px(DARK, 0, 1, 5, 3); px(IRON, 1, 1, 3, 3); px(0xd8d8e0, 1, 1, 1, 1); });
+      tex('catapult_winch', 7, 7, () => {
+        g.fillStyle(DARK).fillCircle(3.5, 3.5, 3.5); g.fillStyle(WOOD).fillCircle(3.5, 3.5, 2.5);
+        px(LIGHT, 3, 0, 1, 7); px(LIGHT, 0, 3, 7, 1); px(IRON, 3, 3, 1, 1);
+      });
+      tex('catapult_arm', 30, 8, () => {
+        px(SHADE, 3, 3, 19, 3); px(WOOD, 3, 3, 19, 2); px(LIGHT, 3, 3, 19, 1);    // the beam
+        px(IRON, 9, 3, 1, 3); px(IRON, 15, 3, 1, 3);                             // iron bands
+        g.fillStyle(DARK).fillCircle(2.5, 4.5, 2.5); px(IRON, 2, 4, 1, 1);       // the hub on the axle
+        // the bucket: back wall at the top, open at the bottom
+        px(DARK, 20, 0, 10, 2); px(DARK, 20, 0, 2, 7); px(DARK, 28, 0, 2, 7);
+        px(0x2a1a0a, 22, 2, 6, 4); px(LIGHT, 20, 0, 10, 1); px(IRON, 20, 2, 10, 1);
+      });
+    }
     g.destroy();
 
     // Animations (frames above, or a file sheet with the same keys). Created once for all scenes.
@@ -295,12 +470,23 @@ export class BootScene extends Phaser.Scene {
       if (this.anims.exists(key)) return;
       this.anims.create({ key, frames: frames.map(([k, duration]) => ({ key: k, duration })), repeat: -1 });
     };
-    anim('campfire', [['campfire_0', 120], ['campfire_1', 120], ['campfire_2', 120]]);
+    // the campfire's flicker (src/fireFrames.ts); without the team's art, the three drawn frames above
+    for (const kind of ['wood', 'stone']) {
+      const key = (f: FireFrame) => `campfire_${kind}_${FIRE_FRAMES.indexOf(f)}`;
+      const team = this.textures.exists(`campfire_${kind}_3`);
+      anim(`campfire_${kind}`, team ? FLICKER.map(([f, ms]) => [key(f), ms] as [string, number]) : [[`campfire_${kind}_0`, 130], [`campfire_${kind}_1`, 110], [`campfire_${kind}_2`, 120]]);
+    }
     anim('fountain', [['fountain_0', 260], ['fountain_1', 260]]);
     anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
     anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
     anim('merchant', [['merchant_0', 1800], ['merchant_1', 600]]);
+    // one robe colour per deal (files only: without them every deal shows the default merchant)
+    for (const r of ROBES) {
+      if (this.textures.exists(`merchant_${r}_0`) && this.textures.exists(`merchant_${r}_1`)) anim(`merchant_${r}`, [[`merchant_${r}_0`, 1800], [`merchant_${r}_1`, 600]]);
+    }
     anim('cart', [['cart_0', 160], ['cart_1', 160]]);
+    anim('cart_up', [['cartb_0', 170], ['cartb_1', 170]]);
+    anim('cart_down', [['cartf_0', 170], ['cartf_1', 170]]);
 
     // ---- dev hooks ----
     const q = new URLSearchParams(window.location.search);
@@ -315,13 +501,136 @@ export class BootScene extends Phaser.Scene {
     if (q.get('kit') === 'all') {
       updateSave((s) => ({ ...s, inventory: { owned: CATALOG.map((i) => i.id as CatalogId), melee: 'sword', range: 'bow', armor: 'steel' } }));
     }
+    const armor = q.get('armor');   // ?armor=iron: wear that armor (none = no armor)
+    if (armor !== null) updateSave((s) => ({ ...s, inventory: { ...s.inventory, armor: armor && armor !== 'none' ? armor as ArmorId : null } }));
     const scene = q.get('scene');
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
-    } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
-      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant') });
+    } else if (scene && ['intro', 'outro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
+      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), openBar: q.has('bar'), inYard: q.has('yard'), tutorial: q.has('tutorial') });
     } else {
       this.scene.start('menu');
+    }
+  }
+
+  /**
+   * Team weapon art: files named after the weapon (sword.png, warhammer.png, slingshot.png...) in
+   * public/media/sprites become the in-hand sprite held_<weapon>. The empty border is trimmed and
+   * weapons drawn pointing up are turned to point right (the game rotates them toward the aim).
+   * The files stay as uploaded; a held_<weapon>.png of its own still wins.
+   */
+  private weaponArt() {
+    // [file, weapon id, degrees to turn so it points right]
+    const ART: [string, string, number][] = [
+      ['dagger', 'dagger', 90], ['sword', 'sword', 90], ['axe', 'axe', 90], ['mace', 'mace', 90],
+      ['warhammer', 'warHammer', 90], ['spear', 'spear', 0], ['slingshot', 'sling', 90],
+      ['bow', 'bow', 0], ['crossbow', 'crossbow', 0], ['javelin', 'javelin', 0], ['handcannon', 'handCannon', 0],
+    ];
+    for (const [file, id, turn] of ART) {
+      const key = `held_${id}`;
+      if (!this.textures.exists(file) || this.textures.exists(key)) continue;
+      const src = this.textures.get(file).getSourceImage() as HTMLImageElement;
+      // find the drawn part (alpha > 0)
+      const probe = document.createElement('canvas');
+      probe.width = src.width;
+      probe.height = src.height;
+      const pc = probe.getContext('2d')!;
+      pc.drawImage(src, 0, 0);
+      const px = pc.getImageData(0, 0, src.width, src.height).data;
+      let x0 = src.width, y0 = src.height, x1 = -1, y1 = -1;
+      for (let y = 0; y < src.height; y++) for (let x = 0; x < src.width; x++) {
+        if (px[(y * src.width + x) * 4 + 3] > 0) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      }
+      if (x1 < 0) continue;                                   // an empty picture: keep the drawn one
+      const w = x1 - x0 + 1;
+      const h = y1 - y0 + 1;
+      const turned = turn % 180 !== 0;
+      const out = document.createElement('canvas');
+      out.width = turned ? h : w;
+      out.height = turned ? w : h;
+      const oc = out.getContext('2d')!;
+      oc.imageSmoothingEnabled = false;
+      oc.translate(out.width / 2, out.height / 2);
+      oc.rotate((turn * Math.PI) / 180);                      // clockwise: up becomes right
+      oc.drawImage(src, x0, y0, w, h, -w / 2, -h / 2, w, h);
+      this.textures.addCanvas(key, out);
+      mediaStatus.fromFiles.add(key);
+    }
+  }
+
+  /** Copy a loaded texture into a canvas we can read and change pixel by pixel. */
+  private pixels(key: string) {
+    const src = this.textures.get(key).getSourceImage() as HTMLImageElement;
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const ctx = c.getContext('2d', { willReadFrequently: true })!;
+    ctx.drawImage(src, 0, 0);
+    return { w: c.width, h: c.height, data: ctx.getImageData(0, 0, c.width, c.height) };
+  }
+
+  /** ImageData -> a new texture (skipped when a file with that key exists). */
+  private addPixels(key: string, img: ImageData) {
+    if (this.textures.exists(key)) return;
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    c.getContext('2d')!.putImageData(img, 0, 0);
+    this.textures.addCanvas(key, c);
+    mediaStatus.fromFiles.add(key);
+  }
+
+  /**
+   * The team's boss (sprites/boss_art.png, 32x35, from art/Boss.png) -> boss_<stage> (stage 2/3 glow
+   * orange/red, the treasury key on his chest), boss_flash (white, on a hit), boss_nokey (dead).
+   * The drawing is never cut: the arena moves the whole picture (waddle, lunge, recoil).
+   * Colours are baked in because the Canvas renderer ignores setTint.
+   */
+  private bossArt() {
+    if (!this.textures.exists('boss_art')) return;            // no file: boot draws the placeholder
+    const { w, h, data } = this.pixels('boss_art');
+    const mix = (tint: number, a: number) => {
+      const out = new ImageData(new Uint8ClampedArray(data.data), w, h);
+      const d = out.data;
+      for (let i = 0; i < d.length; i += 4) {
+        if (!d[i + 3]) continue;
+        d[i] = d[i] * (1 - a) + ((tint >> 16) & 255) * a;
+        d[i + 1] = d[i + 1] * (1 - a) + ((tint >> 8) & 255) * a;
+        d[i + 2] = d[i + 2] * (1 - a) + (tint & 255) * a;
+      }
+      return out;
+    };
+    const put = (img: ImageData, x: number, y: number, rgb: number) => {
+      img.data.set([(rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255, 255], (y * w + x) * 4);
+    };
+    const withKey = (img: ImageData) => {                      // below the chin, over the chest
+      for (const [x, y] of [[14, 13], [15, 14], [19, 13], [18, 14]]) put(img, x, y, 0x2b1a10);   // cord
+      for (const [x, y] of [[15, 15], [16, 15], [17, 15], [15, 16], [17, 16], [16, 17], [16, 18], [17, 18]]) put(img, x, y, 0xffcc44);
+      put(img, 16, 16, 0x2b1a10);                              // the hole in the bow
+      put(img, 15, 15, 0xfff1a8);                              // shine
+      return img;
+    };
+    const stages: [number, ImageData][] = [[1, withKey(mix(0, 0))], [2, withKey(mix(0xff8a2c, 0.25))], [3, withKey(mix(0xff2a2a, 0.38))]];
+    for (const [s, img] of stages) this.addPixels(`boss_${s}`, img);
+    // his hands: frames where only the six hands move by a pixel or two (the arms stay as drawn)
+    if (w === BOSS_W && h === BOSS_H) {
+      for (const [s, img] of stages) for (const [name, shifts] of Object.entries(HAND_FRAMES)) this.addPixels(`boss_${s}_${name}`, moveHands(img, shifts));
+    }
+    this.addPixels('boss_flash', mix(0xffffff, 1));
+    this.addPixels('boss_nokey', mix(0xff2a2a, 0.38));
+  }
+
+  /**
+   * The team's campfires (sprites/campfire_wood.png and campfire_stone.png, from art/Campfire/) ->
+   * four flicker frames each (src/fireFrames.ts): as drawn, the flame's tip leaning left, leaning
+   * right, dipping. Only the flame moves; the logs and stones stay as drawn.
+   */
+  private campfireArt() {
+    for (const kind of ['wood', 'stone']) {
+      const src = `campfire_${kind}`;
+      if (!this.textures.exists(src)) continue;
+      const { w, h, data } = this.pixels(src);
+      FIRE_FRAMES.forEach((f, i) => this.addPixels(`${src}_${i}`, new ImageData(fireFrame(data.data, w, h, f), w, h)));
     }
   }
 }

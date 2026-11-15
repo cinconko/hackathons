@@ -6,7 +6,9 @@
     "lib": ["ES2022", "DOM"],
     "strict": true,
     "noUnusedLocals": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "tools"]
+  "include": ["src", "tools", "api"]
 }

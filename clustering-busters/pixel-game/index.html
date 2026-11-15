@@ -4,12 +4,189 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ringfall</title>
+  <meta name="description" content="Mossback stole the treasury. Fly the catapult into his lair, beat him, and bring the rings home. How lucky are you?" />
   <style>
-    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    body { display: grid; place-items: center; }   /* the canvas sits in the middle of any window */
+    /* the game's fonts, relative paths: they work on Vercel and in the itch.io zip */
+    @font-face { font-family: alagard; src: url('./media/fonts/alagard.ttf'); font-display: swap; }
+    @font-face { font-family: silkscreen; src: url('./media/fonts/silkscreen.ttf'); font-display: swap; }
   </style>
+  <link rel="stylesheet" href="./src/landing/landing.css" />
 </head>
 <body>
+  <!-- One page: a parchment hero with a wordmark you can knock apart, the game in the night section,
+       then the story, the leaderboard and the odds. Paths stay relative (the itch.io zip runs this
+       too). Sprites: every img[data-sprite] is filled from the running game (src/landing/main.ts). -->
+  <div class="progress" aria-hidden="true"><span id="progress"></span></div>
+
+  <nav class="topbar" aria-label="Ringfall">
+    <a class="logo" href="#top"><img data-sprite="ring_superRare" data-scale="2" width="14" height="14" alt="" /> Ringfall</a>
+    <div class="links"><a href="#play-area">Play</a><a href="#story">Story</a><a href="#mossback">Mossback</a><a href="#board-title">Leaderboard</a><a href="#odds-title">Odds</a></div>
+    <a class="btn gold small" href="#play-area">Play now</a>
+  </nav>
+
+  <header class="hero paper" id="top">
+
+    <div class="wordmark-wrap">
+      <!-- the wordmark, made of rings: RING in gold, FALL in black, a lucky rare or super rare among them; move through it to knock rings out -->
+      <canvas id="wordmark" aria-label="Ringfall" role="img"></canvas>
+      <span class="tag knocked">Rings knocked: <b id="knocked">0</b></span>
+      <img data-sprite="player" data-scale="1" width="10" height="18" alt="" id="hero-sprite" hidden />
+    </div>
+
+    <div class="hero-foot">
+      <div class="pitch">
+        <p class="lead">One farmer, one catapult. <mark>Bring the rings home.</mark></p>
+      </div>
+
+      <!-- sign in with your name: the one thing to do on this page -->
+      <form class="start" id="play">
+        <h2 class="start-title">Who flies to the lair?</h2>
+        <label for="nick">Your name</label>
+        <div class="field">
+          <span class="caret" aria-hidden="true">&#x25B8;</span>
+          <input id="nick" name="nick" autocomplete="nickname" maxlength="14" placeholder="Type your name" required />
+        </div>
+        <button type="submit" class="btn gold start-go">Play the game &#x25B8;</button>
+        <p class="hint" id="nick-hint">2-14 letters or digits</p>
+        <p class="blink" aria-hidden="true">Press start</p>
+      </form>
+    </div>
+  </header>
+
+  <main>
+    <!-- the game, in the night -->
+    <section class="arena night" id="play-area" aria-labelledby="arena-title">
+      <div class="arena-head">
+        <div>
+          <h2 id="arena-title" class="big">The Lair <em>#01</em></h2>
+          <div class="keys"><kbd>W A S D</kbd><kbd>Mouse aim</kbd><kbd>Click attack</kbd><kbd>Q weapon</kbd><kbd>1-8 specials</kbd><kbd>F fullscreen</kbd></div>
+        </div>
+      </div>
+      <div class="arena-grid">
+        <div class="frame">
+          <div id="screen"></div>
+          <div class="bar">
+            <button id="fullscreen" type="button" class="btn gold">&#x26F6; Fullscreen</button>
+            <span class="hint">or press <kbd>F</kbd> &nbsp;·&nbsp; <kbd>M</kbd> mutes</span>
+          </div>
+        </div>
+        <aside class="side">
+          <div class="stats">
+            <div><small>Best time</small><b id="st-best">-</b></div>
+            <div><small>Treasuries</small><b id="st-wins">0</b></div>
+            <div><small>Rings home</small><b id="st-home">0</b></div>
+            <div><small>Wallet</small><b id="st-wallet">0</b></div>
+          </div>
+          <!-- the live top 5 (src/landing/main.ts refreshes it every 20 s); the full list is further down -->
+          <div class="board-card" aria-labelledby="board-card-title">
+            <h3 id="board-card-title"><span>Leaderboard</span><a href="#board-title">all &#x2193;</a></h3>
+            <ol id="board-top"><li class="muted">asking the town crier...</li></ol>
+            <p id="board-me" class="board-me"></p>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- the story, told as you scroll -->
+    <section class="story paper" id="story" aria-label="The story">
+      <div class="chapter">
+        <div class="art card reveal from-left">
+          <div class="vault glow">
+            <img data-sprite="chest" data-scale="6" width="84" height="66" alt="" class="float" />
+            <img data-sprite="ring_classic" data-scale="4" width="28" height="28" alt="" class="orbit o1" />
+            <img data-sprite="ring_rare" data-scale="4" width="28" height="28" alt="" class="orbit o2" />
+            <img data-sprite="ring_superRare" data-scale="4" width="28" height="28" alt="" class="orbit o3" />
+          </div>
+        </div>
+        <div class="words reveal from-right">
+          <h2 class="big">The treasury under the hill</h2>
+          <p>Every ring the village ever found.</p>
+        </div>
+      </div>
+      <div class="chapter flip">
+        <div class="art card reveal from-right">
+          <div class="raid">
+            <img data-sprite="chest" data-scale="4" width="56" height="44" alt="" class="carried" />
+            <img data-sprite="boss_3" data-scale="4" width="128" height="140" alt="" class="stomp" />
+          </div>
+        </div>
+        <div class="words reveal from-left">
+          <h2 class="big">Then Mossback came</h2>
+          <p>One night he took them all. The key hangs on his neck.</p>
+        </div>
+      </div>
+      <div class="chapter">
+        <div class="art card reveal from-left">
+          <!-- the catapult from its parts, like the game builds it (src/catapult.ts), at 3x -->
+          <div class="launch">
+            <img data-sprite="catapult_base" data-scale="3" width="120" height="66" alt="" class="cbase" />
+            <img data-sprite="catapult_winch" data-scale="3" width="21" height="21" alt="" class="cwinch" />
+            <img data-sprite="player" data-scale="2" width="20" height="36" alt="" class="flier" />
+            <img data-sprite="catapult_arm" data-scale="3" width="90" height="24" alt="" class="carm" />
+            <img data-sprite="catapult_pin" data-scale="3" width="15" height="15" alt="" class="cpin" />
+          </div>
+        </div>
+        <div class="words reveal from-right">
+          <h2 class="big">The old catapult</h2>
+          <p>No road climbs his mountain. The catapult flies.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="stages night" id="mossback" aria-labelledby="c4">
+      <h2 id="c4" class="big reveal">Three stages of <em>Mossback</em></h2>
+      <div class="cards">
+        <div class="card dark reveal" style="--i:0"><span class="num">01</span><img data-sprite="boss_1" data-scale="3" width="96" height="105" alt="" /><h3>Mossback</h3><p>A ring of balls.</p><div class="warn ring"></div></div>
+        <div class="card dark reveal" style="--i:1"><span class="num">02</span><img data-sprite="boss_2" data-scale="3" width="96" height="105" alt="" /><h3>Angry</h3><p>Aimed throws.</p><div class="warn aim"></div></div>
+        <div class="card dark reveal" style="--i:2"><span class="num">03</span><img data-sprite="boss_3" data-scale="3" width="96" height="105" alt="" /><h3>Furious</h3><p>Spins, charges, slams.</p><div class="warn spiral"></div></div>
+      </div>
+    </section>
+
+    <section class="merchants paper" aria-labelledby="c5">
+      <h2 id="c5" class="big reveal">Six merchants, <em>six robes</em></h2>
+      <div class="robes">
+        <figure class="card reveal pop" style="--i:0"><img data-sprite="merchant_darkblue_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Ranger<small>range</small></figcaption></figure>
+        <figure class="card reveal pop" style="--i:1"><img data-sprite="merchant_red_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Smith<small>melee</small></figcaption></figure>
+        <figure class="card reveal pop" style="--i:2"><img data-sprite="merchant_gray_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Armorer<small>armor</small></figcaption></figure>
+        <figure class="card reveal pop" style="--i:3"><img data-sprite="merchant_green_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Alchemist<small>specials</small></figcaption></figure>
+        <figure class="card reveal pop" style="--i:4"><img data-sprite="merchant_orange_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Peddler<small>a bit of all</small></figcaption></figure>
+        <figure class="card reveal pop gold" style="--i:5"><img data-sprite="merchant_special_0" data-scale="4" width="64" height="72" alt="" /><figcaption>Special<small>best deal</small></figcaption></figure>
+      </div>
+    </section>
+
+    <section class="village night" aria-labelledby="c6">
+      <h2 id="c6" class="big reveal">Grow the <em>village</em></h2>
+      <p class="sub reveal">Spend rings, the village grows, Mossback drops more.</p>
+      <ol class="growth">
+        <li class="reveal" style="--i:0"><img data-sprite="campfire_wood_0" data-scale="3" width="42" height="42" alt="" /><span>Camp</span></li>
+        <li class="reveal" style="--i:1"><img data-sprite="hut" data-scale="3" width="72" height="60" alt="" /><span>Tent camp</span></li>
+        <li class="reveal" style="--i:2"><img data-sprite="house" data-scale="3" width="90" height="78" alt="" /><span>Village</span></li>
+        <li class="reveal" style="--i:3"><img data-sprite="fountain_0" data-scale="3" width="78" height="66" alt="" /><span>Fountain square</span></li>
+        <li class="reveal" style="--i:4"><img data-sprite="house_big" data-scale="3" width="96" height="108" alt="" /><span>Rich town</span></li>
+        <li class="reveal" style="--i:5"><img data-sprite="statue" data-scale="3" width="42" height="66" alt="" /><span>Ringfall City</span></li>
+      </ol>
+    </section>
+
+    <section class="board paper" aria-labelledby="board-title">
+      <h2 id="board-title" class="big reveal">Leader<em>board</em></h2>
+      <p class="sub reveal">Fastest treasury recovered</p>
+      <ol id="board" class="card"><li class="muted">asking the town crier...</li></ol>
+    </section>
+
+    <section class="odds night" aria-labelledby="odds-title">
+      <h2 id="odds-title" class="big reveal">How lucky <em>are you?</em></h2>
+      <p class="sub reveal">Straight from the game's rules.</p>
+      <div id="odds"></div>
+    </section>
+  </main>
+
+  <footer class="paper">
+    <a class="logo" href="#top"><img data-sprite="ring_superRare" data-scale="2" width="14" height="14" alt="" /> Ringfall</a>
+    <p>Fonts: Alagard by Hewett Tsoi, Silkscreen by Jason Kottke. Made at a hackathon by the Clustering Busters.</p>
+    <a href="#top" class="btn outline small">Back to the top &#x2191;</a>
+  </footer>
+
   <script type="module" src="./src/main.ts"></script>
+  <script type="module" src="./src/landing/main.ts"></script>
 </body>
 </html>

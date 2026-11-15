@@ -222,10 +222,10 @@ export const startingInventory = (): Inventory => ({ owned: [], melee: null, ran
 
 export type BuyResult = { ok: true; wallet: Wallet; inventory: Inventory } | { ok: false; reason: 'owned' | 'too poor' };
 
-/** Buy an item. A new weapon or armor is equipped at once (you just bought it). */
-export function buyItem(wallet: Wallet, inv: Inventory, id: CatalogId): BuyResult {
+/** Buy an item (at `price`, e.g. the special card's discount). A new weapon or armor is equipped at once. */
+export function buyItem(wallet: Wallet, inv: Inventory, id: CatalogId, price: number = item(id).price): BuyResult {
   if (inv.owned.includes(id)) return { ok: false, reason: 'owned' };
-  const paid = pay(wallet, item(id).price);
+  const paid = pay(wallet, price);
   if (!paid) return { ok: false, reason: 'too poor' };
   return { ok: true, wallet: paid, inventory: equip({ ...inv, owned: [...inv.owned, id] }, id) };
 }
@@ -242,14 +242,38 @@ export function equip(inv: Inventory, id: CatalogId): Inventory {
 
 // ---- The merchant's cards --------------------------------------------------------------
 
-export const CARD_COUNT = 3;
+// Six merchants take turns visiting the village; his robe tells you what he mainly sells.
+// The five classic ones bring 3 cards and come equally often; the special merchant (10%) brings
+// 5: one card of each kind + the BEST DEAL (a top item at a discount).
+//
+//   merchant   robe       his 3 cards
+//   ranger     dark blue  2 range   + 1 of another kind
+//   smith      red        2 melee   + 1 of another kind
+//   armorer    gray       2 armor   + 1 of another kind
+//   alchemist  green      2 special + 1 of another kind
+//   peddler    orange     3 cards, each a different kind
+//   special    gold       4 cards, one of each kind, + the best deal
+export type MerchantKind = 'ranger' | 'smith' | 'armorer' | 'alchemist' | 'peddler' | 'special';
+export const CLASSIC_MERCHANTS: readonly MerchantKind[] = ['ranger', 'smith', 'armorer', 'alchemist', 'peddler'];
+/** What each one mainly sells (null: a bit of everything). */
+export const MERCHANT_SELLS: Readonly<Record<MerchantKind, ItemKind | null>> = {
+  ranger: 'range', smith: 'melee', armorer: 'armor', alchemist: 'special', peddler: null, special: null,
+};
+export const MERCHANT_NAMES: Readonly<Record<MerchantKind, string>> = {
+  ranger: 'Ranger', smith: 'Smith', armorer: 'Armorer', alchemist: 'Alchemist', peddler: 'Peddler', special: 'Special merchant',
+};
+export const CLASSIC_CARDS = 3;
+export const SPECIAL_CARDS = 5;              // including the best deal
+export const SPECIAL_MERCHANT_CHANCE = 0.1;
+export const CARD_COUNT = SPECIAL_CARDS - 1; // the most random cards one merchant deals
+const KINDS: readonly ItemKind[] = ['range', 'melee', 'armor', 'special'];
 
 /**
- * Deals the merchant's cards: random chart items you do not own yet (fewer when nearly
- * everything is bought). New cards every time you come back from the arena.
+ * Deals the merchant's random cards: chart items you do not own yet and that are not in
+ * `exclude` (the special card). Fewer when nearly everything is bought.
  */
-export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number = CARD_COUNT): CatalogId[] {
-  const pool = CATALOG.map((i) => i.id).filter((id) => !owned.includes(id));
+export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number = CARD_COUNT, exclude: readonly CatalogId[] = []): CatalogId[] {
+  const pool = CATALOG.map((i) => i.id).filter((id) => !owned.includes(id) && !exclude.includes(id));
   for (let i = pool.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
     const t = pool[i];
@@ -257,6 +281,96 @@ export function rollCards(rng: Rng, owned: readonly CatalogId[], count: number =
     pool[j] = t;
   }
   return pool.slice(0, count);
+}
+
+/** The special card: one of the chart's best items, at a discount. */
+export interface SpecialOffer { id: CatalogId; price: number; discount: number }
+/** "Really good" = the chart's top items: 200 rings and up. */
+export const SPECIAL_MIN_PRICE = 200;
+export const SPECIAL_DISCOUNTS: readonly number[] = [0.25, 0.3, 0.35, 0.4];
+
+/** The discounted price, rounded down to whole classic rings (a multiple of 5). */
+export function discountedPrice(price: number, discount: number): number {
+  const unit = RINGS.classic.value;
+  return Math.floor((price * (1 - discount)) / unit) * unit;
+}
+
+/**
+ * The special card: a random top item you do not own, at a random discount. If you own all the
+ * top items, the most expensive thing you do not own yet; if you own everything, none.
+ */
+export function rollSpecial(rng: Rng, owned: readonly CatalogId[]): SpecialOffer | null {
+  const left = CATALOG.filter((i) => !owned.includes(i.id));
+  if (!left.length) return null;
+  const top = left.filter((i) => i.price >= SPECIAL_MIN_PRICE);
+  const pick = top.length ? top[Math.floor(rng() * top.length)] : [...left].sort((a, b) => b.price - a.price)[0];
+  const discount = SPECIAL_DISCOUNTS[Math.floor(rng() * SPECIAL_DISCOUNTS.length)];
+  return { id: pick.id, price: discountedPrice(pick.price, discount), discount };
+}
+
+export interface MerchantDeal { kind: MerchantKind; cards: CatalogId[]; special: SpecialOffer | null }
+
+/** One card slot: an item of `kind`, or of any kind but `not`, or of any kind at all. */
+interface Slot { kind?: ItemKind; not?: ItemKind }
+
+function shuffled<T>(rng: Rng, list: readonly T[]): T[] {
+  const a = [...list];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * Fill the slots with chart items you do not own (never twice, never one in `exclude`). A slot
+ * that cannot be filled (you own every bow) takes any item left, so the table is only short
+ * when nearly everything is bought.
+ */
+export function fillSlots(rng: Rng, owned: readonly CatalogId[], slots: readonly Slot[], exclude: readonly CatalogId[] = []): CatalogId[] {
+  const pool = shuffled(rng, CATALOG.filter((i) => !owned.includes(i.id) && !exclude.includes(i.id)));
+  const used = new Set<CatalogId>();
+  const take = (ok: (i: CatalogItem) => boolean) => {
+    const hit = pool.find((i) => !used.has(i.id) && ok(i));
+    if (hit) used.add(hit.id);
+    return hit;
+  };
+  const cards: CatalogId[] = [];
+  let missing = 0;
+  for (const s of slots) {
+    const hit = take((i) => (!s.kind || i.kind === s.kind) && (!s.not || i.kind !== s.not));
+    if (hit) cards.push(hit.id); else missing++;
+  }
+  for (; missing > 0; missing--) {
+    const hit = take(() => true);
+    if (hit) cards.push(hit.id);
+  }
+  return cards;
+}
+
+/** Each merchant's table, as slots (see the chart above). */
+function merchantSlots(rng: Rng, kind: MerchantKind): Slot[] {
+  const main = MERCHANT_SELLS[kind];
+  if (main) return [{ kind: main }, { kind: main }, { not: main }];
+  if (kind === 'peddler') return shuffled(rng, KINDS).slice(0, CLASSIC_CARDS).map((k) => ({ kind: k }));
+  return shuffled(rng, KINDS).map((k) => ({ kind: k }));   // the special merchant: one of each kind
+}
+
+/**
+ * Who comes and what he brings: the special merchant 10% of the time, otherwise one of the five
+ * classic merchants, equally likely. The special merchant's best deal is picked first, so it is
+ * never also one of his other cards.
+ */
+export function dealMerchant(rng: Rng, owned: readonly CatalogId[]): MerchantDeal {
+  const kind: MerchantKind = rng() < SPECIAL_MERCHANT_CHANCE ? 'special' : CLASSIC_MERCHANTS[Math.floor(rng() * CLASSIC_MERCHANTS.length)];
+  const special = kind === 'special' ? rollSpecial(rng, owned) : null;
+  return { kind, cards: fillSlots(rng, owned, merchantSlots(rng, kind), special ? [special.id] : []), special };
+}
+
+/** Is a saved deal one a merchant could bring? (Older saves: everyone had 4 cards + a special.) */
+export function dealFits(d: MerchantDeal): boolean {
+  if (!(d.kind in MERCHANT_SELLS)) return false;
+  return d.kind === 'special' ? d.cards.length <= SPECIAL_CARDS - 1 : d.special === null && d.cards.length <= CLASSIC_CARDS;
 }
 
 // ---- The bar: one drink for the next fight ---------------------------------------------
@@ -330,14 +444,49 @@ export interface StageInfo {
   readonly color: number;
   readonly speed: number;
   readonly shotEveryMs: number;
+  readonly ballSpeed: number;   // px/s of his balls in this stage
   readonly pattern: Pattern;
   readonly dashEveryMs: number; // 0 = never dashes
 }
 export const STAGES: Readonly<Record<Stage, StageInfo>> = {
-  1: { name: 'Mossback', color: 0x5fbf4a, speed: 22, shotEveryMs: 1800, pattern: 'ring', dashEveryMs: 0 },
-  2: { name: 'Mossback, angry', color: 0xe08a2c, speed: 34, shotEveryMs: 1400, pattern: 'aimed', dashEveryMs: 0 },
-  3: { name: 'Mossback, furious', color: 0xd83a3a, speed: 46, shotEveryMs: 800, pattern: 'spiral', dashEveryMs: 3200 },
+  1: { name: 'Mossback', color: 0x5fbf4a, speed: 22, shotEveryMs: 1800, ballSpeed: 55, pattern: 'ring', dashEveryMs: 0 },
+  2: { name: 'Mossback, angry', color: 0xe08a2c, speed: 44, shotEveryMs: 950, ballSpeed: 130, pattern: 'aimed', dashEveryMs: 0 },
+  3: { name: 'Mossback, furious', color: 0xd83a3a, speed: 46, shotEveryMs: 800, ballSpeed: 70, pattern: 'spiral', dashEveryMs: 3200 },
 };
+
+// ---- the finale: stage 3's special moves, taking turns ----------------------------------
+// Giant ball: he stops and grows a huge ball over his head. Deal staggerDmg before it is ready and he
+// drops it on himself (staggerHit damage, stunned); otherwise he throws it at you and it bursts.
+// Slam rain: he leaps out of sight, his shadow hunts you, locks, he slams down (shockwave), then balls
+// rain on marked spots.
+export type FinaleMove = 'giantBall' | 'slamRain';
+export const FINALE = {
+  firstAfterMs: 4000,          // after stage 3 starts
+  everyMs: 11000,              // from one move's start to the next
+  ball: { chargeMs: 2400, staggerDmg: 45, staggerHit: 80, stunMs: 1800, speed: 100, maxFlightMs: 1500, burst: 16, burstSpeed: 60, hitDmg: 25 },
+  slam: { riseMs: 500, huntMs: 1500, lockMs: 700, fallMs: 160, radius: 34, dmg: 30, rainMs: 3000, rainEveryMs: 200, rainWarnMs: 700, dropRadius: 7, dropGap: 18 },
+} as const;
+
+/** The moves take turns: the giant ball first, then the slam, then the ball again... */
+export function finaleMove(count: number): FinaleMove {
+  return count % 2 === 0 ? 'giantBall' : 'slamRain';
+}
+
+/** Does the damage dealt while he charges the giant ball make him drop it? */
+export function staggers(dealt: number): boolean {
+  return dealt >= FINALE.ball.staggerDmg;
+}
+
+/** Where the rain falls: `count` spots inside the area (margin 6), none closer than `gap` to another. */
+export function rainSpots(rng: Rng, area: { x: number; y: number; width: number; height: number }, count: number, gap: number): { x: number; y: number }[] {
+  const spots: { x: number; y: number }[] = [];
+  for (let tries = 0; spots.length < count && tries < count * 20; tries++) {
+    const x = area.x + 6 + rng() * (area.width - 12);
+    const y = area.y + 6 + rng() * (area.height - 12);
+    if (spots.every((s) => Math.hypot(s.x - x, s.y - y) >= gap)) spots.push({ x: Math.round(x), y: Math.round(y) });
+  }
+  return spots;
+}
 
 export function bossStage(hp: number, maxHp: number = BOSS_MAX_HP): Stage {
   if (hp > (maxHp * 2) / 3) return 1;

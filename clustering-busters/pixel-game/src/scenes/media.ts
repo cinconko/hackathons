@@ -20,6 +20,9 @@ export class MediaScene extends Phaser.Scene {
   constructor() { super('media'); }
 
   create() {
+    // ?scene=media&show=cart_0,cartf_0 : inspect sprites big (whole-step scale, side by side)
+    const show = new URLSearchParams(window.location.search).get('show');
+    if (show) { this.inspect(show.split(',').filter((k) => this.textures.exists(k))); return; }
     this.page = 0;
     const keys = new Set([...mediaStatus.placeholders.keys(), ...mediaStatus.fromFiles]);
     this.items = [...keys].sort().map((key) => {
@@ -31,7 +34,7 @@ export class MediaScene extends Phaser.Scene {
     const sounds = [...s.music, ...s.sfx];
     this.add.text(PLAY.x + 4, PLAY.y + 3, `MEDIA CHECKLIST   art ${art}/${this.items.length}   sounds ${sounds.filter((x) => x.ok).length}/${sounds.length}`, { ...FONT, color: '#ffcc44' });
     this.info = this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 21, '', { ...FONT, color: '#cccccc' });
-    this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 11, 'A/D page   Esc menu   files go in public/media (see its README)', { ...FONT, color: '#666666' });
+    this.add.text(PLAY.x + 4, PLAY.y + PLAY.height - 11, 'A/D page   Esc menu   files: public/media', { ...FONT, color: '#666666' });
     const kb = this.input.keyboard!;
     kb.on('keydown-A', () => this.turn(-1));
     kb.on('keydown-LEFT', () => this.turn(-1));
@@ -41,6 +44,24 @@ export class MediaScene extends Phaser.Scene {
     console.table(this.items.filter((i) => !i.art).map((i) => ({ sprite: i.key, size: `${i.w}x${i.h}`, file: `public/media/sprites/${i.key}.png` })));
     drawFrame(this);
     this.render();
+  }
+
+  private inspect(keys: string[]) {
+    const gap = 8;
+    const sizes = keys.map((k) => this.textures.get(k).getSourceImage() as { width: number; height: number });
+    const totalW = sizes.reduce((w, z) => w + z.width, 0) + gap * (keys.length - 1);
+    const maxH = Math.max(1, ...sizes.map((z) => z.height));
+    const scale = Math.max(1, Math.floor(Math.min((PLAY.width - 16) / Math.max(1, totalW), (PLAY.height - 40) / maxH)));
+    let x = WIDTH / 2 - (totalW * scale) / 2;
+    keys.forEach((k, i) => {
+      const z = sizes[i];
+      this.add.image(x + (z.width * scale) / 2, PLAY.y + 18 + (maxH * scale) / 2, k).setScale(scale);
+      this.add.text(x + (z.width * scale) / 2, PLAY.y + 22 + maxH * scale + (i % 2) * 10, `${k} ${z.width}x${z.height}`, { ...FONT, color: '#dddddd' }).setOrigin(0.5, 0);   // staggered: no overlap
+      x += (z.width + gap) * scale;
+    });
+    this.add.text(PLAY.x + 4, PLAY.y + 3, `INSPECT  x${scale}`, { ...FONT, color: '#ffcc44' });
+    this.cameras.main.setBackgroundColor('#3f6a34');
+    drawFrame(this);
   }
 
   private pages() { return Math.ceil(this.items.length / PER_PAGE) + 1; }   // + the sound page
@@ -69,7 +90,8 @@ export class MediaScene extends Phaser.Scene {
       const img = this.add.image(x + cw / 2, y + 14, it.key);
       img.setScale(Math.min(2, 22 / Math.max(it.w, it.h, 1)));
       c.add(img);
-      const name = it.key.length > 7 ? `${it.key.slice(0, 6)}~` : it.key;
+      const fit = Math.floor((cw - 4) / 5.4);              // letters that fit the cell (Silkscreen: ~5 px a letter + spacing)
+      const name = it.key.length > fit ? `${it.key.slice(0, fit - 1)}~` : it.key;
       c.add(this.add.text(x + cw / 2, y + 26, name, { ...FONT, color: it.art ? '#8fe08f' : '#aaaaaa' }).setOrigin(0.5, 0));
       const zone = this.add.zone(x + cw / 2, y + ch / 2, cw - 2, ch - 3).setInteractive();
       zone.on('pointerover', () => this.info.setText(`${it.key}  ${it.w}x${it.h}  ${it.art ? 'ART from file' : `DRAWN: add public/media/sprites/${it.key}.png`}`));
