@@ -5,6 +5,8 @@ create table if not exists public.scores (
   created_at timestamptz not null default now()
 );
 
+alter table public.scores add column if not exists run_id uuid unique;
+
 create index if not exists scores_rank_idx on public.scores (time_ms, id);
 
 -- RLS on with no policies on purpose: the public anon key can do nothing; only api/scores.ts (service role, server-side) writes.

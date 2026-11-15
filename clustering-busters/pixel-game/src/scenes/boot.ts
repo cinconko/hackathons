@@ -408,7 +408,8 @@ export class BootScene extends Phaser.Scene {
     anim('cart_up', [['cartb_0', 170], ['cartb_1', 170]]);
     anim('cart_down', [['cartf_0', 170], ['cartf_1', 170]]);
 
-    const q = new URLSearchParams(window.location.search);
+    // Test hooks (?play&stage=3, ?kit=all, ?wallet=) skip the real game, so only the dev server reads them.
+    const q = new URLSearchParams(import.meta.env.DEV ? window.location.search : '');
     const wallet = q.get('wallet')?.split(',').map(Number);
     if (wallet && wallet.length === 3 && wallet.every((n) => Number.isFinite(n) && n >= 0)) {
       updateSave((s) => ({ ...s, wallet: { classic: wallet[0], rare: wallet[1], superRare: wallet[2] } }));

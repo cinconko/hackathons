@@ -32,11 +32,34 @@ async function call(init?: RequestInit): Promise<Board | null> {
 export const fetchBoard = (): Promise<Board | null> => call();
 
 let pending: { timeMs: number; answer: Promise<Board | null> } | null = null;
+let runTicket: Promise<string | null> = Promise.resolve(null);
+
+async function fetchTicket(): Promise<string | null> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API}?run=new`, { signal: ctl.signal });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { ticket?: unknown };
+    return typeof body?.ticket === 'string' ? body.ticket : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function startRun(): void {
+  runTicket = fetchTicket();
+}
 
 export function submitWin(timeMs: number): Promise<Board | null> {
   const nick = loadNick();
   if (!nick) return Promise.resolve(null);
-  const answer = call({ method: 'POST', body: JSON.stringify({ nick, timeMs }) });
+  const answer = runTicket.then((ticket) => {
+    runTicket = Promise.resolve(null);
+    return ticket ? call({ method: 'POST', body: JSON.stringify({ nick, timeMs, ticket }) }) : null;
+  });
   pending = { timeMs, answer };
   return answer;
 }

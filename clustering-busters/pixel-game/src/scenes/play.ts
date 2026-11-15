@@ -9,6 +9,7 @@ import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
 import { loadSave, updateSave } from '../save';
+import { startRun } from '../leaderboard';
 import { banner as showBanner, clearBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
 import { BOOK_H, BOOK_PAGE, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 
@@ -129,6 +130,7 @@ export class PlayScene extends Phaser.Scene {
     this.drinkNote = drink ? `${drink.name}: ${drink.desc}` : '';
     this.villageLvl = R.villageLevel(save.spent);
     this.fightMs = Math.max(0, data.startMs ?? 0);
+    startRun();
     this.hp = this.kit.maxHp;
     this.wallet = { ...save.wallet };
     this.rings = [];
