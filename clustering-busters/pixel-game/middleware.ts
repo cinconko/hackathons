@@ -2,12 +2,12 @@
 // It runs on Vercel before the cache, for every path: the page, the JS bundle, /media.
 // Without the password nobody receives the game's code. Any user name works.
 //
-// Then the pages: / is the landing page (landing.html: your name, the leaderboard, the odds) and
-// /play is the game (index.html, which stays the game because the itch.io zip runs it).
+// Then the page: everything is one page (index.html: your name, the game, the story, the
+// leaderboard, the odds), served at /. Old /play links land on it, at the game.
 //
 // The password is the GAME_PASSWORD environment variable on Vercel (never in the repo).
 // Not set = the site stays closed (fail closed). Local `npm run dev` does not use this file.
-import { next, rewrite } from '@vercel/functions';
+import { next } from '@vercel/functions';
 
 // Vercel gives middleware a Node-style process.env; declared here so the build's type check knows it.
 declare const process: { env: Record<string, string | undefined> };
@@ -21,13 +21,10 @@ function safeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Past the password: the landing page at /, the game at /play, everything else as it is. */
+/** Past the password: the one page at / (Vercel serves index.html there); old /play links go to it. */
 function route(request: Request): Response {
   const url = new URL(request.url);
-  if (url.pathname === '/') return rewrite(new URL('/landing.html', url));
-  if (url.pathname === '/play') return rewrite(new URL('/index.html', url));
-  // /play/ would break the game's relative asset paths (./assets/...): send it to /play
-  if (url.pathname === '/play/') return Response.redirect(new URL('/play' + url.search, url), 308);
+  if (url.pathname === '/play' || url.pathname === '/play/') return Response.redirect(new URL('/' + url.search + '#play-area', url), 308);
   return next();
 }
 
