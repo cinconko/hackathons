@@ -56,8 +56,8 @@ export default defineConfig({
   build: {
     chunkSizeWarningLimit: 1500,
     rollupOptions: {
-      // two pages: the game (index.html, also what itch.io runs) and the landing page (Vercel serves it at /)
-      input: { game: join(__dirname, 'index.html'), landing: join(__dirname, 'landing.html') },
+      // one page: index.html is the game and everything around it (also what itch.io runs)
+      input: { game: join(__dirname, 'index.html') },
       output: { manualChunks: { phaser: ['phaser'] } },
     },
   },
