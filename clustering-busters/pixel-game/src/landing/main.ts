@@ -2,8 +2,8 @@
 // the story, the leaderboard and how lucky you have to be (src/game/odds.ts).
 //
 // Animations: elements with .reveal get .in when they scroll into view (CSS does the motion);
-// [data-depth] layers in the hero move with the scroll (parallax); a gold bar at the top shows how
-// far down you are. prefers-reduced-motion: no reveals, no parallax, everything simply shows.
+// the hero's tile wordmark is knocked apart by our farmer (wordmark.ts); a gold bar at the top shows
+// how far down you are. prefers-reduced-motion: no reveals, nothing flies, everything simply shows.
 //
 // Sprites: every img[data-sprite] is filled from the running game's own textures (window.game)
 // once it has booted: the page shows exactly what the game shows, and the media loads only once.
@@ -12,6 +12,9 @@ import { cleanNick, NICK_MAX, NICK_MIN } from '../game/leaderboard';
 import { oddsGroups, oneIn, pct } from '../game/odds';
 import { fetchBoard, loadNick, saveNick, typing } from '../leaderboard';
 import { boardTime } from '../scenes/board';
+import { formatTime, walletValue } from '../game/rules';
+import { loadSave } from '../save';
+import { wordmark } from './wordmark';
 
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const gameOf = () => (window as unknown as { game?: Phaser.Game }).game;
@@ -113,8 +116,7 @@ function showOdds() {
 showOdds();
 reveal();
 
-// ---- parallax in the hero, and the reading progress bar ----
-const layers = Array.from(document.querySelectorAll<HTMLElement>('[data-depth]'));
+// ---- the reading progress bar ----
 const bar = document.getElementById('progress')!;
 let ticking = false;
 function onScroll() {
@@ -122,15 +124,28 @@ function onScroll() {
   ticking = true;
   requestAnimationFrame(() => {
     ticking = false;
-    const y = window.scrollY;
     const max = document.documentElement.scrollHeight - window.innerHeight;
-    bar.style.width = `${max > 0 ? (y / max) * 100 : 0}%`;
-    if (reduceMotion || y > window.innerHeight * 1.2) return;   // the hero is out of sight: nothing to move
-    for (const l of layers) l.style.transform = `translate3d(0, ${Math.round(y * Number(l.dataset.depth))}px, 0)`;
+    bar.style.width = `${max > 0 ? (window.scrollY / max) * 100 : 0}%`;
   });
 }
 window.addEventListener('scroll', onScroll, { passive: true });
 onScroll();
+
+// ---- the wordmark you can knock apart ----
+wordmark(document.getElementById('wordmark') as HTMLCanvasElement, document.getElementById('knocked'),
+  document.getElementById('hero-sprite') as HTMLImageElement | null, reduceMotion);
+
+// ---- your stats beside the screen, from this browser's save (refreshed when you come back to it) ----
+function showStats() {
+  const s = loadSave();
+  const set = (id: string, v: string) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  set('st-best', s.bestTimeMs ? formatTime(s.bestTimeMs) : '-');
+  set('st-wins', String(s.wins));
+  set('st-home', String(walletValue(s.lifetimeRings)));
+  set('st-wallet', String(walletValue(s.wallet)));
+}
+showStats();
+setInterval(showStats, 3000);
 
 // ---- the game rests while its screen is out of sight (not in fullscreen) ----
 // (only after boot: a sleeping game would never finish loading, and the page's sprites come from it)
