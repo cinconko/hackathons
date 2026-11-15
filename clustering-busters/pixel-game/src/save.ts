@@ -4,6 +4,7 @@ import { emptyWallet, equip, startingInventory, startingWallet, type CatalogId, 
 export interface SaveData {
   muted: boolean;
   seenIntro: boolean;      // the opening cutscene plays once, then it is in the menu
+  tutorialDone: boolean;   // the combat training after the cutscene was finished or skipped (it shows once)
   wallet: Wallet;          // all your rings: the only money (village and fisherman)
   inventory: Inventory;    // what the village sold you and what you wear (kept between runs)
   merchantKind: MerchantKind;   // who came: ranger, smith, armorer, alchemist, peddler (3 cards) or the special one (5)
@@ -24,7 +25,7 @@ export interface SaveData {
 
 const KEY = 'pixel-game:save';
 const defaults = (): SaveData => ({
-  muted: false, seenIntro: false, wallet: startingWallet(), inventory: startingInventory(), merchantKind: 'peddler', merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, grandpaMet: false, natureSeed: 0, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
+  muted: false, seenIntro: false, tutorialDone: false, wallet: startingWallet(), inventory: startingInventory(), merchantKind: 'peddler', merchantCards: [], merchantSpecial: null, drink: null, spent: 0, villageSeen: 1, handRevealed: false, kidGiftGiven: false, grandpaMet: false, natureSeed: 0, talkedTo: [], lifetimeRings: emptyWallet(), wins: 0, bestTimeMs: 0,
 });
 
 /** Saves from before the weapons chart had "upgrades": a bought bow becomes the chart's bow, bombs the bomb special. */

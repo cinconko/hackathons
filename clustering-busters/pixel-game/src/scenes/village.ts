@@ -14,6 +14,7 @@ import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs'
 import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, TITLE_FONT, walletHud } from '../ui';
+import { Tutorial } from '../tutorial';
 
 // The hub between fights:
 //   merchants      ranger / smith / armorer / alchemist / peddler (3 cards, robe = what he mostly sells) or,
@@ -125,7 +126,7 @@ const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string
   special: { title: 'THE SPECIAL MERCHANT', line: '"Rare to see me. Five today, one at a steal."', color: 0xc89a1a },
 };
 
-export interface VillageData { fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; openBar?: boolean; inYard?: boolean }
+export interface VillageData { tutorial?: boolean; fromIntro?: boolean; bouncedBack?: boolean; fromRun?: boolean; kept?: number; openShop?: boolean; openBar?: boolean; inYard?: boolean }
 
 interface Cart {
   sprite: Phaser.GameObjects.Sprite;
@@ -155,6 +156,7 @@ export class VillageScene extends Phaser.Scene {
   private carts: Cart[] = [];
   private shopBusyUntil = new Map<string, number>();   // a shop that just got a delivery waits a while
   private npcs: { id: NpcId; sprite: Phaser.GameObjects.Image; mark: Phaser.GameObjects.Text; walk?: Phaser.Tweens.Tween }[] = [];
+  private tutorial: Tutorial | null = null;   // the combat training after the cutscene (src/tutorial.ts)
   private dialog: { box: Phaser.GameObjects.Container; lines: string[]; i: number; typing: Phaser.Time.TimerEvent | null; text: Phaser.GameObjects.Text; onClose?: () => void } | null = null;
   private afterBounce: (() => void)[] = [];   // bounced home: what waits until Grandpa has spoken
   private dealCards = false;             // deal the cards with a flip when the shop opens
@@ -265,11 +267,14 @@ export class VillageScene extends Phaser.Scene {
 
     drawFrame(this);
     playMusic(this, 'village');
+    // fresh from the cutscene (and not trained yet): Sergeant Brann's combat training (?tutorial: dev hook)
+    this.tutorial = null;
+    const train = !!data.tutorial || (!!data.fromIntro && !loadSave().tutorialDone);
     if (data.bouncedBack) {
       this.bounceIn(data.kept ?? 0);
     } else {
       this.cameras.main.fadeIn(data.fromIntro ? 900 : 500);
-      banner(this, 'RINGFALL VILLAGE', specialArrived ? 'The special merchant is here: five cards today!'
+      if (!train) banner(this, 'RINGFALL VILLAGE', specialArrived ? 'The special merchant is here: five cards today!'
         : data.fromRun ? this.whoCame() : 'Merchant, tavern, well. The catapult is east.');
     }
     if (specialArrived && data.bouncedBack) {
@@ -279,6 +284,7 @@ export class VillageScene extends Phaser.Scene {
       if (data.bouncedBack) this.afterBounce.push(() => this.time.delayedCall(300, () => this.doRevealHand()));
       else this.time.delayedCall(900, () => this.doRevealHand());
     }
+    if (train) this.time.delayedCall(data.fromIntro ? 1000 : 300, () => this.startTutorial());
     if (data.openShop) this.openPanel('cards'); // dev hook
     if (data.openBar) this.openPanel('bar');    // dev hook
   }
@@ -286,6 +292,12 @@ export class VillageScene extends Phaser.Scene {
   update(_t: number, delta: number) {
     this.updateCarts(delta);
     this.updateMarks();
+    this.tutorial?.update();
+    if (this.tutorial?.blocking()) {                    // Brann is talking: stand still, and swallow the
+      const JD = Phaser.Input.Keyboard.JustDown;        // village's own presses so none fire later
+      JD(this.keys.ENTER); JD(this.keys.E); JD(this.keys.ESC); JD(this.keys.SPACE);
+      return;
+    }
     if (this.dialog) { this.dialogKeys(); return; }
     if (this.locked) return;
     if (this.panel) { this.panelKeys(); return; }
@@ -922,6 +934,19 @@ export class VillageScene extends Phaser.Scene {
     d.onClose?.();
   }
 
+  // ---- the combat training (after the cutscene) ----
+
+  private startTutorial() {
+    this.tutorial = new Tutorial(this, {
+      player: this.player,
+      dummy: DUMMY,
+      gate: { x: YARD_GAP.x + YARD_GAP.width / 2, y: YARD.y },
+      inYard: () => this.insideYard(),
+      busy: () => !!this.panel || !!this.dialog,
+      onEnd: () => { updateSave((s) => ({ ...s, tutorialDone: true })); this.tutorial = null; },
+    });
+  }
+
   // ---- the training yard ----
 
   /** Fence, sign, dummy and the weapons that come out inside it. */
@@ -1017,6 +1042,7 @@ export class VillageScene extends Phaser.Scene {
 
   /** The dummy: counts the hit, wobbles, never breaks. */
   private hitDummy(dmg: number) {
+    this.tutorial?.event('hitDummy');
     this.hits.push({ t: this.time.now, dmg });
     this.totalDmg += dmg;
     this.bestHit = Math.max(this.bestHit, dmg);
