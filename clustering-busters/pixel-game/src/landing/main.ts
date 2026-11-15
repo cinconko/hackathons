@@ -9,7 +9,7 @@
 // once it has booted: the page shows exactly what the game shows, and the media loads only once.
 import type Phaser from 'phaser';
 import { cleanNick, NICK_MAX, NICK_MIN } from '../game/leaderboard';
-import { oddsGroups, oneIn, pct } from '../game/odds';
+import { oddsGroups, pct } from '../game/odds';
 import { fetchBoard, loadNick, saveNick, typing } from '../leaderboard';
 import { boardTime } from '../scenes/board';
 import { formatTime, walletValue } from '../game/rules';
@@ -41,6 +41,16 @@ const form = document.getElementById('play') as HTMLFormElement;
 const input = document.getElementById('nick') as HTMLInputElement;
 const hint = document.getElementById('nick-hint')!;
 input.value = loadNick() ?? '';
+// check the name while typing, without nagging mid-word: only bad characters or too long show red;
+// too short stays neutral until Play is pressed
+input.addEventListener('input', () => {
+  const v = input.value.normalize('NFC').trim().replace(/\s+/g, ' ');
+  const n = [...v].length;
+  const bad = (v !== '' && !/^[\p{L}\p{N} _.-]+$/u.test(v)) || n > NICK_MAX;
+  hint.textContent = bad ? `Letters, digits, space, _ . - only, ${NICK_MIN}-${NICK_MAX} long`
+    : n >= NICK_MIN ? `Playing as ${v}` : `${NICK_MIN}-${NICK_MAX} letters or digits`;
+  hint.classList.toggle('bad', bad);
+});
 // The game listens to the keyboard on the whole window (W, A, S, D, E, Q, Space...). While you
 // type your name it steps aside, or those letters would never reach the box.
 // The keyboard reaches the game only while you are not typing and the game is awake: asleep,
@@ -91,31 +101,39 @@ async function showBoard() {
 void showBoard();
 
 // ---- the odds: each group's bars fill when it scrolls into view ----
+/**
+ * The odds as compact tiles: a sprite, a big percentage, a word or two, a bar. No blurbs. The
+ * merchants' odds go onto their cards in the merchants section (no second list down here).
+ */
 function showOdds() {
   const root = document.getElementById('odds')!;
   for (const g of oddsGroups()) {
+    if (g.id === 'merchants') {
+      for (const r of g.rows) {
+        const cap = document.querySelector(`.robes img[data-sprite="${r.sprite}"]`)?.parentElement?.querySelector('figcaption');
+        if (cap) cap.append(el('b', 'odds-badge', pct(r.chance)));
+      }
+      continue;
+    }
+    // the fisherman's four supplies all have the same chance: one tile for them
+    const rows = g.id === 'fisher' ? [{ ...g.rows[0], short: 'Each supply' }] : g.rows;
     const box = el('div', 'group reveal');
-    box.append(el('h3', '', g.title), el('p', '', g.blurb));
-    g.rows.forEach((r, i) => {
-      const row = el('div', `odd ${r.sprite.replace('ring_', '')}`);
-      const pic = el('div', 'pic');
+    box.append(el('h3', '', g.title));
+    const tiles = el('div', 'tiles');
+    rows.forEach((r, i) => {
+      const tile = el('div', `tile ${r.sprite.replace('ring_', '')}`);
       const img = el<HTMLImageElement>('img');
       img.dataset.sprite = r.sprite;
       img.alt = '';
-      pic.append(img);
-      const what = el('div', 'what', r.label);
-      if (r.note) what.append(el('small', '', r.note));
       const meter = el('div', 'meter');
       const fill = el('span');
       fill.style.setProperty('--w', `${Math.max(2, r.chance * 100)}%`);
       fill.style.setProperty('--i', String(i));
       meter.append(fill);
-      what.append(meter);
-      const num = el('div', 'num', pct(r.chance));
-      if (r.chance < 0.5) num.append(el('small', '', oneIn(r.chance)));
-      row.append(pic, what, num);
-      box.append(row);
+      tile.append(img, el('b', 'num', pct(r.chance)), el('span', 'what', r.short), meter);
+      tiles.append(tile);
     });
+    box.append(tiles);
     root.append(box);
   }
 }
