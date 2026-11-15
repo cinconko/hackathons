@@ -153,7 +153,7 @@ const BUILDS: ((s: IntroScene) => Obj[])[] = [
     items.push(s.add.tileSprite(PLAY.x, ground + 14, 190, 9, 'path_dirt').setOrigin(0).setDepth(5));    // the path to the catapult
     const cat = placeCatapult(s, WIDTH / 2 + 40, ground - 10, Math.PI * 0.92, 2, 10);   // its wheels on the path
     const { arm } = cat;
-    const hero = s.add.image(PLAY.x + 40, ground + 10, 'player').setScale(2).setDepth(12);
+    const hero = s.add.image(PLAY.x + 40, ground + 22, 'player').setOrigin(0.5, 1).setScale(2).setDepth(12);   // feet on the ground beside Brann's, whatever the art's height
     s.tweens.add({ targets: hero, x: WIDTH / 2 - 22, duration: 1400, ease: 'Sine.easeOut' });
     s.tweens.add({ targets: arm, rotation: Math.PI * 0.88, duration: 300, delay: 1500, yoyo: true, ease: 'Sine.easeInOut' });   // creak
     const brann = s.add.image(PLAY.x - 16, ground + 10, 'sergeant').setScale(2).setDepth(13);
