@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { makeVillageArt } from '../villageArt';
 import { CATALOG, RINGS, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
 import { mediaStatus, ROBES } from '../media';
 import { loadSave, updateSave } from '../save';
@@ -89,6 +90,7 @@ export class BootScene extends Phaser.Scene {
     };
     const px = (color: number, x: number, y: number, w = 1, h = 1, alpha = 1) => g.fillStyle(color, alpha).fillRect(x, y, w, h);
     const GOLD = 0xffcc44;
+    makeVillageArt(this);   // the village's buildings in the catapult's style (src/villageArt.ts)
 
     // Hero 8x10: hair, face, blue tunic, belt, legs.
     tex('player', 8, 10, () => {
@@ -224,12 +226,6 @@ export class BootScene extends Phaser.Scene {
     tex('door_open', 12, 16, () => { px(0x55555f, 0, 0, 12, 16); px(0x000000, 2, 3, 8, 13); px(0x1a1a24, 3, 4, 6, 12); });
 
     // ---- village ----
-    tex('house', 30, 26, () => {
-      for (let i = 0; i < 10; i++) px(0xa0402f, 10 - i, i, 10 + i * 2, 1);   // roof
-      px(0x7a2f22, 0, 9, 30, 1);
-      px(0xe8d8b0, 2, 10, 26, 16); px(0x6b4a2b, 12, 16, 6, 10); px(GOLD, 16, 21);
-      px(0x9fd3ff, 5, 13, 5, 4); px(0x9fd3ff, 20, 13, 5, 4); px(0x6b4a2b, 7, 13, 1, 4); px(0x6b4a2b, 22, 13, 1, 4);
-    });
     tex('tree', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); });
     tex('tree_apple', 14, 18, () => { g.fillStyle(0x2f6b2f).fillCircle(7, 6, 6); g.fillStyle(0x3f8a3a).fillCircle(5, 5, 3); px(0x5a3a1a, 6, 11, 2, 7); px(0xd83a3a, 3, 7); px(0xd83a3a, 9, 4); px(0xd83a3a, 10, 9); });
     // bushes (village decoration), the berry ones with red dots
@@ -254,12 +250,6 @@ export class BootScene extends Phaser.Scene {
     tex('sky', 8, 8, () => { px(0x87c4ff, 0, 0, 8, 8); });
     tex('cloud', 24, 19, () => { g.fillStyle(0xffffff).fillCircle(9, 11, 7).fillCircle(16, 10, 6).fillCircle(12, 6, 5); });
     tex('merchant', 10, 14, () => { px(0x6a3fa0, 1, 0, 8, 3); px(0xf2c79a, 2, 3, 6, 4); px(0x000000, 3, 4); px(0x000000, 6, 4); px(0x8a5fc0, 1, 7, 8, 7); px(GOLD, 4, 9, 2, 2); });
-    tex('stall', 40, 20, () => {
-      for (let i = 0; i < 8; i++) px(i % 2 ? 0xffffff : 0xd83a3a, i * 5, 0, 5, 5);                     // awning
-      px(0x6b4a2b, 1, 5, 2, 15); px(0x6b4a2b, 37, 5, 2, 15); px(0x8a6a3a, 0, 12, 40, 8); px(0x6b4a2b, 0, 12, 40, 1);
-      for (let i = 0; i < 5; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0, 0x44aaff][i], 6 + i * 6, 10, 3, 2);  // rings on the counter
-    });
-    tex('sign', 16, 12, () => { px(0x8a6a3a, 0, 0, 16, 7); px(0x6b4a2b, 7, 7, 2, 5); px(0x3a2a1a, 3, 3, 8, 1); px(0x3a2a1a, 10, 2, 2, 3); px(0x3a2a1a, 12, 3); });
     // The bar: a wide timber building with a hanging mug sign; the barkeeper wears an apron.
     // the tavern: a timber-framed house, whitewashed walls between dark beams, a straw thatch roof,
     // a stone chimney, an arched plank door, small leaded windows and a hanging sign with a mug
@@ -295,33 +285,6 @@ export class BootScene extends Phaser.Scene {
     tex('mug', 9, 9, () => { px(0x000000, 0, 0, 9, 9, 0.7); px(0xc89a3a, 2, 3, 4, 5); px(0xffffff, 2, 2, 4, 2); px(0xc89a3a, 6, 4, 1, 3); px(0x8a6a2a, 2, 7, 4, 1); });
     tex('drop', 2, 2, () => { px(0x6ab8ff, 0, 0, 2, 2); });
     // ---- what the village builds as it grows ----
-    tex('house_big', 32, 36, () => {
-      for (let i = 0; i < 10; i++) px(0x7a2f22, 11 - i, i, 10 + i * 2, 1);              // roof
-      px(0x5a2018, 0, 10, 32, 1);
-      px(0xe8d8b0, 2, 11, 28, 25); px(0x8a6040, 2, 22, 28, 1);                          // two floors
-      px(0x9fd3ff, 5, 13, 5, 5); px(0x9fd3ff, 22, 13, 5, 5); px(0x9fd3ff, 5, 25, 5, 5);
-      px(0x6b4a2b, 13, 26, 6, 10); px(GOLD, 17, 31); px(0x6b4a2b, 4, 18, 7, 1); px(0x6b4a2b, 21, 18, 7, 1);
-    });
-    tex('lantern', 5, 12, () => { px(0x3a3a3a, 2, 3, 1, 9); px(0x3a3a3a, 1, 11, 3, 1); px(0x2a2a2a, 0, 0, 5, 1); px(0xffd27a, 1, 1, 3, 2); });
-    tex('flowers', 14, 5, () => { px(0x3f7a30, 0, 2, 14, 3); for (let i = 0; i < 5; i++) px([0xff6a8a, 0xffee44, 0xffffff, 0xff6a8a, 0xa070ff][i], 1 + i * 3, 1, 2, 2); });
-    tex('fruitstall', 28, 18, () => {
-      for (let i = 0; i < 7; i++) px(i % 2 ? 0xffffff : 0x3a9a3a, i * 4, 0, 4, 4);
-      px(0x6b4a2b, 1, 4, 2, 14); px(0x6b4a2b, 25, 4, 2, 14); px(0x8a6a3a, 0, 11, 28, 7);
-      for (let i = 0; i < 6; i++) px([0xd83a3a, 0xffaa33, 0xffee44, 0xd83a3a, 0x6fd13a, 0xffaa33][i], 3 + i * 4, 8, 3, 3);
-    });
-    tex('tower', 18, 34, () => {
-      px(0x7a7a84, 2, 8, 14, 26); for (let y = 10; y < 34; y += 5) px(0x6a6a74, 2, y, 14, 1);
-      px(0x8a8a94, 0, 4, 18, 5); px(0x8a8a94, 0, 0, 4, 4); px(0x8a8a94, 7, 0, 4, 4); px(0x8a8a94, 14, 0, 4, 4);   // battlements
-      px(0x1a1a24, 7, 14, 4, 6); px(0x3a2418, 6, 26, 6, 8);
-    });
-    tex('flag', 10, 12, () => { px(0x6b4a2b, 0, 0, 1, 12); px(0xffcc44, 1, 0, 8, 2); px(0xd83a3a, 1, 2, 8, 3); px(0xffcc44, 1, 5, 6, 1); });
-    tex('statue', 14, 22, () => {
-      px(0x8a8a94, 0, 16, 14, 6); px(0x6a6a74, 0, 21, 14, 1);                           // plinth
-      px(GOLD, 5, 2, 4, 4); px(0xfff1a8, 5, 2, 1, 1);                                     // head
-      px(GOLD, 4, 6, 6, 6); px(GOLD, 4, 12, 2, 4); px(GOLD, 8, 12, 2, 4);                 // body, legs
-      px(0xdddddd, 10, 0, 1, 9); px(GOLD, 9, 7, 3, 1);                                    // raised sword
-    });
-    tex('well_roof', 24, 8, () => { for (let i = 0; i < 6; i++) px(0x8a3a2a, 6 - i, i, 12 + i * 2, 1); px(0x5a2018, 0, 6, 24, 2); });
     const villager = (key: string, shirt: number, hair: number) => tex(key, 8, 10, () => {
       px(hair, 1, 0, 6, 2); px(0xf2c79a, 1, 2, 6, 3); px(0x000000, 2, 3); px(0x000000, 5, 3);
       px(shirt, 1, 5, 6, 3); px(0x2b2b3a, 1, 8, 2, 2); px(0x2b2b3a, 5, 8, 2, 2);
@@ -338,17 +301,6 @@ export class BootScene extends Phaser.Scene {
         px(0xd83a1a, 4, 11 - h, 6, h); px(0xffaa33, 5, 12 - h + (i % 2), 4, h - 2); px(0xffee88, 6, 13 - h + 2, 2, h - 4);
       });
     }
-    // fountain: stone basin, water, a jet in two heights
-    for (let i = 0; i < 2; i++) {
-      tex(`fountain_${i}`, 26, 22, () => {
-        g.fillStyle(0x8a8a94).fillEllipse(13, 17, 26, 10); g.fillStyle(0x1e4f7a).fillEllipse(13, 16, 20, 6);
-        px(0x8a8a94, 11, 6, 4, 10); px(0x9a9aa4, 9, 6, 8, 2);
-        const top = i ? 0 : 2;
-        px(0x9fd3ff, 12, top, 2, 6 - top); px(0x9fd3ff, 9 + i, top + 2, 1, 3); px(0x9fd3ff, 16 - i, top + 2, 1, 3);
-        px(0xffffff, 12, top); px(0x9fd3ff, 6, 14, 1, 1); px(0x9fd3ff, 19, 14, 1, 1);
-      });
-    }
-    tex('barrel', 10, 12, () => { px(0x6b4a2b, 0, 1, 10, 10); px(0x8a6040, 1, 0, 8, 12); px(0x3a3a3a, 0, 3, 10, 1); px(0x3a3a3a, 0, 8, 10, 1); px(0x999999, 4, 6, 2, 2); });
     // the beer guy (camp) and the barkeeper (bar building): frame 0 mug down, frame 1 mug raised with foam
     const pourer = (key: string, shirt: number, apron: boolean) => {
       for (let i = 0; i < 2; i++) tex(`${key}_${i}`, 12, 14, () => {
@@ -370,17 +322,6 @@ export class BootScene extends Phaser.Scene {
       px(0x9a3a3a, 0, 2, 34, 8); px(0xc85a4a, 1, 3, 32, 6); for (let i = 0; i < 8; i++) px(0xffcc44, 2 + i * 4, 4, 1, 4);
       for (let i = 0; i < 4; i++) px([0xc8c8d0, 0x44aaff, 0xff55dd, 0xc8c8d0][i], 4 + i * 7, 5, 3, 2);
       px(0x6b4a2b, 26, 0, 7, 6); px(0x8a6a3a, 27, 1, 5, 4);          // a crate
-    });
-    const tent = (key: string, cloth: number, dark: number) => tex(key, 26, 18, () => {
-      for (let i = 0; i < 16; i++) px(i < 8 ? cloth : dark, 12 - Math.floor(i * 0.75), 2 + i, 2 + Math.floor(i * 1.5), 1);
-      px(0x2a1a10, 11, 10, 4, 8); px(0x6b4a2b, 12, 0, 1, 3);
-    });
-    tent('tent_a', 0xe8d8b0, 0xc8b890);
-    tent('tent_b', 0xd8a86a, 0xb8884a);
-    tex('hut', 24, 20, () => {
-      for (let i = 0; i < 7; i++) px(0xc8a84a, 7 - i, i, 10 + i * 2, 1);   // straw roof
-      px(0x8a6040, 2, 7, 20, 13); for (let y = 8; y < 20; y += 3) px(0x6b4a2b, 2, y, 20, 1);
-      px(0x3a2418, 10, 12, 5, 8);
     });
     // rich people: top hat, long coat, a cane
     const noble = (key: string, coat: number, hat: number) => tex(key, 9, 14, () => {
@@ -467,15 +408,6 @@ export class BootScene extends Phaser.Scene {
     }
 
     // ---- the training ground and the people you can talk to ----
-    const dummy = (key: string, flash: boolean) => tex(key, 16, 26, () => {
-      const straw = flash ? 0xffffff : 0xd8b860;
-      px(flash ? 0xffffff : 0x6b4a2b, 7, 12, 2, 14);                       // post
-      px(straw, 4, 0, 8, 7); px(flash ? 0xffffff : 0x8a3a3a, 4, 7, 8, 1);  // sack head, rope
-      px(straw, 2, 8, 12, 8); px(straw, 0, 9, 16, 3);                      // body, arms
-      if (!flash) { px(0x000000, 6, 3); px(0x000000, 9, 3); px(0xd83a3a, 6, 11, 4, 4); px(0xffffff, 7, 12, 2, 2); }   // face, target
-    });
-    dummy('dummy', false);
-    dummy('dummy_flash', true);
     const person = (key: string, hair: number, top: number, extra: () => void, h = 12) => tex(key, 10, h, () => {
       px(hair, 2, 0, 6, 2); px(0xf2c79a, 2, 2, 6, 4); px(0x000000, 3, 3); px(0x000000, 6, 3);
       px(top, 1, 6, 8, h - 8); px(0x2b2b3a, 2, h - 2, 2, 2); px(0x2b2b3a, 6, h - 2, 2, 2); extra();

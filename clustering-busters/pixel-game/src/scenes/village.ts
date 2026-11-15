@@ -17,6 +17,8 @@ import { banner, floatText, FONT, hex, TITLE_FONT, walletHud } from '../ui';
 import { drawRope, placeCatapult, seat, type Catapult } from '../catapult';
 import { BOOK_H, BOOK_PAGE, clearSpot, clothColor, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 import { Tutorial } from '../tutorial';
+import { FLOOR_PATCH, makeShopTextures, shopFloor, shopFloorArt } from '../merchantShops';
+import { CHIMNEYS, villageGround } from '../villageArt';
 
 // The hub between fights:
 //   merchants      ranger / smith / armorer / alchemist / peddler (3 cards, robe = what he mostly sells) or,
@@ -96,9 +98,14 @@ const PARTS: readonly Part[] = [
   { lvl: 3, key: 'bar', x: 222, y: 38, solid: [46, 16, 4] },
   { lvl: 3, key: 'mug', x: 252, y: 30, depth: 8, swing: true },
   { lvl: 3, key: 'barkeeper_0', anim: 'barkeeper', x: 241, y: 58, depth: 6 },
-  { lvl: 3, key: 'stall', x: 120, y: 50, depth: 7, solid: [40, 8, 6] },
-  { lvl: 3, key: 'merchant_0', anim: 'merchant', x: 91, y: 52, depth: 6 },             // beside his stall: the awning would hide his face
-  ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern', x, y: 97 })),
+  { lvl: 3, until: 4, key: 'stall', x: 120, y: 50, depth: 7, solid: [40, 8, 6] },
+  { lvl: 3, until: 4, key: 'merchant_0', anim: 'merchant', x: 91, y: 52, depth: 6 },   // beside his stall: the awning would hide his face
+  // the merchant's shop grows with the village (src/merchantShops.ts): booth, ring shop, emporium
+  { lvl: 4, until: 5, key: 'shop_booth', x: 120, y: 50, depth: 7, solid: [44, 8, 6] },
+  { lvl: 5, until: 6, key: 'shop_house', x: 120, y: 47, depth: 7, solid: [46, 10, 8] },
+  { lvl: 6, key: 'shop_emporium', x: 120, y: 47, depth: 7, solid: [52, 10, 8] },
+  { lvl: 4, key: 'merchant_0', anim: 'merchant', x: 87, y: 53, depth: 6 },             // by his door, clear of the wider front
+  ...[60, 92, 136, 195, 250].map((x): Part => ({ lvl: 3, key: 'lantern_0', anim: 'lantern', x, y: 97 })),   // their flames flicker
   { lvl: 3, key: 'flowers', x: 70, y: 89 },
   { lvl: 3, key: 'flowers', x: 188, y: 85 },
   // 4 Fountain square: fountains (the big one where the campfire was), market (+ bunting, drawn)
@@ -113,8 +120,8 @@ const PARTS: readonly Part[] = [
   { lvl: 5, key: 'tower', x: 300, y: 150, solid: [16, 8, 12] },
   // 6 Ringfall City: horse carts on the road (walkers), the hero's statue, flags
   { lvl: 6, key: 'statue', x: 205, y: 90, solid: [14, 6, 8] },
-  { lvl: 6, key: 'flag', x: 16, y: 127, depth: 8 },
-  { lvl: 6, key: 'flag', x: 304, y: 127, depth: 8 },
+  { lvl: 6, key: 'flag_0', anim: 'flag', x: 16, y: 127, depth: 8 },   // waving
+  { lvl: 6, key: 'flag_0', anim: 'flag', x: 304, y: 127, depth: 8 },
 ];
 
 const VEIL = 0.5;   // how dark the veil over the merchant's rug is (its painted clutter dimmed)
@@ -226,6 +233,7 @@ export class VillageScene extends Phaser.Scene {
     }
 
     this.physics.world.setBounds(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
+    makeShopTextures(this);   // the merchant's booth, shop and emporium (unless the team drew them)
     const solids = this.drawVillage();
     this.solids = solids;
 
@@ -522,9 +530,14 @@ export class VillageScene extends Phaser.Scene {
     const offers = this.offers();
     const who = MERCHANT_LOOK[s.merchantKind];
     const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
-    // his rug, big and sharp (in his robe's colour); its painted clutter dimmed so the wares stand out
+    // his rug, big and sharp (in his robe's colour); its painted clutter dimmed so the wares stand out.
+    // As the village grows his window does too (src/merchantShops.ts): crates on the rug, then a
+    // wooden counter, then a velvet case
+    const floor = shopFloor(villageLevel(s.spent));
     const robe = MERCHANT_ROBES[s.merchantKind];
-    const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
+    const rug = floor !== 'rug' && floor !== 'booth' ? null
+      : this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
+    if (floor !== 'rug') c.addAt(shopFloorArt(this, floor, x, y, w, h), rug ? 3 : 1);
     if (rug) {
       c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
       c.addAt(this.add.graphics().fillStyle(0x000000, VEIL).fillRect(x + 1, y + 22, w - 2, h - 36)
@@ -556,7 +569,8 @@ export class VillageScene extends Phaser.Scene {
       probe.destroy();
       const ic = this.add.image(0, 0, wareArt(this, key)).setScale(zoom);
       // under it a patch of plain cloth (the painted items fade out around it), then its shadow or glow
-      if (rug) ware.add(clothPatch(this, clothColor(this, rug), (ic.displayWidth >> 1) + 3, (ic.displayHeight >> 1) + 2, VEIL));
+      const patch = rug ? clothColor(this, rug) : floor === 'counter' || floor === 'velvet' ? FLOOR_PATCH[floor] : null;
+      if (patch !== null) ware.add(clothPatch(this, patch, (ic.displayWidth >> 1) + 3, (ic.displayHeight >> 1) + 2, rug ? VEIL : 0));
       const under = this.add.graphics();
       if (o.special && !sold) {
         under.fillStyle(0xffcc44, 0.18).fillEllipse(0, 2, 44, 30).fillStyle(0xffe27a, 0.22).fillEllipse(0, 2, 30, 20);
@@ -796,6 +810,8 @@ export class VillageScene extends Phaser.Scene {
       let zone: Phaser.GameObjects.Zone | undefined;
       if (p.solid) { zone = this.add.zone(x, y + p.solid[2], p.solid[0], p.solid[1]); this.solids.add(zone); }
       this.placed.set(p, { obj, zone });
+      const chim = CHIMNEYS[p.key];
+      if (chim && !wild) this.smoke(obj, x + chim.x, y + chim.y);
       if (animate) {
         const sy = obj.scaleY;
         obj.setScale(obj.scaleX, 0);
@@ -898,9 +914,7 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private drawCobbles(g: Phaser.GameObjects.Graphics) {
-    for (let x = 0; x < PLAY.width - 48; x += 6) for (let row = 0; row < 3; row++) {
-      g.fillStyle(row % 2 ? 0xa89a7a : 0xb8aa8a).fillRect(PLAY.x + x + (row % 2) * 3, PLAY.y + 106 + row * 5, 4, 3);
-    }
+    villageGround.cobbles(g, PLAY.x, PLAY.y + 106, PLAY.width - 48);   // each stone outlined and lit (src/villageArt.ts)
     return g;
   }
 
@@ -921,11 +935,19 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private drawWall(g: Phaser.GameObjects.Graphics) {
-    const y = PLAY.y + PLAY.height - 6;
-    for (let x = 20; x < PLAY.width - 20; x += 6) {
-      g.fillStyle(0x7a7a84).fillRect(PLAY.x + x, y, 5, 3).fillStyle(0x8a8a94).fillRect(PLAY.x + x + 3, y + 3, 5, 3);
-    }
+    villageGround.wall(g, PLAY.x + 20, PLAY.y + PLAY.height - 6, PLAY.width - 40);   // coursed stone with a coping
     return g;
+  }
+
+  /** Smoke from a chimney: a puff now and then that drifts up and fades (stops when the house goes). */
+  private smoke(house: Phaser.GameObjects.GameObject, x: number, y: number) {
+    const ev = this.time.addEvent({
+      delay: 700, loop: true, startAt: Phaser.Math.Between(0, 600), callback: () => {
+        if (!house.active) { ev.remove(); return; }
+        const puff = this.add.circle(x, y, 1.5, 0xe0dcd4, 0.75).setDepth(12);
+        this.tweens.add({ targets: puff, x: x + Phaser.Math.Between(2, 6), y: y - 12, scale: 2.4, alpha: 0, duration: 1700, ease: 'Sine.easeOut', onComplete: () => puff.destroy() });
+      },
+    });
   }
 
   // ---- people to talk to ----
@@ -1048,10 +1070,7 @@ export class VillageScene extends Phaser.Scene {
     const { x, y, width: w, height: h } = YARD;
     const g = this.add.graphics().setDepth(3);
     g.fillStyle(0xb8985a, 0.55).fillRect(x, y, w, h);                                  // trampled sand
-    const rail = (x0: number, y0: number, len: number, across: boolean) => {
-      for (let i = 0; i <= len; i += 6) g.fillStyle(0x5a3a1a).fillRect(across ? x0 + i : x0 - 1, across ? y0 - 3 : y0 + i - 3, 2, 4);   // posts
-      g.fillStyle(0x8a6a3a).fillRect(x0, y0 - 1, across ? len : 1, across ? 1 : len);                                          // rail
-    };
+    const rail = (x0: number, y0: number, len: number, across: boolean) => villageGround.fence(g, x0, y0, len, across);   // outlined posts and rails
     rail(x, y, YARD_GAP.x - x, true);                                                  // top, left of the gap
     rail(YARD_GAP.x + YARD_GAP.width, y, x + w - YARD_GAP.x - YARD_GAP.width, true);   // top, right of the gap
     rail(x, y + h, w, true);                                                           // bottom
@@ -1545,20 +1564,13 @@ export class VillageScene extends Phaser.Scene {
 
   private drawVillage(): Phaser.Physics.Arcade.StaticGroup {
     this.add.tileSprite(PLAY.x, PLAY.y, PLAY.width, PLAY.height, 'grass').setOrigin(0).setDepth(0);   // the ground
-    const g = this.add.graphics().setDepth(0);
     const path = (x: number, y: number, w: number, h: number) =>
       this.paths.push(this.add.tileSprite(x, y, w, h, 'path_dirt').setOrigin(0).setDepth(0).setTilePosition(x, y));
     path(PLAY.x, PLAY.y + 104, PLAY.width - 48, 16);                                          // main road
     path(STALL.x - 6, STALL.y + 14, 12, 90);                                                   // path to the stall
     path(BAR_DOOR.x - 6, BAR_DOOR.y - 2, 12, 104 - (BAR_DOOR.y - PLAY.y) + 2);                 // path to the bar
-    // the well: stone rim, dark water, two posts and a crossbeam with a rope
-    g.fillStyle(0x6a6a6a).fillCircle(WELL.x, WELL.y, 9);
-    g.fillStyle(0x8a8a8a).fillCircle(WELL.x, WELL.y - 1, 8);
-    g.fillStyle(0x0e2236).fillCircle(WELL.x, WELL.y, 6);
-    g.fillStyle(0x1e4f7a).fillCircle(WELL.x, WELL.y + 1, 4);
-    g.fillStyle(0x6b4a2b).fillRect(WELL.x - 10, WELL.y - 12, 2, 12).fillRect(WELL.x + 8, WELL.y - 12, 2, 12).fillRect(WELL.x - 10, WELL.y - 13, 20, 2);
-    g.fillStyle(0xc8a86a).fillRect(WELL.x, WELL.y - 11, 1, 6);
-
+    // the well (src/villageArt.ts): a ring of stones round dark water, posts, a crossbeam, rope and bucket
+    this.add.image(WELL.x, WELL.y, 'well').setOrigin(0.5, 16 / 22).setDepth(2);
     const solids = this.physics.add.staticGroup();
     const block = (x: number, y: number, w: number, h: number) => solids.add(this.add.zone(x, y, w, h));
     block(WELL.x - 9, WELL.y - 6, 2, 10);                   // the well's posts; the hole itself is open: you can fall in
