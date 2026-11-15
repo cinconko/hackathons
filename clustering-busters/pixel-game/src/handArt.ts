@@ -2,7 +2,8 @@
 // The game scales by whole steps, so most screens have black bars around it; this panel lives
 // there (outside the canvas, plain HTML). Detailed art: public/media/sprites/art_<weapon>.png
 // (e.g. art_sword.png). Until that exists, the weapon's sprite is shown big and tilted.
-// No room beside the game (e.g. fullscreen at an exact zoom) = the panel hides.
+// It lives inside the game's screen box (#screen), so it also shows in fullscreen. No room beside
+// the game inside that box (e.g. fullscreen at an exact zoom) = the panel hides.
 import Phaser from 'phaser';
 import { FISTS, item, weapon, type WeaponId } from './game/rules';
 
@@ -35,7 +36,7 @@ function ensure() {
   info = el.querySelector('.i')!;
   fill = el.querySelector('.f')!;
   ready = el.querySelector('.r')!;
-  document.body.appendChild(el);
+  (document.getElementById('screen') ?? document.body).appendChild(el);
 }
 
 /** Fits the panel into the widest black margin beside the canvas (call after every rescale). */
@@ -44,12 +45,14 @@ export function placeHandArt() {
   const canvas = document.querySelector('canvas');
   if (!canvas) return;
   const r = canvas.getBoundingClientRect();
-  const room = Math.min(r.left, window.innerWidth - r.right) - 16;
+  const box = el.parentElement === document.body                  // the screen box (or the whole window)
+    ? { left: 0, right: window.innerWidth } : el.parentElement!.getBoundingClientRect();
+  const room = Math.min(r.left - box.left, box.right - r.right) - 16;
   if (!wanted || room < MIN_ROOM) { el.style.display = 'none'; return; }
   const w = Math.min(room, 280);
   el.style.width = `${w}px`;
   el.style.height = `${Math.min(r.height - 16, 420)}px`;
-  el.style.left = `${Math.max(8, (r.left - w) / 2)}px`;          // centred in the left black space
+  el.style.left = `${box.left + Math.max(8, (r.left - box.left - w) / 2)}px`;   // centred in the left black space
   el.style.top = `${r.top + (r.height - Math.min(r.height - 16, 420)) / 2}px`;
   el.style.display = 'flex';
   const p = urls.get(shownId);
