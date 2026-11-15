@@ -85,23 +85,46 @@ form.addEventListener('submit', (e) => {
   document.getElementById('play-area')!.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
 });
 
-// ---- the leaderboard: rows slide in one after another ----
-async function showBoard() {
-  const list = document.getElementById('board')!;
-  const b = await fetchBoard();
+// ---- the leaderboard: the full list further down (#board) and a live top 5 beside the game
+// (#board-top). Both come from one fetch, refreshed every 20 s while the tab is visible, so a win
+// shows up without a reload. Your own row is highlighted; under the top 5, your best time on this
+// browser and how many heroes are on the board. Rows slide in only the first time. ----
+function boardRows(list: HTMLElement, top: { nick: string; timeMs: number }[], me: string | null, animate: boolean) {
   list.replaceChildren();
-  if (!b) { list.append(el('li', 'muted', 'The leaderboard is offline right now.')); return; }
-  if (!b.top.length) { list.append(el('li', 'muted', 'Nobody yet. Be the first!')); return; }
-  const me = loadNick();
-  b.top.forEach((s, i) => {
-    const li = el<HTMLLIElement>('li', ['reveal', i < 3 ? 'top' : '', s.nick === me ? 'me' : ''].join(' ').trim());
+  top.forEach((s, i) => {
+    const li = el<HTMLLIElement>('li', [animate ? 'reveal' : '', i < 3 ? 'top' : '', s.nick === me ? 'me' : ''].join(' ').trim());
     li.style.setProperty('--i', String(i));
     li.append(el('span', 'rank', `${i + 1}.`), el('span', 'nick', s.nick), el('span', 'time', boardTime(s.timeMs)));
     list.append(li);
   });
-  reveal(list);
+  if (animate) reveal(list);
+}
+let boardShown = false;
+async function showBoard() {
+  const full = document.getElementById('board');
+  const mini = document.getElementById('board-top');
+  const foot = document.getElementById('board-me');
+  const b = await fetchBoard();
+  const me = loadNick();
+  const say = (msg: string) => { for (const l of [full, mini]) l?.replaceChildren(el('li', 'muted', msg)); };
+  if (!b) say('The leaderboard is offline right now.');
+  else if (!b.top.length) say('Nobody yet. Be the first!');
+  else {
+    if (full) boardRows(full, b.top, me, !boardShown);
+    if (mini) boardRows(mini, b.top.slice(0, 5), me, false);
+  }
+  if (foot) {
+    const best = loadSave().bestTimeMs;
+    const mine = b?.top.findIndex((s) => s.nick === me) ?? -1;
+    foot.textContent = mine >= 0 ? `You are #${mine + 1}, ${me}!`
+      : best ? `Your best: ${boardTime(best)}${b ? ` · ${b.total} on the board` : ''}`
+      : b ? `${b.total} ${b.total === 1 ? 'hero' : 'heroes'} on the board. Win to join them.` : '';
+  }
+  boardShown = true;
 }
 void showBoard();
+setInterval(() => { if (document.visibilityState === 'visible') void showBoard(); }, 20_000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void showBoard(); });
 
 // ---- the odds: each group's bars fill when it scrolls into view ----
 /**

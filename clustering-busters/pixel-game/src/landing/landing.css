@@ -333,6 +333,28 @@ footer .logo { color: var(--ink); }
 /* 7) higher contrast on request */
 @media (prefers-contrast: more) { .sub, .hint, .robes small, footer p { opacity: 1; } }
 
+/* ---- the live top 5 beside the game (Lair sidebar). Dark from the start: panel, edge, gold ranks. ---- */
+.board-card { background: var(--panel); border: 2px solid var(--edge); box-shadow: 6px 6px 0 #000; padding: 14px 16px 12px; color: var(--text); }
+.board-card h3 { display: flex; justify-content: space-between; align-items: baseline; font: 400 22px/1.1 var(--title); color: var(--gold); margin-bottom: 8px; }
+.board-card h3 a { font: 10px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); text-decoration: none; }
+.board-card h3 a:hover { color: var(--gold); }
+.board-card ol { list-style: none; margin: 0; padding: 0; }
+.board-card li { display: grid; grid-template-columns: 26px 1fr auto; gap: 8px; align-items: center; padding: 7px 0; border-top: 1px solid var(--edge); font: 12px/1.2 var(--pixel); }
+.board-card li:first-child { border-top: 0; }
+.board-card li.muted { display: block; color: var(--muted); }
+.board-card .rank { color: var(--muted); text-align: right; }
+.board-card li.top .rank { color: var(--gold); }
+.board-card .nick { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-card .time { color: var(--gold); font-variant-numeric: tabular-nums; }
+.board-card li.me { background: var(--gold); color: var(--ink); margin: 0 -8px; padding: 7px 8px; }
+.board-card li.me .rank, .board-card li.me .time { color: var(--ink); }
+.board-me { margin: 8px 0 0; font: 10px/1.4 var(--pixel); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+/* your row in the full list further down: dark ink on the gold (the black pass made row text light) */
+.board ol li.me, .board ol li.me .rank, .board ol li.me .time, .board ol li.me .nick { color: var(--ink); opacity: 1; }
+/* nav jumps land below the sticky bar, not under it */
+section, header { scroll-margin-top: 84px; }
+#board-title, #odds-title { scroll-margin-top: 96px; }
+
 /* ---- Only black (our user's choice): every band is night, no paper, no white cards ----
    Gold stays the accent (buttons, stickers, highlights keep their dark ink on gold). */
 body, .paper { background: var(--night); background-image: none; color: var(--text); }
