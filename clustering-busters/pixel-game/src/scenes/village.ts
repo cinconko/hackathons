@@ -14,6 +14,7 @@ import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs'
 import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, hex, TITLE_FONT, walletHud } from '../ui';
+import { drawRope, placeCatapult, seat, type Catapult } from '../catapult';
 import { BOOK_H, BOOK_PAGE, clearSpot, clothColor, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 import { Tutorial } from '../tutorial';
 
@@ -37,7 +38,8 @@ const STALL = { x: PLAY.x + 120, y: PLAY.y + 46 };
 const BAR = { x: PLAY.x + 222, y: PLAY.y + 38 };
 const BAR_DOOR = { x: BAR.x, y: BAR.y + 20 };
 const WELL = { x: PLAY.x + 70, y: PLAY.y + 142 };
-const CATAPULT = { x: PLAY.x + PLAY.width - 40, y: PLAY.y + 104 };   // pivot of the arm
+const CATAPULT = { x: PLAY.x + PLAY.width - 24, y: PLAY.y + 82 };    // the arm's axle; drawn at 2x (the farmer is 28 px tall), its wheels on the road, clear of the tavern path
+const CAT_SCALE = 2;
 /** The training yard: fenced, the gap in the top fence faces the road. Clear of the wall (lvl 5). */
 const YARD = { x: PLAY.x + 132, y: PLAY.y + 128, width: 80, height: 34 };
 const YARD_GAP = { x: YARD.x + 22, width: 18 };
@@ -51,8 +53,7 @@ const SHOPS = [
   { id: 'fruit', x: PLAY.x + 40, stopY: PLAY.y + 132, minLvl: 4 },
 ];
 const ARM_REST = Math.PI * 0.92;     // arm lying back, bucket near the ground
-const ARM_FIRE = -Math.PI * 0.35;    // arm after the throw
-const ARM_LEN = 24;
+const ARM_FIRE = Math.PI * 1.65;     // arm after the throw: up and over the top (not down through the cart)
 /**
  * Everything the village shows, by stage. A part is there from `lvl` until (not including)
  * `until`: the forest is cleared bit by bit, tents and huts become houses, the campfire becomes
@@ -141,7 +142,7 @@ interface Cart {
 export class VillageScene extends Phaser.Scene {
   private player!: Sprite;
   private keys!: Keys;
-  private arm!: Phaser.GameObjects.Image;
+  private cat!: Catapult;
   private prompt!: Phaser.GameObjects.Text;
   private wallet!: ReturnType<typeof walletHud>;
   private panel: Phaser.GameObjects.Container | null = null;
@@ -231,9 +232,8 @@ export class VillageScene extends Phaser.Scene {
     // the merchant, the bar and the stall change with the stages (PARTS); the signs stay
     this.add.text(STALL.x, STALL.y - 20, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
     this.add.text(BAR.x, BAR.y - 10, 'TAVERN', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // clear of the level HUD
-    this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
-    this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
-    this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 30, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
+    this.cat = placeCatapult(this, CATAPULT.x, CATAPULT.y, ARM_REST, CAT_SCALE);
+    this.add.text(PLAY.x + PLAY.width - 52, CATAPULT.y - 22, "TO MOSSBACK'S LAIR", { ...FONT, color: '#ff8888' }).setOrigin(0.5).setDepth(8);
     this.addPeople();
 
     const start = data.inYard ? { x: YARD.x + 20, y: YARD.y + 18 } : { x: PLAY.x + 44, y: PLAY.y + 112 };   // inYard: dev hook
@@ -312,12 +312,12 @@ export class VillageScene extends Phaser.Scene {
     if (near(this.player, WELL.x, WELL.y, 5)) { this.fallInWell(); return; }
     const atShop = near(this.player, STALL.x, STALL.y + 16, 22);
     const atBar = near(this.player, BAR_DOOR.x, BAR_DOOR.y, 16);
-    const atCatapult = near(this.player, CATAPULT.x - 8, CATAPULT.y + 6, 22);
+    const atCatapult = near(this.player, CATAPULT.x - 60, CATAPULT.y + 30, 18);   // at its back, by the bucket
     const person = this.npcs.find((n) => near(this.player, n.sprite.x, n.sprite.y, 14));
     if (person) this.prompt.setText(`E: talk to ${NPCS[person.id].name}`).setPosition(person.sprite.x, person.sprite.y - 16).setVisible(true);
     else if (atShop) this.prompt.setText('E: merchant').setPosition(STALL.x, STALL.y + 26).setVisible(true);
     else if (atBar) this.prompt.setText('E: tavern').setPosition(BAR_DOOR.x, BAR_DOOR.y + 10).setVisible(true);
-    else if (atCatapult) this.prompt.setText('E: launch!').setPosition(CATAPULT.x - 6, CATAPULT.y + 20).setVisible(true);
+    else if (atCatapult) this.prompt.setText('E: launch!').setPosition(CATAPULT.x - 50, CATAPULT.y + 44).setVisible(true);
     else this.prompt.setVisible(false);
     if (JD(k.E) || JD(k.ENTER)) {
       if (person) this.startTalk(person.id);
@@ -478,7 +478,9 @@ export class VillageScene extends Phaser.Scene {
     bg.fillStyle(border).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
     const who = npc === 'merchant' ? this.robed({ key: 'merchant_0', anim: 'merchant' }).anim ?? npc : npc;
-    c.add(this.anims.exists(who) ? this.add.sprite(x + 11, y + 11, `${who}_0`).play(who) : this.add.image(x + 11, y + 11, who));
+    const face = this.anims.exists(who) ? this.add.sprite(x + 11, y + 11, `${who}_0`).play(who) : this.add.image(x + 11, y + 11, who);
+    if (face.height > 20) face.setOrigin(0.5, 0).setY(y + 1).setCrop(0, 0, face.width, 20);   // a tall portrait (the farmer): head and shoulders
+    c.add(face);
     c.add(this.add.text(x + 22, y + 4, title, { ...FONT, color: '#ffcc44' }));
     c.add(this.add.text(x + 22, y + 13, sub, { ...FONT, color: '#a898c8' }));
     c.add(this.add.text(x + w - 6, y + 4, `${walletValue(loadSave().wallet)} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
@@ -1391,51 +1393,123 @@ export class VillageScene extends Phaser.Scene {
 
   // ---- catapult ----
 
-  private bucket(rotation: number) {
-    return { x: CATAPULT.x + Math.cos(rotation) * ARM_LEN, y: CATAPULT.y + Math.sin(rotation) * ARM_LEN - 3 };
-  }
-
+  /**
+   * The launch. 1 you hop into the bucket (the arm dips under you); 2 the winch ratchets the arm
+   * down, click by click, its rope pulling tight; 3 the rope snaps, the arm whips over and slams
+   * into the padded stop, the whole catapult rocks; 4 you fly off spinning with a trail, smaller and
+   * smaller toward his lair, a twinkle where you vanish; 5 the white flash into the arena.
+   */
   private launch() {
     this.locked = true;
     this.prompt.setVisible(false);
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0, 0).enable = false;
-    const seat = this.bucket(ARM_REST);
-    // 1. climb into the bucket
+    const { arm, winch } = this.cat;
+    const state = { r: ARM_REST };
+    let sag = 3;   // the rope: slack at rest, tight once the winch turns
+    const follow = () => {
+      arm.setRotation(state.r);
+      const b = seat(this.cat, state.r);
+      this.player.setPosition(b.x, b.y);
+      if (sag >= 0) drawRope(this.cat, state.r, sag);
+    };
+    // 1. a hop into the bucket
+    const from = { x: this.player.x, y: this.player.y };
+    const to = seat(this.cat, ARM_REST);
+    const hop = { t: 0 };
+    this.player.setDepth(8);
     this.tweens.add({
-      targets: this.player, x: seat.x, y: seat.y, duration: 400, ease: 'Quad.easeOut',
+      targets: hop, t: 1, duration: 380, ease: 'Sine.easeInOut',
+      onUpdate: () => this.player.setPosition(from.x + (to.x - from.x) * hop.t, from.y + (to.y - from.y) * hop.t - Math.sin(hop.t * Math.PI) * 12),
       onComplete: () => {
-        // 2. wind up (arm pulls back a little), then fire: the arm swings and carries the hero
-        const state = { r: ARM_REST };
-        const follow = () => {
-          this.arm.setRotation(state.r);
-          const b = this.bucket(state.r);
-          this.player.setPosition(b.x, b.y);
-        };
-        this.tweens.add({
-          targets: state, r: ARM_REST + 0.12, duration: 350, ease: 'Sine.easeInOut', onUpdate: follow,
-          onComplete: () => this.tweens.add({ targets: state, r: ARM_FIRE, duration: 220, ease: 'Quad.easeIn', onUpdate: follow, onComplete: () => this.fly() }),
-        });
+        sfx(this, 'land', 0.4);
+        this.tweens.add({ targets: state, r: ARM_REST + 0.05, duration: 90, yoyo: true, onUpdate: follow, onComplete: windUp });   // the arm dips under you
       },
     });
+    // 2. the winch: three clicks, the rope pulling tight, you crouching lower
+    const windUp = () => {
+      sag = 0;
+      follow();
+      const click = (n: number) => {
+        if (n === 3) { this.time.delayedCall(220, release); return; }
+        sfx(this, 'block', 0.25);
+        this.cameras.main.shake(60, 0.002);
+        this.tweens.add({ targets: winch, angle: winch.angle - 60, duration: 140, ease: 'Back.easeOut' });
+        this.tweens.add({ targets: this.player, scaleY: 1 - 0.07 * (n + 1), duration: 140 });
+        this.tweens.add({
+          targets: state, r: ARM_REST + 0.07 * (n + 1), duration: 140, ease: 'Back.easeOut',
+          onUpdate: follow,
+          onComplete: () => this.time.delayedCall(140, () => click(n + 1)),
+        });
+      };
+      click(0);
+    };
+    // 3. the rope snaps, the arm whips over and slams into the stop
+    const release = () => {
+      sag = -1;   // no rope from here on
+      this.cat.rope.clear();
+      this.snapRope(winch.x, winch.y);
+      this.player.setScale(1, 1.15);
+      this.tweens.add({
+        targets: state, r: ARM_FIRE, duration: 170, ease: 'Cubic.easeIn', onUpdate: follow,
+        onComplete: () => {
+          this.fly();
+          this.slam();
+          // the arm bounces off the stop and wobbles to rest there
+          this.tweens.add({ targets: state, r: ARM_FIRE - 0.35, duration: 160, yoyo: true, repeat: 1, ease: 'Sine.easeOut', onUpdate: () => arm.setRotation(state.r) });
+        },
+      });
+    };
   }
 
-  private fly() {
+  /** Two frayed ends of rope flying off when it snaps. */
+  private snapRope(x: number, y: number) {
+    for (const dir of [-1, 1]) {
+      const bit = this.add.rectangle(x + dir * 3, y - 2, 5, 1, 0xd8c8a0).setDepth(9);
+      this.tweens.add({ targets: bit, x: bit.x + dir * 14, y: bit.y - 10, angle: dir * 200, alpha: 0, duration: 450, ease: 'Quad.easeOut', onComplete: () => bit.destroy() });
+    }
+  }
+
+  /** The arm hits the padded stop: thunk, the whole catapult rocks back on its wheels, dust. */
+  private slam() {
     sfx(this, 'launch');
-    this.cameras.main.shake(150, 0.01);
+    this.cameras.main.shake(180, 0.012);
+    const { base, winch, arm, pin } = this.cat;
+    for (const part of [base, winch, arm, pin]) this.tweens.add({ targets: part, y: part.y - 3, duration: 90, yoyo: true, ease: 'Quad.easeOut' });   // all together: nothing comes apart
+    dustPuff(this, CATAPULT.x - 40, CATAPULT.y + 34, 5, 8);   // under the wheels (texture x 8 and 31, at 2x)
+    dustPuff(this, CATAPULT.x + 6, CATAPULT.y + 34, 5, 8);
+  }
+
+  /** You fly: a high arc east, spinning, smaller and smaller toward the lair, a trail behind, a twinkle, the flash. */
+  private fly() {
     const start = { x: this.player.x, y: this.player.y };
+    const end = { x: PLAY.x + PLAY.width - 18, y: PLAY.y + 14 };   // the far sky over his lair
     const t = { p: 0 };
-    // 3. a high arc to the north-east, growing (closer to the camera) and spinning, then gone
+    this.player.setScale(1.25);
+    let lastGhost = 0;
     this.tweens.add({
-      targets: t, p: 1, duration: 1100, ease: 'Sine.easeIn',
+      targets: t, p: 1, duration: 950, ease: 'Sine.easeOut',
       onUpdate: () => {
-        this.player.setPosition(start.x + 80 * t.p, start.y - 150 * t.p + 60 * t.p * t.p);
-        this.player.setScale(1 + 2.5 * t.p).setRotation(t.p * Math.PI * 4);
+        const x = start.x + (end.x - start.x) * t.p;
+        const y = start.y + (end.y - start.y) * t.p - Math.sin(t.p * Math.PI) * 46;   // up over the top, then away
+        this.player.setPosition(x, y).setScale(1.25 * (1 - 0.85 * t.p)).setRotation(t.p * Math.PI * 5);
+        if (this.time.now - lastGhost > 45 && t.p < 0.9) {     // the trail: fading copies of you
+          lastGhost = this.time.now;
+          const ghost = this.add.image(x, y, this.player.texture.key).setScale(this.player.scaleX).setRotation(this.player.rotation).setAlpha(0.45).setDepth(8);
+          this.tweens.add({ targets: ghost, alpha: 0, scale: ghost.scale * 0.6, duration: 260, onComplete: () => ghost.destroy() });
+        }
       },
-    });
-    this.time.delayedCall(800, () => {
-      this.cameras.main.fadeOut(400, 255, 255, 255);   // white flash: the jump cut into the arena
-      this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('play', { landing: true }));
+      onComplete: () => {
+        this.player.setVisible(false);
+        // the twinkle where you vanish
+        const star = this.add.image(end.x, end.y, 'sparkle').setDepth(20).setScale(0.5);
+        sfx(this, 'ring', 0.5);
+        this.tweens.add({ targets: star, scale: 3, angle: 90, duration: 220, yoyo: true, ease: 'Quad.easeOut' });
+        this.time.delayedCall(380, () => {
+          this.cameras.main.fadeOut(400, 255, 255, 255);   // white flash: the jump cut into the arena
+          this.cameras.main.once(Phaser.Cameras.Scene2D.Events.FADE_OUT_COMPLETE, () => this.scene.start('play', { landing: true }));
+        });
+      },
     });
   }
 
@@ -1489,7 +1563,7 @@ export class VillageScene extends Phaser.Scene {
     const block = (x: number, y: number, w: number, h: number) => solids.add(this.add.zone(x, y, w, h));
     block(WELL.x - 9, WELL.y - 6, 2, 10);                   // the well's posts; the hole itself is open: you can fall in
     block(WELL.x + 9, WELL.y - 6, 2, 10);
-    block(CATAPULT.x - 2, CATAPULT.y + 10, 24, 6);         // the catapult frame
+    block(CATAPULT.x - 17, CATAPULT.y + 26, 72, 8);        // the catapult's bed and wheels (2x)
     solids.refresh();
     return solids;
   }

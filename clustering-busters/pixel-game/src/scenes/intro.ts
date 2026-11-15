@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { placeCatapult } from '../catapult';
 import { updateSave } from '../save';
 import { PLAY, WIDTH } from '../config';
 import { sfx } from '../media';
@@ -150,15 +151,15 @@ const BUILDS: ((s: IntroScene) => Obj[])[] = [
     m.fillStyle(0xd83a3a).fillRect(WIDTH - 57, ground - 25, 1, 1).fillRect(WIDTH - 52, ground - 25, 1, 1);           // something looking out
     const items: Obj[] = [sky, ...s.clouds(), m, ...s.treeLine(ground, 3), ...s.grass(ground, 4)];
     items.push(s.add.tileSprite(PLAY.x, ground + 14, 190, 9, 'path_dirt').setOrigin(0).setDepth(5));    // the path to the catapult
-    const base = s.add.image(WIDTH / 2 + 20, ground + 14, 'catapult_base').setScale(2).setDepth(10);
-    const arm = s.add.image(WIDTH / 2 + 20, ground, 'catapult_arm').setOrigin(0, 0.5).setScale(2).setRotation(Math.PI * 0.92).setDepth(11);
+    const cat = placeCatapult(s, WIDTH / 2 + 40, ground - 10, Math.PI * 0.92, 2, 10);   // its wheels on the path
+    const { arm } = cat;
     const hero = s.add.image(PLAY.x + 40, ground + 10, 'player').setScale(2).setDepth(12);
     s.tweens.add({ targets: hero, x: WIDTH / 2 - 22, duration: 1400, ease: 'Sine.easeOut' });
     s.tweens.add({ targets: arm, rotation: Math.PI * 0.88, duration: 300, delay: 1500, yoyo: true, ease: 'Sine.easeInOut' });   // creak
     const brann = s.add.image(PLAY.x - 16, ground + 10, 'sergeant').setScale(2).setDepth(13);
     s.tweens.add({ targets: brann, x: WIDTH / 2 - 44, duration: 1100, delay: 700, ease: 'Sine.easeOut' });
     s.cast = { brann };
-    items.push(base, arm, hero, brann, ...s.props([
+    items.push(cat.base, cat.rope, cat.winch, arm, cat.pin, hero, brann, ...s.props([
       ['tree_apple', 26, 142, 14], ['bush_big_berry', 108, 144, 14], ['bush_mid', 238, 146, 14], ['tree', 300, 140, 14],
     ]));
     return items;

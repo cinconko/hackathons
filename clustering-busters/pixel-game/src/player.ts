@@ -27,7 +27,7 @@ export const near = (a: { x: number; y: number }, x: number, y: number, r: numbe
 
 /** Armor with its own drawing: wearing it, the hero is that sprite (front view, used for every direction). */
 const ARMOR_LOOKS: Partial<Record<ArmorId, string>> = {
-  copper: 'hero_copper', bronze: 'hero_bronze', iron: 'hero_iron', steel: 'hero_steel', magnetite: 'hero_magnetite',
+  leather: 'hero_leather', copper: 'hero_copper', bronze: 'hero_bronze', iron: 'hero_iron', steel: 'hero_steel', magnetite: 'hero_magnetite',
 };
 
 export interface HeroLook { down: string; up: string; side: string }
@@ -35,7 +35,10 @@ const PLAIN: HeroLook = { down: 'player', up: 'player_up', side: 'player_side' }
 
 export function heroLook(scene: Phaser.Scene, armor: ArmorId | null): HeroLook {
   const key = armor ? ARMOR_LOOKS[armor] : undefined;
-  return key && scene.textures.exists(key) ? { down: key, up: key, side: key } : PLAIN;
+  if (key && scene.textures.exists(key)) return { down: key, up: key, side: key };
+  // the team's farmer (player.png) has one front view: it serves every direction, like the knights.
+  // Only the old 8x10 placeholder has its own up and side frames.
+  return scene.textures.get('player').getSourceImage().width > 8 ? { down: 'player', up: 'player', side: 'player' } : PLAIN;
 }
 
 /** The look the hero wears now (set by dress). */
@@ -43,7 +46,7 @@ export const lookOf = (p: Phaser.GameObjects.Sprite): HeroLook => (p.getData('lo
 
 /**
  * Dresses the hero. His hitbox stays the plain hero's 8x10, at his feet: a bigger drawing
- * (the iron knight is 16x22) is not a bigger target and still fits through the gaps.
+ * (the farmer and the knights are 16x28) is not a bigger target and still fits through the gaps.
  */
 export function dress(p: Phaser.Physics.Arcade.Sprite, look: HeroLook) {
   p.setData('look', look).setTexture(look.down).setFlipX(false);
