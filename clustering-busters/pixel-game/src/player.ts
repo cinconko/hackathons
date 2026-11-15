@@ -26,7 +26,9 @@ export const near = (a: { x: number; y: number }, x: number, y: number, r: numbe
 // ---- How the hero looks: some armor changes him ----
 
 /** Armor with its own drawing: wearing it, the hero is that sprite (front view, used for every direction). */
-const ARMOR_LOOKS: Partial<Record<ArmorId, string>> = { iron: 'hero_iron' };
+const ARMOR_LOOKS: Partial<Record<ArmorId, string>> = {
+  copper: 'hero_copper', bronze: 'hero_bronze', iron: 'hero_iron', steel: 'hero_steel', magnetite: 'hero_magnetite',
+};
 
 export interface HeroLook { down: string; up: string; side: string }
 const PLAIN: HeroLook = { down: 'player', up: 'player_up', side: 'player_side' };
