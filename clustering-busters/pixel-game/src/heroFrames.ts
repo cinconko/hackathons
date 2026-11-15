@@ -1,6 +1,6 @@
 // The hero's walking frames, made from his one drawing (the team draws a single front view per look:
 // the farmer, each knight). Pure pixel work on RGBA arrays (no Phaser), so tests run in Node.
-// Every frame keeps the drawing's exact size (10x18, 13x18), so nothing else has to move.
+// Every frame keeps the drawing's exact size (9x16, 12x16), so nothing else has to move.
 //
 // Only the FEET move: the bottom rows where the two legs stand apart (a gap between them). The
 // trousers, the belt and the body above stay exactly as drawn, so the hero never comes apart.
