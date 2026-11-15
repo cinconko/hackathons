@@ -530,14 +530,13 @@ export class VillageScene extends Phaser.Scene {
     const offers = this.offers();
     const who = MERCHANT_LOOK[s.merchantKind];
     const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
-    // his rug, big and sharp (in his robe's colour); its painted clutter dimmed so the wares stand out.
-    // As the village grows his window does too (src/merchantShops.ts): crates on the rug, then a
-    // wooden counter, then a velvet case
+    // his rug, big and sharp (in his robe's colour), at every village level: it is the shop's look.
+    // Its painted clutter is dimmed so the wares stand out. From level 4 his booth's crates stand on
+    // it (src/merchantShops.ts); the plank counter and velvet floors are no longer used here.
     const floor = shopFloor(villageLevel(s.spent));
     const robe = MERCHANT_ROBES[s.merchantKind];
-    const rug = floor !== 'rug' && floor !== 'booth' ? null
-      : this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
-    if (floor !== 'rug') c.addAt(shopFloorArt(this, floor, x, y, w, h), rug ? 3 : 1);
+    const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
+    if (floor !== 'rug') c.addAt(shopFloorArt(this, 'booth', x, y, w, h), rug ? 3 : 1);
     if (rug) {
       c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
       c.addAt(this.add.graphics().fillStyle(0x000000, VEIL).fillRect(x + 1, y + 22, w - 2, h - 36)
