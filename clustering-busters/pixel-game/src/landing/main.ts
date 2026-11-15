@@ -43,11 +43,17 @@ const hint = document.getElementById('nick-hint')!;
 input.value = loadNick() ?? '';
 // The game listens to the keyboard on the whole window (W, A, S, D, E, Q, Space...). While you
 // type your name it steps aside, or those letters would never reach the box.
-const keysToGame = (on: boolean) => {
-  typing.on = !on;
+// The keyboard reaches the game only while you are not typing and the game is awake: asleep,
+// Phaser never empties its key queue (the frame loop does), so presses made while reading the page
+// would all replay at once on the next key. Turning it off drops them; the queue is cleared too.
+let asleep = false;
+function syncKeys() {
   const kb = gameOf()?.input.keyboard;
-  if (kb) kb.enabled = on;
-};
+  if (!kb) return;
+  kb.enabled = !typing.on && !asleep;
+  if (!kb.enabled) (kb as unknown as { queue: KeyboardEvent[] }).queue.length = 0;   // public in Phaser, missing from its types
+}
+const keysToGame = (on: boolean) => { typing.on = !on; syncKeys(); };
 input.addEventListener('focus', () => keysToGame(false));
 input.addEventListener('blur', () => keysToGame(true));
 form.addEventListener('submit', (e) => {
@@ -155,7 +161,9 @@ let screenSeen = true;
 function restOrPlay() {
   const g = gameOf();
   if (!g || !booted || document.fullscreenElement) return;
-  if (screenSeen) { g.loop.wake(); g.sound.resumeAll(); } else { g.loop.sleep(); g.sound.pauseAll(); }
+  asleep = !screenSeen;
+  if (asleep) { g.loop.sleep(); g.sound.pauseAll(); } else { g.loop.wake(); g.sound.resumeAll(); }
+  syncKeys();
 }
 if (screenBox) new IntersectionObserver(([e]) => { screenSeen = e.isIntersecting; restOrPlay(); }, { threshold: 0.1 }).observe(screenBox);
 

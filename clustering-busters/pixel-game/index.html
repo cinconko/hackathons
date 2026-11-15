@@ -31,7 +31,7 @@
     </div>
 
     <div class="wordmark-wrap">
-      <!-- the wordmark: RING in gold tiles, FALL in night tiles; move through it to knock tiles out -->
+      <!-- the wordmark, made of rings: RING in gold, FALL in black, a lucky rare or super rare among them; move through it to knock rings out -->
       <canvas id="wordmark" aria-label="Ringfall" role="img"></canvas>
       <span class="tag knocked">Rings knocked: <b id="knocked">0</b></span>
       <div class="sticker s-boss">1 boss<small>3 stages, one key</small></div>
@@ -41,18 +41,26 @@
     <div class="hero-foot">
       <div class="pitch">
         <p class="lead">You're one small farmer with a big catapult. Beat Mossback, take the key, <mark>bring the rings home.</mark></p>
-        <form class="play" id="play">
-          <label for="nick">Your name on the leaderboard</label>
-          <div class="row">
-            <input id="nick" name="nick" autocomplete="nickname" maxlength="14" placeholder="Hero" required />
-            <button type="submit" class="btn gold">Play the game &#x25B8;</button>
-            <a class="btn outline" href="#mossback">Meet Mossback</a>
-          </div>
-          <p class="hint" id="nick-hint">2-14 letters or digits</p>
-        </form>
-        <p class="note"><i></i> Move through the letters. Mossback is watching.</p>
+        <p class="note"><i></i> Move through the rings. Mossback is watching.</p>
+        <div class="pitch-row">
+          <a class="btn outline" href="#mossback">Meet Mossback</a>
+          <div class="sticker s-try">Try it<small>move through the rings</small><span class="mouse" aria-hidden="true"></span></div>
+        </div>
       </div>
-      <div class="sticker s-try">Try it<small>move through the letters</small><span class="mouse" aria-hidden="true"></span></div>
+
+      <!-- sign in with your name: the one thing to do on this page -->
+      <form class="start" id="play">
+        <span class="start-badge">1P &middot; start here</span>
+        <h2 class="start-title">Who flies to the lair?</h2>
+        <label for="nick">Your name on the leaderboard</label>
+        <div class="field">
+          <span class="caret" aria-hidden="true">&#x25B8;</span>
+          <input id="nick" name="nick" autocomplete="nickname" maxlength="14" placeholder="Type your name" required />
+        </div>
+        <button type="submit" class="btn gold start-go">Play the game &#x25B8;</button>
+        <p class="hint" id="nick-hint">2-14 letters or digits</p>
+        <p class="blink" aria-hidden="true">Press start</p>
+      </form>
     </div>
   </header>
 

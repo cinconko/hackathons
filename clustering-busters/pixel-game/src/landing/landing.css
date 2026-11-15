@@ -98,19 +98,37 @@ kbd { font: 11px/1 var(--pixel); text-transform: uppercase; color: var(--text); 
 #wordmark { display: block; width: 100%; height: auto; cursor: none; touch-action: pan-y; }
 .tag.knocked { right: 16%; bottom: -10px; transform: rotate(-3deg); }
 .s-boss { right: 0; top: -84px; transform: rotate(7deg); }   /* beside the chips, clear of the word */
-.hero-foot { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; margin-top: 18px; }
-.lead { font: 400 clamp(15px, 1.7vw, 20px)/1.6 var(--sans); max-width: 640px; margin: 0 0 22px; }
-.play label { display: block; font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; opacity: 0.7; }
-.play .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
-.play input { font: 400 16px var(--sans); color: var(--ink); background: var(--cream); border: 2px solid var(--ink); padding: 10px 14px; width: min(230px, 100%); box-shadow: 4px 4px 0 var(--ink); }
-.play input:focus { outline: 3px solid var(--gold); outline-offset: 2px; }
+.hero-foot { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 40px; align-items: center; margin-top: 30px; }
+.lead { font: 400 clamp(15px, 1.7vw, 20px)/1.6 var(--sans); max-width: 640px; margin: 0 0 18px; }
+.pitch-row { display: flex; align-items: center; gap: 28px; flex-wrap: wrap; margin-top: 26px; }
 .hint { font: 11px/1.4 var(--pixel); margin: 10px 0 0; opacity: 0.7; }
 .hint.bad { color: var(--red); opacity: 1; }
-.note { font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; margin: 22px 0 0; opacity: 0.6; }
+.note { font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; margin: 0; opacity: 0.6; }
 .note i { color: var(--red); margin-right: 6px; }
-.s-try { position: relative; transform: rotate(-6deg); margin-right: 8px; }
+.s-try { position: relative; transform: rotate(-6deg); }
 .mouse { width: 22px; height: 34px; border: 3px solid var(--ink); border-radius: 12px; background: var(--cream); position: relative; margin-top: 6px; }
 .mouse::after { content: ''; position: absolute; left: 50%; top: 5px; width: 3px; height: 7px; margin-left: -1.5px; background: var(--ink); animation: wheel 1.4s ease-in-out infinite; }
+
+/* the sign-in: a black arcade cabinet card with a gold frame that breathes, a big field with a
+   blinking caret and "press start" blinking under the button. The page's one call to action. */
+.hero-foot > * { min-width: 0; }
+.start { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: min(440px, 100%); padding: 30px 26px 22px; background: var(--ink); color: var(--text);
+  border: 4px solid var(--gold); box-shadow: 10px 10px 0 var(--gold-dark), 0 0 0 0 rgba(255, 204, 68, 0.6); animation: breathe 2.2s ease-in-out infinite; }
+@keyframes breathe { 50% { box-shadow: 10px 10px 0 var(--gold-dark), 0 0 0 10px rgba(255, 204, 68, 0); } }
+.start-badge { position: absolute; top: -16px; left: 18px; font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; background: var(--red); color: #fff;
+  border: 2px solid var(--ink); padding: 7px 10px; box-shadow: 3px 3px 0 var(--ink); transform: rotate(-3deg); }
+.start-title { font: 400 clamp(26px, 3vw, 34px)/1.1 var(--title); color: var(--gold); }
+.start label { font: 11px/1 var(--pixel); text-transform: uppercase; letter-spacing: 1px; color: var(--muted); }
+.field { display: flex; align-items: center; gap: 10px; background: var(--cream); border: 3px solid var(--gold); padding: 0 14px; }
+.field:focus-within { outline: 3px solid var(--green); outline-offset: 3px; }
+.caret { font: 22px/1 var(--pixel); color: var(--red); animation: blink 1s steps(1) infinite; }
+.field input { flex: 1; min-width: 0; font: 400 22px/1 var(--sans); color: var(--ink); background: transparent; border: 0; padding: 14px 0; outline: none; }
+.field input::placeholder { color: #9a9a9a; }
+.start-go { justify-content: center; font-size: 16px; padding: 17px 18px; box-shadow: 5px 5px 0 var(--gold-dark) !important; }
+.start .hint { margin: 0; color: var(--muted); opacity: 1; }
+.start .hint.bad { color: #ff6b6b; }
+.blink { margin: 0; text-align: center; font: 12px/1 var(--pixel); text-transform: uppercase; letter-spacing: 3px; color: var(--gold); animation: blink 1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
 @keyframes wheel { 50% { transform: translateY(6px); opacity: 0.3; } }
 
 /* ---- sections ---- */
@@ -261,7 +279,9 @@ footer .logo { color: var(--ink); }
 
 @media (max-width: 900px) {
   .links { display: none; }
-  .arena-head, .arena-grid, .chapter, .hero-foot { grid-template-columns: 1fr; }
+  .arena-head, .arena-grid, .chapter, .hero-foot { grid-template-columns: minmax(0, 1fr); }
+  .hero-foot { gap: 34px; }
+  .start { order: -1; width: 100%; }   /* on phones the sign-in comes right under the word */
   .chapter.flip .art { order: 0; }
   .s-try, .s-play { justify-self: start; }
   .s-boss { top: -40px; font-size: 16px; padding: 8px 10px; }
