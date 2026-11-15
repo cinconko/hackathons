@@ -1,0 +1,99 @@
+/* Ringfall's landing page: the game's pixel look on the web. Its fonts (public/media/fonts), its
+   gold, its night-blue frame. Everything is crisp pixels: no smoothing on the sprites. */
+@font-face { font-family: alagard; src: url('/media/fonts/alagard.ttf'); font-display: swap; }
+@font-face { font-family: silkscreen; src: url('/media/fonts/silkscreen.ttf'); font-display: swap; }
+
+:root {
+  --bg: #0d0b14;
+  --panel: #1a1424;
+  --edge: #3a2f52;
+  --text: #e8e4f0;
+  --muted: #8a84a0;
+  --gold: #ffcc44;
+  --blue: #9fd3ff;
+  --rare: #44aaff;
+  --super: #ff55dd;
+  --bar: #2a2238;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font: 14px/1.6 silkscreen, ui-monospace, monospace;
+  -webkit-font-smoothing: none;
+}
+img[data-sprite] { image-rendering: pixelated; image-rendering: crisp-edges; }
+
+h1, h2 { font-family: alagard, serif; font-weight: normal; letter-spacing: 1px; margin: 0; }
+h1 { font-size: clamp(48px, 12vw, 96px); color: var(--gold); text-shadow: 4px 4px 0 #6b4a1a; }
+h2 { font-size: 32px; color: var(--gold); }
+.sub { color: var(--muted); margin: 4px 0 24px; }
+.muted { color: var(--muted); }
+
+/* ---- the hero: name, play ---- */
+.hero {
+  text-align: center;
+  padding: 48px 16px 56px;
+  background: linear-gradient(#0b1030, #1a2350 60%, var(--bg));
+  border-bottom: 4px solid var(--edge);
+}
+.hero-art { display: flex; justify-content: center; align-items: flex-end; gap: 32px; min-height: 140px; }
+.hero-art .boss { animation: waddle 0.8s steps(2) infinite; }
+@keyframes waddle { 50% { transform: translateY(-6px) rotate(-3deg); } }
+.tag { max-width: 560px; margin: 12px auto 28px; color: var(--blue); }
+
+.play { display: inline-block; text-align: left; }
+.play label { display: block; color: var(--muted); margin-bottom: 6px; }
+.play .row { display: flex; gap: 8px; }
+.play input {
+  font: inherit; font-size: 18px; color: var(--text); background: var(--panel);
+  border: 2px solid var(--edge); border-bottom-color: var(--gold); padding: 8px 12px; width: min(240px, 60vw);
+}
+.play input:focus { outline: 2px solid var(--gold); outline-offset: 2px; }
+.play button {
+  font: inherit; font-size: 18px; cursor: pointer; color: #1a1424; background: var(--gold);
+  border: 0; padding: 8px 20px; box-shadow: 0 4px 0 #8a6a1a;
+}
+.play button:hover { filter: brightness(1.1); }
+.play button:active { transform: translateY(2px); box-shadow: 0 2px 0 #8a6a1a; }
+.hint { color: var(--muted); margin: 6px 0 0; font-size: 12px; }
+.hint.bad { color: #ff6a6a; }
+
+/* ---- sections ---- */
+main { max-width: 960px; margin: 0 auto; padding: 48px 16px; display: grid; gap: 56px; }
+
+.board ol { list-style: none; padding: 0; margin: 0; background: var(--panel); border: 2px solid var(--edge); }
+.board li { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: center; padding: 8px 16px; border-top: 1px solid var(--bar); }
+.board li:first-child { border-top: 0; }
+.board li.muted { display: block; }   /* a message, not a score row */
+.board .rank { color: var(--muted); text-align: right; }
+.board .time { color: var(--gold); font-variant-numeric: tabular-nums; }
+.board li.me { background: #2e2410; }
+.board li.me .nick { color: var(--gold); }
+.board li.top .rank { color: var(--gold); }
+
+.group { background: var(--panel); border: 2px solid var(--edge); padding: 20px; margin-bottom: 20px; }
+.group h3 { font-family: alagard, serif; font-weight: normal; font-size: 22px; margin: 0; color: var(--text); }
+.group > p { color: var(--muted); margin: 4px 0 16px; }
+.odd { display: grid; grid-template-columns: 56px 1fr 72px; gap: 12px; align-items: center; padding: 6px 0; }
+.odd .pic { display: grid; place-items: center; width: 56px; height: 48px; background: var(--bg); border: 1px solid var(--bar); }
+.odd .pic img { max-width: 48px; max-height: 40px; }
+.odd .what small { display: block; color: var(--muted); font-size: 11px; }
+.odd .meter { grid-column: 2; height: 6px; background: var(--bar); margin-top: 4px; }
+.odd .meter span { display: block; height: 100%; background: var(--gold); }
+.odd .num { text-align: right; color: var(--gold); font-size: 16px; line-height: 1.2; }
+.odd .num small { display: block; color: var(--muted); font-size: 10px; }
+.rare .meter span { background: var(--rare); }
+.superRare .meter span { background: var(--super); }
+
+footer { text-align: center; color: var(--muted); font-size: 11px; padding: 24px 16px 40px; border-top: 2px solid var(--edge); }
+
+@media (max-width: 520px) {
+  .odd { grid-template-columns: 44px 1fr 60px; }
+  .odd .pic { width: 44px; }
+  .hero-art { gap: 16px; }
+}
+@media (prefers-reduced-motion: reduce) { .hero-art .boss { animation: none; } }

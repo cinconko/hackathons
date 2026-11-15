@@ -53,5 +53,12 @@ function mediaManifest(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [mediaManifest()],
-  build: { chunkSizeWarningLimit: 1500, rollupOptions: { output: { manualChunks: { phaser: ['phaser'] } } } },
+  build: {
+    chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      // two pages: the game (index.html, also what itch.io runs) and the landing page (Vercel serves it at /)
+      input: { game: join(__dirname, 'index.html'), landing: join(__dirname, 'landing.html') },
+      output: { manualChunks: { phaser: ['phaser'] } },
+    },
+  },
 });
