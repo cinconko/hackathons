@@ -45,8 +45,9 @@ export class OutroScene extends CutsceneScene {
           }),
         });
         // the hero, the key held high
-        const hero = o.add.image(WIDTH / 2 - 54, PLAY.y + 116, 'player').setScale(2).setDepth(24);
-        const key = o.add.image(hero.x + 4, hero.y - 22, 'key').setScale(2).setDepth(25);
+        // 2x like the key (whatever the hero sprite's size), feet on the floor; the key held just over his head
+        const hero = o.add.image(WIDTH / 2 - 54, PLAY.y + 126, 'player').setOrigin(0.5, 1).setScale(2).setDepth(24);
+        const key = o.add.image(hero.x + 4, hero.y - hero.displayHeight - 6, 'key').setScale(2).setDepth(25);
         o.tweens.add({ targets: key, y: key.y - 3, yoyo: true, repeat: -1, duration: 400 });
         const glint = o.add.image(key.x - 6, key.y - 3, 'sparkle').setDepth(26);
         o.tweens.add({ targets: glint, alpha: 0.2, yoyo: true, repeat: -1, duration: 300 });
@@ -71,8 +72,8 @@ export class OutroScene extends CutsceneScene {
         const items: Phaser.GameObjects.GameObject[] = [sky, ...clouds, m, ...o.treeLine(ground, 3), ...o.grass(ground, 4)];   // all removed with the shot
         items.push(o.add.tileSprite(PLAY.x, ground + 14, PLAY.width, 9, 'path_dirt').setOrigin(0).setDepth(5));
         // the hero, a chest over his head, rings glinting behind him
-        const hero = o.add.image(PLAY.x + 10, ground + 14, 'player').setScale(2).setDepth(12);
-        const chest = o.add.image(hero.x, hero.y - 22, 'chest').setScale(1.5).setDepth(13);
+        const hero = o.add.image(PLAY.x + 10, ground + 24, 'player').setOrigin(0.5, 1).setScale(2).setDepth(12);   // feet on the path
+        const chest = o.add.image(hero.x, hero.y - hero.displayHeight - 8, 'chest').setScale(1.5).setDepth(13);
         o.tweens.add({ targets: [hero, chest], x: `+=${PLAY.width - 40}`, duration: 5200, ease: 'Linear' });
         o.tweens.add({ targets: [hero, chest], y: '-=2', yoyo: true, repeat: -1, duration: 180 });
         o.time.addEvent({

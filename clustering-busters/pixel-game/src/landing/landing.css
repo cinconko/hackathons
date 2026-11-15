@@ -106,15 +106,32 @@ main { max-width: 1100px; margin: 0 auto; padding: 56px 16px; display: grid; gap
 .raid .carried { bottom: 150px; left: 102px; }
 .in .raid .stomp, .in .raid .carried { animation: march 2.2s ease-in-out infinite; }
 @keyframes march { 0%, 100% { transform: translateX(-40px) rotate(-4deg); } 50% { transform: translateX(40px) rotate(4deg); } }
+/* the catapult, assembled like the game does (src/catapult.ts) at 3x: base 40x22 with the arm's axle
+   at (28, 4), the winch centred at (6, 9), the arm 30x8 turning on its left end (2, 4), a pin on top.
+   The throw goes up and over: the arm swings from 166 deg (lying back) to 297 deg (against the stop). */
 .launch { position: relative; width: 280px; height: 220px; }
-.launch .cbase { position: absolute; bottom: 10px; left: 30px; }
-.launch .flier { position: absolute; bottom: 52px; left: 60px; }
-.in .launch .flier { animation: fling 2.6s cubic-bezier(.3, 0, .7, 1) infinite; }
+.launch img { position: absolute; }
+.launch .cbase { left: 30px; top: 144px; }                      /* axle at (114, 156) */
+.launch .cwinch { left: 38px; top: 161px; }                     /* centred on the base's (6, 9) */
+.launch .carm { left: 108px; top: 144px; transform-origin: 6px 12px; transform: rotate(166deg); }
+.launch .cpin { left: 107px; top: 149px; }                      /* over the axle */
+.launch .flier { left: 37px; top: 125px; }                       /* in the bucket while the arm rests (hero 10x18 at 2x) */
+.in .launch .carm { animation: throw-arm 2.8s infinite; }
+.in .launch .flier { animation: fling 2.8s infinite; }
+@keyframes throw-arm {
+  0%, 18% { transform: rotate(166deg); }
+  30% { transform: rotate(297deg); animation-timing-function: ease-out; }   /* up and over, into the stop */
+  36% { transform: rotate(285deg); }
+  42%, 62% { transform: rotate(297deg); }
+  100% { transform: rotate(166deg); }                            /* wound back for the next throw */
+}
 @keyframes fling {
-  0%, 15% { transform: translate(0, 0) rotate(0); opacity: 1; }
-  45% { transform: translate(110px, -150px) rotate(360deg); }
-  80% { transform: translate(210px, -30px) rotate(720deg); opacity: 1; }
-  90%, 100% { transform: translate(220px, 0) rotate(720deg); opacity: 0; }
+  0%, 18% { transform: translate(0, 0) rotate(0); opacity: 1; }
+  30% { transform: translate(110px, -110px) rotate(200deg); }
+  55% { transform: translate(200px, -170px) rotate(540deg); opacity: 1; }
+  75% { transform: translate(250px, -60px) rotate(720deg); opacity: 0; }
+  76%, 99% { transform: translate(0, 0); opacity: 0; }
+  100% { transform: translate(0, 0); opacity: 1; }
 }
 
 /* Mossback's three stages */
