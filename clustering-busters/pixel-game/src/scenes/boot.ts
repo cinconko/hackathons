@@ -18,6 +18,7 @@ import { loadSave, updateSave } from '../save';
 //   &kit=all         own everything in the chart (sword, bow, steel equipped). Writes the save!
 //   ?scene=village&merchant   open the ring merchant's shop at once (&nodeal: cards already on the table)
 //   ?scene=village&yard       start inside the training yard, weapon out
+//   ?scene=village&tutorial   start Sergeant Brann's combat training (normally once, after the cutscene)
 //   &spent=800       rings spent in the village (its level); &seen=N = levels already watched. Writes the save!
 /**
  * The boss's six hands, in boss_art.png pixels (32x35): the box around each hand and the way
@@ -517,7 +518,7 @@ export class BootScene extends Phaser.Scene {
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
     } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
-      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), openBar: q.has('bar'), inYard: q.has('yard') });
+      this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), openBar: q.has('bar'), inYard: q.has('yard'), tutorial: q.has('tutorial') });
     } else {
       this.scene.start('menu');
     }
