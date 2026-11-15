@@ -17,7 +17,7 @@ export class MenuScene extends Phaser.Scene {
     this.add.text(WIDTH - 8, 7, 'Fonts: Alagard by Hewett Tsoi, Silkscreen', { ...FONT, color: '#555555' }).setOrigin(1, 0);   // the authors ask for credit
     this.add.text(WIDTH / 2, 64, 'Mossback stole the treasury. Go get the rings back.', { ...FONT, color: '#aaaaaa' }).setOrigin(0.5);
     const prompt = this.add.text(WIDTH / 2, 88, save.seenIntro ? 'Enter: to the village' : 'Press Enter or click to start', { fontFamily: 'silkscreen, monospace', fontSize: '8px', color: '#ffcc44' }).setOrigin(0.5);
-    if (save.seenIntro) this.add.text(WIDTH / 2, 100, 'C: watch the story again', FONT).setOrigin(0.5);
+    if (save.seenIntro) this.add.text(WIDTH / 2, 100, save.wins ? 'C: the story again   V: the ending' : 'C: watch the story again', FONT).setOrigin(0.5);
     this.add.text(WIDTH / 2, 112, 'WASD move   mouse aim   click/Space attack', FONT).setOrigin(0.5);
     this.add.text(WIDTH / 2, 122, 'Q switch weapon   1-8 specials   E use   F fullscreen', FONT).setOrigin(0.5);
 
@@ -31,6 +31,7 @@ export class MenuScene extends Phaser.Scene {
     const start = () => go(save.seenIntro ? 'village' : 'intro');
     this.input.keyboard?.once('keydown-ENTER', start);
     this.input.keyboard?.once('keydown-C', () => go('intro'));
+    if (save.wins) this.input.keyboard?.once('keydown-V', () => go('outro'));
     this.input.once('pointerdown', start);
 
     drawFrame(this);

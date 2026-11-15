@@ -7,7 +7,8 @@ import { updateSave } from '../save';
 import { fadeToScene, FONT, hex, TITLE_FONT } from '../ui';
 
 // After the treasury: what you found this run. The wallet arrives already counted (the arena
-// and the treasury keep it up to date); this screen saves it. Continue -> back to the village.
+// and the treasury keep it up to date); this screen saves it. Continue -> back to the village
+// (after your first win: the ending cutscene first).
 // (Losing does not come here: Mossback bounces you straight home.)
 export class ResultScene extends Phaser.Scene {
   constructor() { super('result'); }
@@ -41,7 +42,8 @@ export class ResultScene extends Phaser.Scene {
     drawFrame(this);
     this.cameras.main.fadeIn(500);
     playMusic(this, 'victory');
-    const back = () => fadeToScene(this, 'village', { fromRun: true });   // the merchant deals new cards
+    // your first recovered treasury ends the story: the ending cutscene, then the village (the merchant deals new cards)
+    const back = () => (data.won && save.wins === 1 ? fadeToScene(this, 'outro', { timeMs: data.timeMs }) : fadeToScene(this, 'village', { fromRun: true }));
     this.time.delayedCall(500, () => {   // a short pause so a held attack key does not skip this screen
       this.input.keyboard?.once('keydown-ENTER', back);
       this.input.once('pointerdown', back);
