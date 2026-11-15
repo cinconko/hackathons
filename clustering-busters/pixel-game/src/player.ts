@@ -1,8 +1,7 @@
 // Hero movement shared by the village, the arena and the treasury.
 import Phaser from 'phaser';
-import { dustPuff } from './fx';
 import { PLAYER_SPEED, type ArmorId } from './game/rules';
-import { BREATH_MS, heroFrame, WALK, WALK_MS, type HeroFrame } from './heroFrames';
+import { heroFrame, WALK, WALK_MS, type HeroFrame } from './heroFrames';
 
 export type Keys = Record<string, Phaser.Input.Keyboard.Key>;
 
@@ -58,7 +57,7 @@ export function dress(p: Phaser.Physics.Arcade.Sprite, look: HeroLook) {
   body?.setSize(8, 10, false).setOffset((p.width - 8) / 2, p.height - 10);
 }
 
-// ---- The hero moves: walking legs, an idle breath (frames made in src/heroFrames.ts) ----
+// ---- The hero walks: his feet step in turn (frames made in src/heroFrames.ts) ----
 
 /**
  * The texture for `frame` of drawing `key` (`<key>~left` etc.), made once from the drawing's pixels.
@@ -89,9 +88,9 @@ export function setHeroBase(p: Phaser.GameObjects.Sprite, key: string) {
 }
 
 /**
- * Every frame (steer calls it): walking, the legs step left, stand, right, stand, with a puff of
- * dust at each step; standing still, a slow breath. Every frame is the drawing's own size, so the
- * hitbox and everything placed by it stay put.
+ * Every frame (steer calls it): walking, the feet step left, both down, right, both down; standing
+ * still, he stands as drawn. Every frame is the drawing's own size, so the hitbox and everything
+ * placed by it stay put.
  */
 export function animateHero(p: Phaser.GameObjects.Sprite, moving: boolean) {
   const now = p.scene.time.now;
@@ -101,10 +100,9 @@ export function animateHero(p: Phaser.GameObjects.Sprite, moving: boolean) {
     frame = WALK[Math.floor((now - (p.getData('walkSince') as number)) / WALK_MS) % WALK.length];
   } else {
     p.setData('walkSince', 0);
-    frame = now % BREATH_MS > BREATH_MS * 0.55 ? 'breathe' : null;
+    frame = null;
   }
   if (frame === ((p.getData('frame') as HeroFrame | null) ?? null)) return;
   p.setData('frame', frame);
   p.setTexture(frameKey(p.scene, (p.getData('base') as string | undefined) ?? p.texture.key, frame));
-  if (moving && frame) dustPuff(p.scene, p.x + (frame === 'left' ? -2 : 2), p.y + p.displayHeight / 2 - 5, 1, 3);   // a footstep
 }
