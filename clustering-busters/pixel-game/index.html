@@ -5,11 +5,81 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Ringfall</title>
   <style>
-    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
-    body { display: grid; place-items: center; }   /* the canvas sits in the middle of any window */
+    /* The game page: a header, the game in a framed screen (fullscreen: the screen fills the monitor),
+       the Fullscreen button, then controls and credits. Paths stay relative (the itch.io zip). */
+    @font-face { font-family: alagard; src: url('./media/fonts/alagard.ttf'); }
+    @font-face { font-family: silkscreen; src: url('./media/fonts/silkscreen.ttf'); }
+    :root { --gold: #ffcc44; --ink: #d8cce8; --dim: #8a7aa8; --panel: #15101f; --edge: #3a2a5a; }
+    html, body { margin: 0; background: #0b0910; color: var(--ink); }
+    body { font-family: silkscreen, monospace; font-size: 12px; line-height: 1.7; min-height: 100vh; display: flex; flex-direction: column; align-items: center; }
+    header { width: min(96vw, 1180px); display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 14px 4px 8px; flex-wrap: wrap; }
+    h1 { font-family: alagard, serif; font-weight: normal; font-size: 40px; color: var(--gold); margin: 0; letter-spacing: 1px; text-shadow: 0 3px 0 #5a3a10; }
+    .tag { color: var(--dim); margin: 0; }
+    a { color: var(--gold); }
+    nav a { text-decoration: none; border: 1px solid var(--edge); padding: 4px 10px; border-radius: 4px; background: var(--panel); }
+    nav a:hover { border-color: var(--gold); }
+    /* the screen: 16:9, as big as fits under the header and above the button */
+    #screen { position: relative; width: min(96vw, calc((100vh - 190px) * 16 / 9)); min-width: 320px; aspect-ratio: 16 / 9;
+              background: #000; border: 3px solid var(--edge); border-radius: 8px; box-shadow: 0 0 0 3px #000, 0 12px 40px #000c;
+              display: grid; place-items: center; overflow: hidden; }
+    #screen:fullscreen { width: 100vw; height: 100vh; border: 0; border-radius: 0; box-shadow: none; }
+    #screen canvas { display: block; }
+    .bar { width: min(96vw, 1180px); display: flex; justify-content: center; align-items: center; gap: 14px; padding: 12px 0 4px; flex-wrap: wrap; }
+    #fullscreen { font: inherit; font-size: 14px; color: #1a1206; background: var(--gold); border: 0; border-radius: 6px; padding: 9px 22px; cursor: pointer; box-shadow: 0 3px 0 #8a6a1a; }
+    #fullscreen:hover { filter: brightness(1.1); }
+    #fullscreen:active { transform: translateY(2px); box-shadow: 0 1px 0 #8a6a1a; }
+    .hint { color: var(--dim); }
+    section { width: min(96vw, 1180px); display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; padding: 14px 0 28px; }
+    .card { background: var(--panel); border: 1px solid var(--edge); border-radius: 6px; padding: 10px 14px; }
+    .card h2 { font-family: alagard, serif; font-weight: normal; font-size: 20px; color: var(--gold); margin: 0 0 6px; }
+    .card ul { margin: 0; padding-left: 16px; }
+    kbd { font-family: inherit; color: var(--gold); border: 1px solid var(--edge); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: #0b0910; }
   </style>
 </head>
 <body>
+  <header>
+    <div>
+      <h1>Ringfall</h1>
+      <p class="tag">Mossback stole the village treasury. Fly in by catapult and get every ring back.</p>
+    </div>
+    <nav><a href="./landing.html">Leaderboard &amp; odds</a></nav>
+  </header>
+
+  <!-- the game mounts here (src/main.ts: parent 'screen'); fullscreen makes this box fill the monitor -->
+  <div id="screen"></div>
+
+  <div class="bar">
+    <button id="fullscreen" type="button">&#x26F6; Fullscreen</button>
+    <span class="hint">or press <kbd>F</kbd> &nbsp;·&nbsp; <kbd>M</kbd> mutes</span>
+  </div>
+
+  <section>
+    <div class="card">
+      <h2>Controls</h2>
+      <ul>
+        <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> walk</li>
+        <li>Mouse aims, <kbd>Click</kbd> or <kbd>Space</kbd> attacks</li>
+        <li><kbd>Q</kbd> switches weapon, <kbd>1</kbd>–<kbd>8</kbd> cast specials</li>
+        <li><kbd>E</kbd> talk, shop, launch</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>How to play</h2>
+      <ul>
+        <li>Train with Sergeant Brann, then buy gear from the merchants for rings.</li>
+        <li>The catapult throws you into Mossback's lair: beat his three stages, take the key from his neck.</li>
+        <li>Lose and he bounces you home. Keep the rings you found, grow the village, try again.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Credits</h2>
+      <ul>
+        <li>Made by the Clustering Busters team.</li>
+        <li>Fonts: Alagard by Hewett Tsoi, Silkscreen by Jason Kottke (OFL).</li>
+      </ul>
+    </div>
+  </section>
+
   <script type="module" src="./src/main.ts"></script>
 </body>
 </html>
