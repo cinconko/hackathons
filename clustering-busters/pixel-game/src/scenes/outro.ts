@@ -1,22 +1,23 @@
 import Phaser from 'phaser';
 import { PLAY, WIDTH } from '../config';
-import { formatTime } from '../game/rules';
+import { countRings, formatTime, type Rarity } from '../game/rules';
 import { CutsceneScene, GROUND, type CutsceneEnd, type Shot } from './cutscene';
 
 // The ending, after your first recovered treasury: Mossback beaten in his lair, the rings carried
 // home, the feast under fireworks, and a last look at his mountain. Then THE END, your time, and
 // back to the village (the game goes on). Skippable like the opening (Esc).
-export interface OutroData { timeMs?: number }
+/** From the results of your first win (none when replayed from the menu). */
+export interface OutroData { timeMs?: number; newBest?: boolean; found?: Rarity[]; worth?: number }
 
 const FIREWORK_COLORS = [0xffcc44, 0xff5fa0, 0x6ad0ff, 0x8aff6a, 0xffffff];
 
 export class OutroScene extends CutsceneScene {
   protected readonly music = 'victory' as const;
-  private timeMs = 0;
+  private run: OutroData = {};
 
   constructor() { super('outro'); }
 
-  init(data: OutroData) { this.timeMs = data.timeMs ?? 0; }
+  init(data: OutroData) { this.run = data ?? {}; }
 
   protected readonly shots: Shot[] = [
     {
@@ -146,11 +147,23 @@ export class OutroScene extends CutsceneScene {
   }
 
   protected end(): CutsceneEnd {
+    // the results of the run (this card replaces the results screen on the first win)
+    const r = this.run;
+    const c = countRings(r.found ?? []);
+    const lines = r.timeMs ? [
+      r.found?.length ? `Rings found: ${c.classic} classic, ${c.rare} rare, ${c.superRare} super rare` : 'No rings picked up on the way',
+      `Wallet now worth ${r.worth ?? 0} rings`,
+      'Thanks for playing Ringfall.',
+    ] : ['Thanks for playing Ringfall.', 'The village is yours: keep it growing.'];
     return {
       title: 'THE END', size: 32,
-      sub: this.timeMs ? `Treasury recovered in ${formatTime(this.timeMs)}` : 'Treasury recovered',
-      lines: ['Thanks for playing Ringfall.', 'The village is yours: keep it growing.'],
-      next: 'village', data: { fromRun: true },
+      sub: r.timeMs ? `Treasury recovered in ${formatTime(r.timeMs)}${r.newBest ? '   new best!' : ''}` : 'Treasury recovered',
+      lines,
+      // after a real win: the leaderboard (src/scenes/board.ts: your rank and the top 10), then the
+      // village. Replayed from the menu, or before the board scene exists: straight to the village.
+      ...(r.timeMs && 'board' in this.scene.manager.keys
+        ? { next: 'board', data: { timeMs: r.timeMs, after: 'village', fromRun: true } }
+        : { next: 'village', data: { fromRun: true } }),
     };
   }
 }
