@@ -44,6 +44,21 @@ const HIT_R = 11;                     // how far from the target's centre a hit 
 export const SPELL_SPEED = 180;
 const easeOut = (t: number) => 1 - (1 - t) * (1 - t);
 
+/** Where each held weapon is gripped, as a share of its width (the rest: 1.5 px in from the left end). */
+const GRIP: Partial<Record<string, number>> = { fists: 0.5, bow: 0.6 };
+
+/**
+ * The hero's hand in the world: on his drawing it is at about 80 % across and 74 % down (the farmer's
+ * skin pixel, the knights' gauntlet), mirrored for the left hand. From the frame size, so any size works.
+ */
+export function handOf(p: Phaser.GameObjects.Sprite, leftHand: boolean) {
+  const w = p.frame.width;
+  const h = p.frame.height;
+  const hx = (Math.round(w * 0.8) + 0.5 - w / 2) * p.scaleX;
+  const hy = (Math.round(h * 0.74) + 0.5 - h / 2) * p.scaleY;
+  return { x: p.x + (leftHand ? -hx : hx), y: p.y + hy };
+}
+
 export class Combat {
   readonly shots: Phaser.Physics.Arcade.Group;
   wIndex: number;
@@ -155,17 +170,21 @@ export class Combat {
       for (let i = 1; i <= 12; i++) g.fillRect(Math.round(p.x + d.x * (6 + i * 6)), Math.round(p.y + d.y * (6 + i * 6)), 1, 1);
     }
 
+    // the weapon sits in his hand: its grip (the left end of every held_* picture) at the hand on
+    // the side he aims, and it swings around that hand; a jab pushes the hand out, a shot kicks it back
     let rot = a;
-    let dist = 6;
+    let push = 0;
     const left = this.swingUntil - now;
     if (left > 0) {
       const k = 1 - left / SWING_MS;
       if (this.swingKind === 'sweep') rot = this.swingAngle - 0.9 + 1.8 * easeOut(k);
-      else if (this.swingKind === 'jab') dist = 6 + 7 * Math.sin(Math.PI * k);
-      else dist = 6 - 3 * (1 - k);
+      else if (this.swingKind === 'jab') push = 7 * Math.sin(Math.PI * k);
+      else push = -3 * (1 - k);
     }
+    const hand = handOf(p, Math.cos(a) < 0);
     const up = Math.abs(d.y) > Math.abs(d.x) * 1.2 && d.y < 0;
-    this.held.setTexture(`held_${w.id}`).setPosition(p.x + Math.cos(rot) * dist, p.y + Math.sin(rot) * dist + 1)
+    this.held.setTexture(`held_${w.id}`).setOrigin(GRIP[w.id] ?? 1.5 / this.held.frame.width, 0.5)
+      .setPosition(hand.x + Math.cos(a) * push, hand.y + Math.sin(a) * push)
       .setRotation(rot).setFlipY(Math.cos(rot) < 0).setDepth(up ? p.depth - 1 : p.depth + 1);   // behind him when aiming up
 
     const A = this.o.area;
