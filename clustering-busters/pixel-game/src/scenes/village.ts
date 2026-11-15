@@ -649,7 +649,7 @@ export class VillageScene extends Phaser.Scene {
   private renderGear() {
     const s = loadSave();
     const inv = s.inventory;
-    const { c, bg, x, y, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', 'player', 0x6fd13a, 240, 150);
+    const { c, bg, x, y, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', heroLook(this, inv.armor).down, 0x6fd13a, 240, 150);   // you, as you are dressed
     if (!inv.owned.length) c.add(this.add.text(x + 10, y + 34, 'Nothing yet: buy a card first.', { ...FONT, color: '#ffffff' }));
     const visible = 9;
     // scroll only when the pick leaves the visible rows: a mouse hover never moves the list under the mouse
