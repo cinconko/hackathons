@@ -10,7 +10,7 @@ import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
 import { loadSave, updateSave } from '../save';
 import { banner as showBanner, clearBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
-import { BOOK_H, BOOK_PAGE, crisp, priceTag, shopBook } from '../shopArt';
+import { BOOK_H, BOOK_PAGE, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 
 // The boss fight. Rules (the team's weapons chart, stages, drops, the fisherman, armor) come
 // from game/rules.ts; this scene moves sprites, reads input and draws.
@@ -35,6 +35,8 @@ type Body = Phaser.Physics.Arcade.Body;
 export interface PlayData { startMs?: number; stage?: number; openShop?: boolean; bossDead?: boolean; landing?: boolean; lose?: boolean }
 
 const FISHER_X = WIDTH / 2;
+const PLANK = 0x7a5530;     // the fisherman's dock (his shop): plank colour, for the patch under each ware
+const NET_SHADE = 0.25;     // how dark the net lies over the planks
 const FISHER_Y = PLAY.y + PLAY.height - 26;
 const WALL = 8;                                              // the west wall's thickness
 const DOOR = { x: PLAY.x + WALL / 2 + 2, y: PLAY.y + PLAY.height / 2 };
@@ -1001,7 +1003,7 @@ export class PlayScene extends Phaser.Scene {
     }
     // his net, spread over the front of the dock: a diamond mesh with a rope edge
     const net = { x: x + 10, y: y + 90, w: w - 20, h: 42 };
-    bg.fillStyle(0x000000, 0.25).fillRect(net.x, net.y, net.w, net.h);
+    bg.fillStyle(0x000000, NET_SHADE).fillRect(net.x, net.y, net.w, net.h);
     bg.lineStyle(1, 0xd8c8a0, 0.4);
     for (let k = -net.h; k < net.w; k += 8) {
       const x1 = net.x + Math.max(0, k);
@@ -1029,8 +1031,15 @@ export class PlayScene extends Phaser.Scene {
       const picked = i === this.shopSel;
       const { x: ix, y: iy } = spots[i];
       const ware = this.add.container(ix, iy);
-      ware.add(this.add.graphics().fillStyle(0x000000, 0.35).fillEllipse(0, 9, 22, 6));   // its shadow on the net
-      const ic = crisp(this.add.image(0, 0, `supply_${id}`), 28);
+      // the ware the merchant's way (src/shopArt.ts): outlined like painted art, laid on a patch of
+      // bare plank where the net is pushed aside, a soft shadow under it. Scaled by the art's own
+      // size (the outline adds 2 px, which must not tip it from 2x down to 1x).
+      const probe = crisp(this.add.image(0, 0, `supply_${id}`), 28);
+      const zoom = probe.scaleX;
+      probe.destroy();
+      const ic = this.add.image(0, 0, wareArt(this, `supply_${id}`)).setScale(zoom);
+      ware.add(clothPatch(this, PLANK, (ic.displayWidth >> 1) + 3, (ic.displayHeight >> 1) + 2, NET_SHADE));
+      ware.add(this.add.graphics().fillStyle(0x000000, 0.3).fillEllipse(0, ic.displayHeight / 2 - 1, ic.displayWidth * 0.8, 4));
       if (sold) ic.setAlpha(0.35);
       ware.add(ic);
       if (picked && !this.shopDeal) {
