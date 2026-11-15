@@ -204,6 +204,17 @@ export class BootScene extends Phaser.Scene {
       px(0xdddddd, 4, 6, 6, 3); px(0x2f6f5e, 3, 9, 8, 6); px(0x3a2a1a, 4, 15, 2, 3); px(0x3a2a1a, 8, 15, 2, 3);
       px(0x8a6a3a, 12, 1, 1, 13); px(0xcccccc, 13, 1, 1, 9, 0.7);
     });
+    // his supplies (the team's art replaces these: public/media/sprites/supply_<id>.png)
+    tex('supply_potion', 8, 10, () => { px(0x8a6a3a, 3, 0, 2, 2); px(0xcccccc, 3, 2, 2, 1); px(0xd83a3a, 1, 3, 6, 6); px(0xff8a8a, 2, 4, 1, 2); px(0x8a1a1a, 1, 9, 6, 1); });
+    tex('supply_bigPotion', 12, 13, () => {
+      px(0x8a6a3a, 5, 0, 2, 2); px(0xcccccc, 4, 2, 4, 2);
+      g.fillStyle(0xd83a3a).fillCircle(6, 8, 5); px(0xff8a8a, 3, 5, 2, 2); px(GOLD, 2, 8, 8, 1);
+    });
+    tex('supply_whetstone', 12, 7, () => { px(0x6a6a74, 0, 2, 12, 5); px(0x9a9aa8, 1, 2, 10, 2); px(0xdddddd, 2, 2, 4, 1); px(0x4a4a54, 0, 6, 12, 1); px(0x8a6a3a, 9, 0, 3, 2); });
+    tex('supply_boots', 12, 10, () => {
+      px(0x6b4a2b, 1, 0, 4, 7); px(0x6b4a2b, 1, 7, 6, 3); px(0x3a2a1a, 1, 9, 6, 1);
+      px(0x8a6a3a, 6, 1, 4, 6); px(0x8a6a3a, 6, 6, 6, 3); px(0x3a2a1a, 6, 9, 6, 1); px(0x9fe8ff, 10, 2, 2, 1); px(0x9fe8ff, 11, 4, 1, 1);   // a wing flick: speed
+    });
 
     // ---- treasury ----
     tex('chest', 14, 11, () => { px(0x5a3a1a, 0, 2, 14, 9); px(0x7a5230, 1, 3, 12, 7); px(0x5a3a1a, 0, 0, 14, 3); px(GOLD, 0, 3, 14, 1); px(GOLD, 6, 4, 2, 3); px(0x000000, 6, 5, 2, 1); });

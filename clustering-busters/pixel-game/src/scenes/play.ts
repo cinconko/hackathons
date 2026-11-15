@@ -9,7 +9,8 @@ import { handHud, hasWeapon } from '../hand';
 import { hideHandArt, showHandArt } from '../handArt';
 import { playMusic, sfx } from '../media';
 import { loadSave, updateSave } from '../save';
-import { banner as showBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
+import { banner as showBanner, clearBanner, fadeToScene, floatText as showFloat, FONT, walletHud } from '../ui';
+import { BOOK_H, BOOK_PAGE, crisp, priceTag, shopBook } from '../shopArt';
 
 // The boss fight. Rules (the team's weapons chart, stages, drops, the fisherman, armor) come
 // from game/rules.ts; this scene moves sprites, reads input and draws.
@@ -128,6 +129,12 @@ export class PlayScene extends Phaser.Scene {
   private sold = new Set<number>();
   private shop: Phaser.GameObjects.Container | null = null;
   private shopNote = '';
+  private shopSel = 0;            // the ware picked on his net (mouse over it, A/D)
+  private shopBookShown = -1;     // whose book is open: a new pick unfolds it
+  private shopDeal = false;       // the shop just opened: lay the wares out
+  private shopPop = -1;           // the ware just bought: pop it
+  private fightTweens: Phaser.Tweens.Tween[] = [];       // frozen while the shop is open
+  private bobber: Phaser.GameObjects.GameObject[] = [];   // his line and float: only while he is here
   private devOpenShop = false;
   private hitStopUntil = 0;   // real time (performance.now), not fight time
   private inHitStop = false;
@@ -184,6 +191,9 @@ export class PlayScene extends Phaser.Scene {
     this.sold = new Set();
     this.shop = null;
     this.shopNote = '';
+    this.shopSel = 0;
+    this.shopBookShown = -1;
+    this.bobber = [];
     this.devOpenShop = !!data.openShop;
     this.hitStopUntil = 0;
     this.inHitStop = false;
@@ -900,10 +910,10 @@ export class PlayScene extends Phaser.Scene {
         this.stock = R.rollStock(this.rng);
         this.sold = new Set();
         this.fisher.setVisible(true).setAlpha(0);
-        this.tweens.add({ targets: this.fisher, alpha: 1, duration: 300 });
+        this.tweens.add({ targets: [this.fisher, ...this.bobber], alpha: 1, duration: 300 });
         this.banner('THE FISHERMAN IS HERE', 'Go to the pond, press E');
       } else {
-        this.tweens.add({ targets: this.fisher, alpha: 0, duration: 300, onComplete: () => this.fisher.setVisible(false) });
+        this.tweens.add({ targets: [this.fisher, ...this.bobber], alpha: 0, duration: 300, onComplete: () => this.fisher.setVisible(false) });
       }
     }
     this.fisherPrompt.setVisible(this.nearFisher());
@@ -912,17 +922,28 @@ export class PlayScene extends Phaser.Scene {
 
   private openShop() {
     this.physics.pause();
-    this.tweens.pauseAll();
+    // freeze the fight's own tweens, one by one: pauseAll would stop the manager, and the shop's
+    // tweens (wares dropping in, the book opening) would never play
+    this.fightTweens = this.tweens.getTweens();
+    for (const t of this.fightTweens) t.pause();
     this.time.paused = true;
     this.shopNote = '';
+    this.shopSel = 0;
+    this.shopBookShown = -1;
+    this.shopDeal = true;
+    this.input.setDefaultCursor('default');   // the fight hides the cursor behind its crosshair
+    clearBanner(this);                        // "THE FISHERMAN IS HERE" would wait under the shop
     this.renderShop();
   }
 
   private closeShop() {
     this.shop?.destroy();
     this.shop = null;
+    this.input.setDefaultCursor('none');
     this.physics.resume();
-    this.tweens.resumeAll();
+    for (const t of this.tweens.getTweens()) if (!this.fightTweens.includes(t)) t.remove();   // the shop's, now gone
+    for (const t of this.fightTweens) t.resume();
+    this.fightTweens = [];
     this.time.paused = false;
   }
 
@@ -930,6 +951,10 @@ export class PlayScene extends Phaser.Scene {
     const k = this.keys;
     const JD = Phaser.Input.Keyboard.JustDown;
     (['ONE', 'TWO', 'THREE'] as const).forEach((name, i) => { if (JD(k[name])) this.buy(i); });
+    const n = this.stock.length;
+    if (n && (JD(k.A) || JD(k.LEFT))) { this.shopSel = (this.shopSel + n - 1) % n; this.renderShop(); }
+    if (n && (JD(k.D) || JD(k.RIGHT))) { this.shopSel = (this.shopSel + 1) % n; this.renderShop(); }
+    if (JD(k.ENTER) || JD(k.SPACE)) this.buy(this.shopSel);
     if (JD(k.E) || JD(k.ESC)) this.closeShop();
   }
 
@@ -943,6 +968,8 @@ export class PlayScene extends Phaser.Scene {
     this.wallet = paid;
     this.walletUi.update(this.wallet);
     this.sold.add(i);
+    this.shopSel = i;
+    this.shopPop = i;
     this.shopNote = `Bought: ${s.name}.`;
     sfx(this, 'buy');
     if (id === 'potion') this.hp = Math.min(this.kit.maxHp, this.hp + 30);
@@ -952,32 +979,117 @@ export class PlayScene extends Phaser.Scene {
     this.renderShop();
   }
 
+  /**
+   * The fisherman's dock: his catch of supplies lies on a net over the planks, each with a price tag
+   * on a string. The picked one (mouse over it, A/D) lifts and a book opens above it; a click, Enter
+   * or 1-3 buys. The same tags and book as the ring merchant's rug (src/shopArt.ts).
+   */
   private renderShop() {
     this.shop?.destroy();
-    const w = 228;
-    const h = 100;
+    const w = 240;
+    const h = 150;
     const x = (WIDTH - w) / 2;
-    const y = PLAY.y + 30;
+    const y = PLAY.y + (PLAY.height - h) / 2;
     const c = this.add.container(0, 0).setDepth(960);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.6).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);
-    bg.fillStyle(0x10202a).fillRect(x, y, w, h);
+    bg.fillStyle(0x000000, 0.85).fillRect(PLAY.x, PLAY.y, PLAY.width, PLAY.height);   // the fight fades back (its HUD must not read through)
+    // the dock: planks with seams and nails
+    for (let i = 0, py = y + 22; py < y + h - 14; i++, py += 8) {
+      bg.fillStyle(i % 2 ? 0x6b4a2b : 0x7a5530).fillRect(x, py, w, 8);
+      bg.fillStyle(0x4a3018).fillRect(x, py + 7, w, 1);
+      for (let nx = x + 10 + (i % 2) * 30; nx < x + w; nx += 60) bg.fillStyle(0x3a2a1a).fillRect(nx, py + 3, 1, 1);
+    }
+    // his net, spread over the front of the dock: a diamond mesh with a rope edge
+    const net = { x: x + 10, y: y + 90, w: w - 20, h: 42 };
+    bg.fillStyle(0x000000, 0.25).fillRect(net.x, net.y, net.w, net.h);
+    bg.lineStyle(1, 0xd8c8a0, 0.4);
+    for (let k = -net.h; k < net.w; k += 8) {
+      const x1 = net.x + Math.max(0, k);
+      const x2 = net.x + Math.min(net.w, k + net.h);
+      bg.lineBetween(x1, net.y + (x1 - net.x - k), x2, net.y + (x2 - net.x - k));                     // down to the right
+      bg.lineBetween(x1, net.y + net.h - (x1 - net.x - k), x2, net.y + net.h - (x2 - net.x - k));     // up to the right
+    }
+    bg.lineStyle(1, 0xc8a86a, 0.9).strokeRect(net.x, net.y, net.w, net.h);
+    // the title band and the keys band, dark so the words read; the frame in his blue
+    bg.fillStyle(0x10202a).fillRect(x, y, w, 22).fillRect(x, y + h - 14, w, 14);
     bg.fillStyle(0x2d6fa3).fillRect(x, y, w, 1).fillRect(x, y + h - 1, w, 1).fillRect(x, y, 1, h).fillRect(x + w - 1, y, 1, h);
     c.add(bg);
-    c.add(this.add.image(x + 14, y + 16, 'fisher'));
-    c.add(this.add.text(x + 28, y + 6, "THE FISHERMAN'S CATCH", { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 28, y + 16, `"Supplies. Rings only." You have ${R.walletValue(this.wallet)}`, { ...FONT, color: '#9fd3ff' }));
+    c.add(this.add.image(x + 11, y + 11, 'fisher'));
+    c.add(this.add.text(x + 22, y + 4, "THE FISHERMAN'S CATCH", { ...FONT, color: '#ffcc44' }));
+    // his line, or what just happened ("Bought: Boots.", "Not enough rings")
+    c.add(this.add.text(x + 22, y + 13, this.shopNote || '"Fresh from the pond. Rings only."', { ...FONT, color: this.shopNote ? '#ffcc44' : '#9fd3ff' }));
+    const money = R.walletValue(this.wallet);
+    c.add(this.add.text(x + w - 6, y + 4, `${money} rings`, { ...FONT, color: '#ffcc44' }).setOrigin(1, 0));
+    const n = this.stock.length;
+    const slot = 70;
+    const spots = this.stock.map((_, i) => ({ x: Math.round(x + w / 2 + (i - (n - 1) / 2) * slot), y: y + 102 + (i % 2 ? 3 : -3) }));
     this.stock.forEach((id, i) => {
-      const s = R.SUPPLIES[id];
+      const sup = R.SUPPLIES[id];
       const sold = this.sold.has(i);
-      const color = sold ? '#555555' : R.walletValue(this.wallet) >= s.price ? '#ffffff' : '#ff8888';
-      const line = `${i + 1}  ${s.name.padEnd(12)} ${sold ? 'SOLD' : `${s.price}r`.padStart(4)}  ${s.desc}`;
-      c.add(this.add.text(x + 8, y + 34 + i * 13, line, { ...FONT, color }));
-      if (this.textures.exists(`supply_${id}`)) c.add(this.add.image(x + w - 12, y + 38 + i * 13, `supply_${id}`).setAlpha(sold ? 0.3 : 1));
+      const picked = i === this.shopSel;
+      const { x: ix, y: iy } = spots[i];
+      const ware = this.add.container(ix, iy);
+      ware.add(this.add.graphics().fillStyle(0x000000, 0.35).fillEllipse(0, 9, 22, 6));   // its shadow on the net
+      const ic = crisp(this.add.image(0, 0, `supply_${id}`), 28);
+      if (sold) ic.setAlpha(0.35);
+      ware.add(ic);
+      if (picked && !this.shopDeal) {
+        ic.y = -3;
+        this.tweens.add({ targets: ic, y: -5, yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
+        ware.add(this.add.image(10, -12, 'sparkle'));
+      }
+      ware.add(priceTag(this, 21, { price: sup.price, canPay: money >= sup.price, sold, picked, tilt: i % 2 ? 0.06 : -0.06 }));
+      ware.add(this.add.text(-24, 16, `${i + 1}`, { ...FONT, color: '#ffcc44' }));   // its key, by the tag
+      c.add(ware);
+      c.add(this.shopClick(this.add.zone(ix, iy + 6, 48, 48), () => this.buy(i), () => this.shopPick(i)));
+      if (this.shopDeal) {           // tipped out of his bucket onto the net
+        ware.setY(iy - 36).setAlpha(0);
+        this.tweens.add({ targets: ware, y: iy, alpha: 1, duration: 420, delay: i * 110, ease: 'Bounce.easeOut' });
+      }
+      if (i === this.shopPop) {
+        this.tweens.add({ targets: ware, scale: 1.18, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
+        for (let k = 0; k < 6; k++) {
+          const sp = this.add.image(ix + Phaser.Math.Between(-14, 14), iy + Phaser.Math.Between(-14, 14), 'sparkle');
+          c.add(sp);
+          this.tweens.add({ targets: sp, y: sp.y - 10, alpha: 0, duration: 600, delay: k * 60 });
+        }
+      }
     });
-    if (this.shopNote) c.add(this.add.text(x + 8, y + 74, this.shopNote, { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 8, y + h - 12, '1-3: buy    E / Esc: back to the fight', { ...FONT, color: '#888888' }));
+    const pick = this.stock[this.shopSel];
+    if (pick) {
+      const sup = R.SUPPLIES[pick];
+      const lasting = pick === 'whetstone' || pick === 'boots';
+      const spine = Phaser.Math.Clamp(spots[this.shopSel].x, x + BOOK_PAGE + 8, x + w - BOOK_PAGE - 8);
+      c.add(shopBook(this, spine, y + 24 + BOOK_H / 2, {
+        name: sup.name, kind: lasting ? 'GEAR' : 'POTION', kindColor: lasting ? '#2d6fa3' : '#b02020', pic: `supply_${pick}`,
+        stats: `${sup.desc}\n\n${lasting ? 'for the rest of this fight' : 'drink it at once'}`,
+      }, this.shopBookShown !== this.shopSel || this.shopDeal, this.shopDeal ? n * 110 + 300 : 0));
+      this.shopBookShown = this.shopSel;
+    }
+    this.shopDeal = false;
+    this.shopPop = -1;
+    const back = this.add.text(x + 6, y + h - 11, 'Click or 1-3: buy   E: back', { ...FONT, color: '#888888' });
+    c.add(this.shopClick(back, () => this.closeShop()));
     this.shop = c;
+  }
+
+  /** Mouse over ware `i`: it becomes the pick (its book opens). */
+  private shopPick(i: number) {
+    if (this.shopSel === i) return;
+    this.shopSel = i;
+    this.renderShop();
+  }
+
+  /**
+   * A hand cursor over `obj`; hover and click run after this frame's input pass (they redraw the
+   * shop, which destroys `obj`). The fight's clock is paused while shopping, so not time.delayedCall.
+   */
+  private shopClick<T extends Phaser.GameObjects.GameObject>(obj: T, click: () => void, hover?: () => void): T {
+    const later = (fn: () => void) => this.events.once(Phaser.Scenes.Events.POST_UPDATE, () => { if (this.shop) fn(); });
+    obj.setInteractive({ useHandCursor: true });
+    obj.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.leftButtonDown()) later(click); });
+    if (hover) obj.on('pointerover', () => later(hover));
+    return obj;
   }
 
   // ---- drawing: telegraphs, effects, HUD ---------------------------------------------
@@ -1123,13 +1235,59 @@ export class PlayScene extends Phaser.Scene {
     g.fillStyle(0x55555f).fillRect(PLAY.x, PLAY.y, WALL, PLAY.height);
     for (let y = 0; y < PLAY.height; y += 6) g.fillStyle(0x45454f).fillRect(PLAY.x, PLAY.y + y, WALL, 1);
     g.fillStyle(0x6a6a74).fillRect(PLAY.x + WALL - 1, PLAY.y, 1, PLAY.height);
-    // the fisherman's pond, bottom centre
-    const pw = 52;
-    const px = FISHER_X - pw / 2;
-    const py = PLAY.y + PLAY.height - 16;
-    this.add.tileSprite(px, py, pw, 12, 'water').setOrigin(0).setDepth(0).setTilePosition(0, 16).setTint(0xb8c8d8);  // a lily pad in view, a bit darker for the lair
-    g.fillStyle(0x2d6fa3).fillRect(px, py - 1, pw, 1);                                               // the bank
-    g.fillStyle(0x6b4a2b).fillRect(FISHER_X - 6, py - 2, 12, 3);
+    this.drawPond();
+  }
+
+  /**
+   * The fisherman's pond, bottom centre: a round pond in a muddy bank, stones and reeds around it,
+   * the team's water drifting slowly with its lily pads, rings spreading on it, his little dock.
+   * While he is here his line runs from the rod to a bobbing float.
+   */
+  private drawPond() {
+    const cx = FISHER_X;
+    const cy = PLAY.y + PLAY.height - 6;   // its far half hides under the frame
+    const pw = 56;
+    const ph = 22;
+    const g = this.add.graphics().setDepth(0);
+    g.fillStyle(0x1a2418).fillEllipse(cx, cy, pw + 8, ph + 6);       // the muddy bank
+    g.fillStyle(0x2a3a2a).fillEllipse(cx, cy, pw + 4, ph + 3);
+    const shape = () => this.make.graphics({ x: 0, y: 0 }, false).fillStyle(0xffffff).fillEllipse(cx, cy, pw, ph).createGeometryMask();
+    const water = this.add.tileSprite(cx - pw / 2, cy - ph / 2, pw, ph, 'water').setOrigin(0).setDepth(0).setTilePosition(0, 10);
+    water.setMask(shape());
+    this.tweens.add({ targets: water, tilePositionX: 37, duration: 9000, repeat: -1 });   // the water drifts (one tile, then again)
+    const shade = this.add.graphics().setDepth(0);                                        // the lair is dark: so is its pond
+    shade.fillStyle(0x0a1a2a, 0.35).fillEllipse(cx, cy, pw, ph);
+    shade.lineStyle(1, 0x9fd3ff, 0.35).strokeEllipse(cx, cy, pw - 2, ph - 2);            // light on the water's edge
+    // stones on the bank, reeds at both ends
+    for (const [dx, dy, sz] of [[-26, -6, 3], [-19, -10, 2], [21, -9, 3], [27, -4, 2], [-10, -12, 2]] as const) {
+      g.fillStyle(0x5a5a64).fillRect(cx + dx, cy + dy, sz + 1, sz);
+      g.fillStyle(0x7a7a84).fillRect(cx + dx, cy + dy, sz, 1);
+    }
+    for (const [dx, hgt] of [[-31, 9], [-29, 12], [-33, 7], [23, 10], [25, 13]] as const) {
+      g.fillStyle(0x4a7a3a).fillRect(cx + dx, cy - 4 - hgt, 1, hgt);
+      if (hgt > 9) g.fillStyle(0x6b4a2b).fillRect(cx + dx, cy - 4 - hgt, 1, 3);         // a cattail
+    }
+    // rings spreading on the water, now and then
+    for (const [dx, dy, delay] of [[-14, 2, 0], [10, 4, 1300], [-2, -2, 2600]] as const) {
+      const r = this.add.ellipse(cx + dx, cy + dy, 6, 2).setStrokeStyle(1, 0xcfe8ff, 0.7).setFillStyle(0, 0).setDepth(0);
+      r.setMask(shape());
+      this.tweens.add({ targets: r, scaleX: 3, scaleY: 3, alpha: 0, duration: 1800, delay, repeat: -1, repeatDelay: 2200 });
+    }
+    // his dock: three planks out over the water, where he stands
+    const d = this.add.graphics().setDepth(1);
+    d.fillStyle(0x3a2a1a).fillRect(cx - 9, cy - 14, 18, 8);
+    for (let i = 0; i < 3; i++) d.fillStyle(i % 2 ? 0x6b4a2b : 0x7a5530).fillRect(cx - 8 + i * 6, cy - 14, 5, 7);
+    d.fillStyle(0x2a1a0a).fillRect(cx - 8, cy - 7, 2, 3).fillRect(cx + 6, cy - 7, 2, 3);   // its posts
+    // his line and float (they fade in and out with him)
+    const tip = { x: FISHER_X + 6, y: FISHER_Y - 8 };
+    const float = { x: cx + 16, y: cy - 2 };
+    const mid = { x: (tip.x + float.x) / 2 + 2, y: tip.y + 3 };
+    const line = this.add.graphics().setDepth(6).setAlpha(0);
+    line.lineStyle(1, 0xdddddd, 0.5).lineBetween(tip.x, tip.y, mid.x, mid.y).lineBetween(mid.x, mid.y, float.x, float.y);
+    const bob = this.add.graphics({ x: float.x, y: float.y }).setDepth(6).setAlpha(0);
+    bob.fillStyle(0xd83a3a).fillRect(-1, -2, 2, 2).fillStyle(0xffffff).fillRect(-1, 0, 2, 1);
+    this.tweens.add({ targets: bob, y: float.y + 1, yoyo: true, repeat: -1, duration: 700, ease: 'Sine.easeInOut' });
+    this.bobber = [line, bob];
   }
 
   private banner(title: string, sub: string) { showBanner(this, title, sub); }

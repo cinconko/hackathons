@@ -27,6 +27,12 @@ export function banner(scene: Phaser.Scene, title: string, sub: string, y = PLAY
   scene.tweens.add({ targets: [t, s], alpha: 0, delay: 1800, duration: 500, onComplete: () => { t.destroy(); s.destroy(); } });
 }
 
+/** Take the banner off the screen at once (a window opened over it). */
+export function clearBanner(scene: Phaser.Scene) {
+  shownBanners.get(scene)?.forEach((o) => { scene.tweens.killTweensOf(o); o.destroy(); });
+  shownBanners.delete(scene);
+}
+
 export function floatText(scene: Phaser.Scene, x: number, y: number, msg: string, color: string) {
   const t = scene.add.text(x, y, msg, { ...FONT, color }).setOrigin(0.5).setDepth(955);
   scene.tweens.add({ targets: t, y: y - 10, alpha: 0, duration: 800, onComplete: () => t.destroy() });

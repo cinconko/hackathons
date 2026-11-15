@@ -14,6 +14,7 @@ import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs'
 import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, hex, TITLE_FONT, walletHud } from '../ui';
+import { BOOK_H, BOOK_PAGE, crisp, priceTag, shopBook } from '../shopArt';
 import { Tutorial } from '../tutorial';
 
 // The hub between fights:
@@ -115,8 +116,6 @@ const PARTS: readonly Part[] = [
   { lvl: 6, key: 'flag', x: 304, y: 127, depth: 8 },
 ];
 
-const BOOK_PAGE = 70;   // the shop's book: width of one page (game pixels)
-const BOOK_H = 64;      // ...and its height
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 /** Each merchant's shop window: his title, what he says, the frame in the colour of what he sells. */
 const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string; color: number }>> = {
@@ -229,7 +228,7 @@ export class VillageScene extends Phaser.Scene {
     this.solids = solids;
 
     // the merchant, the bar and the stall change with the stages (PARTS); the signs stay
-    this.add.text(STALL.x, STALL.y - 22, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
+    this.add.text(STALL.x, STALL.y - 20, 'RING MERCHANT', { ...FONT, color: '#ffcc44' }).setOrigin(0.5).setDepth(8);
     this.add.text(BAR.x, BAR.y - 10, 'TAVERN', { ...FONT, color: '#ffd27a' }).setOrigin(0.5).setDepth(8);   // clear of the level HUD
     this.add.image(CATAPULT.x - 2, CATAPULT.y + 6, 'catapult_base').setDepth(6);
     this.arm = this.add.image(CATAPULT.x, CATAPULT.y, 'catapult_arm').setOrigin(0, 0.5).setRotation(ARM_REST).setDepth(7);
@@ -342,6 +341,7 @@ export class VillageScene extends Phaser.Scene {
   private closePanel() {
     this.panel?.destroy();
     this.panel = null;
+    this.showLevelHud(true);
     this.input.setDefaultCursor('default');   // a hand cursor left over from a card under the mouse
     this.prompt.setVisible(false);
     if (this.revealHand) this.time.delayedCall(200, () => this.doRevealHand());
@@ -460,6 +460,11 @@ export class VillageScene extends Phaser.Scene {
     this.render();
   }
 
+  private showLevelHud(on: boolean) {
+    const h = this.levelHud;
+    for (const o of [h.g, h.name, h.next, h.luck]) o.setVisible(on);
+  }
+
   /** One frame + title for every panel. Returns [container, background graphics, x, y, w, h]. */
   private frame(title: string, sub: string, npc: string, border: number, w: number, h: number) {
     this.panel?.destroy();
@@ -481,6 +486,7 @@ export class VillageScene extends Phaser.Scene {
   }
 
   private render() {
+    this.showLevelHud(false);   // it would peek out at a window's top-right corner
     if (this.mode === 'cards') this.renderCards();
     else if (this.mode === 'gear') this.renderGear();
     else this.renderBar();
@@ -527,7 +533,6 @@ export class VillageScene extends Phaser.Scene {
     const x0 = x + w / 2 - (slot * (offers.length - 1)) / 2;
     const spots = offers.map((_, i) => ({ x: Math.round(x0 + i * slot), y: y + 110 + (i % 2 ? 3 : -3) }));   // along the front of the rug, a bit strewn; the book opens above
     offers.forEach((o, i) => {
-      const it = item(o.id);
       const sold = s.inventory.owned.includes(o.id);
       const picked = i === this.sel;
       const { x: ix, y: iy } = spots[i];
@@ -539,8 +544,7 @@ export class VillageScene extends Phaser.Scene {
         this.tweens.add({ targets: under, alpha: 0.4, yoyo: true, repeat: -1, duration: 600 });
       } else under.fillStyle(0x000000, 0.35).fillEllipse(0, 12, 26, 7);
       ware.add(under);
-      const ic = this.add.image(0, 0, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
-      ic.setScale(Math.max(1, Math.min(2, Math.floor(40 / Math.max(ic.width, ic.height)))));   // whole steps: team art stays crisp
+      const ic = crisp(this.add.image(0, 0, this.wareKey(o.id)), 40);
       if (sold) ic.setAlpha(0.35);
       ware.add(ic);
       if (picked && !this.dealCards) {   // the picked one floats a little
@@ -548,28 +552,8 @@ export class VillageScene extends Phaser.Scene {
         this.tweens.add({ targets: ic, y: -5, yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
         ware.add(this.add.image(10, -12, 'sparkle'));
       }
-      // the price tag on its string: cream paper, dark ink (red when you can't pay it)
-      const tagY = 23;
-      const tag = this.add.container(0, tagY).setRotation(i % 2 ? 0.06 : -0.06);
-      const label = sold
-        ? this.add.text(0, 0, 'SOLD', { ...FONT, color: '#2f7a1a' }).setOrigin(0.5)
-        : this.add.text(-4, 0, `${o.price}`, { ...FONT, color: money >= o.price ? '#3a2410' : '#b02020' }).setOrigin(0.5);
-      const tw = label.width + (sold ? 8 : 16);
-      const paper = this.add.graphics();
-      paper.fillStyle(0x5a3a1a).fillRect(-tw / 2 - 1, -7, tw + 2, 14);
-      paper.fillStyle(picked ? 0xfff4d0 : 0xe8d8b0).fillRect(-tw / 2, -6, tw, 12);
-      paper.fillStyle(0x5a3a1a).fillRect(-1, -5, 2, 2);   // the hole for the string
-      tag.add(paper);
-      tag.add(label);
-      if (!sold) tag.add(this.add.image(label.x + label.width / 2 + 5, 0, 'ring_classic'));
-      if (o.special && !sold) {   // the old price, crossed out, and the discount, under the tag
-        const old = this.add.text(-9, 10, `${o.full}`, { ...FONT, color: '#c8c8d0' }).setOrigin(0.5, 0);
-        tag.add(old);
-        tag.add(this.add.graphics().fillStyle(0xd83a3a).fillRect(old.x - old.width / 2 - 1, 14, old.width + 2, 1).fillRect(5, 10, 22, 9));
-        tag.add(this.add.text(16, 10, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
-      }
-      ware.add(this.add.graphics().fillStyle(0xd8c8a0).fillRect(0, 10, 1, tagY - 15));   // the string
-      ware.add(tag);
+      // the price tag on its string (src/shopArt.ts)
+      ware.add(priceTag(this, 23, { price: o.price, canPay: money >= o.price, sold, picked, tilt: i % 2 ? 0.06 : -0.06, deal: o.special ? { full: o.full, discount: o.discount } : undefined }));
       c.add(ware);
       // the mouse: hover picks it (and opens the book), a click buys it
       c.add(this.clickable(this.add.zone(ix, iy + 8, Math.min(slot, 44), 52), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
@@ -600,48 +584,22 @@ export class VillageScene extends Phaser.Scene {
     this.keysLine(c, x + 8, y + h - 11, [['Click or A/D+Enter: buy'], ['Q your gear', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
-  /**
-   * An open book, its spine at (sx, cy): the name and kind on the left page, the stats and what it
-   * does on the right. `open`: the pages unfold from the spine (a new pick), after `delay` ms.
-   */
+  /** The picked ware's book (src/shopArt.ts): name, kind and picture; the stats on the right page. */
   private book(sx: number, cy: number, o: ReturnType<VillageScene['offers']>[number], open: boolean, delay: number) {
     const it = item(o.id);
-    const PW = BOOK_PAGE;
-    const PH = BOOK_H;
-    const ink = '#3a2410';
-    const b = this.add.container(sx, cy);
-    const cover = this.add.graphics();
-    cover.fillStyle(0x000000, 0.4).fillRect(-PW - 3, -PH / 2 + 3, PW * 2 + 8, PH + 4);   // its shadow on the rug
-    cover.fillStyle(0x6b2a1a).fillRect(-PW - 4, -PH / 2 - 2, PW * 2 + 8, PH + 4);         // the leather cover
-    cover.fillStyle(0x4a1a10).fillRect(-1, -PH / 2 - 2, 2, PH + 4);                        // the spine
-    b.add(cover);
-    const page = (side: -1 | 1) => {
-      const pg = this.add.container(0, 0);
-      const g = this.add.graphics();
-      g.fillStyle(0xf2e6c4).fillRect(side < 0 ? -PW : 1, -PH / 2, PW - 1, PH);
-      g.fillStyle(0xd8c89c).fillRect(side < 0 ? -2 : 1, -PH / 2, 1, PH);                    // the fold's shade
-      pg.add(g);
-      return pg;
-    };
-    const left = page(-1);
-    const right = page(1);
-    const col = o.special ? '#a0700a' : hex(KIND_COLORS[it.kind]);
-    const name = this.add.text(-PW / 2, -PH / 2 + 4, it.name, { ...FONT, color: ink, align: 'center', wordWrap: { width: PW - 8 } }).setOrigin(0.5, 0);
-    left.add(name);
-    left.add(this.add.text(-PW / 2, name.y + name.height + 3, o.special ? 'BEST DEAL' : KIND_NAMES[it.kind], { ...FONT, color: col }).setOrigin(0.5, 0));
-    const pic = this.add.image(-PW / 2, PH / 2 - 15, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
-    pic.setScale(Math.max(1, Math.min(2, Math.floor(30 / Math.max(pic.width, pic.height)))));
-    left.add(pic);
-    right.add(this.add.text(5, -PH / 2 + 4, this.bookStats(it), { ...FONT, color: ink, wordWrap: { width: PW - 8 }, lineSpacing: 1 }));
-    b.add([left, right]);
-    if (open) {
-      left.setScale(0, 1);
-      right.setScale(0, 1);
-      b.setAlpha(0);
-      this.tweens.add({ targets: b, alpha: 1, duration: 120, delay });
-      this.tweens.add({ targets: [left, right], scaleX: 1, duration: 260, delay: delay + 60, ease: 'Back.easeOut' });
-    }
-    return b;
+    return shopBook(this, sx, cy, {
+      name: it.name,
+      kind: o.special ? 'BEST DEAL' : KIND_NAMES[it.kind],
+      kindColor: o.special ? '#a0700a' : hex(KIND_COLORS[it.kind]),
+      pic: this.wareKey(o.id),
+      stats: this.bookStats(it),
+    }, open, delay);
+  }
+
+  /** The picture of a ware: the held weapon, or the team's card art, or its icon. */
+  private wareKey(id: CatalogId): string {
+    const it = item(id);
+    return it.kind === 'melee' || it.kind === 'range' ? `held_${id}` : this.textures.exists(`card_${id}`) ? `card_${id}` : `icon_${id}`;
   }
 
   /** The right page: the numbers and what it does. */
@@ -1016,7 +974,7 @@ export class VillageScene extends Phaser.Scene {
     const y = PLAY.y + PLAY.height - h - 4;
     const box = this.add.container(0, 0).setDepth(965);
     const bg = this.add.graphics();
-    bg.fillStyle(0x000000, 0.85).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);
+    bg.fillStyle(0x000000, 0.96).fillRect(x, y, w, h).fillStyle(0xffcc44).fillRect(x, y, w, 1);   // the signs behind must not show through
     box.add(bg);
     box.add(this.add.image(x + 14, y + h / 2, sprite).setScale(2));
     box.add(this.add.text(x + 30, y + 4, name, { ...FONT, color: '#ffcc44' }));
