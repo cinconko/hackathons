@@ -7,6 +7,7 @@ import { BootScene } from './scenes/boot';
 import { MediaScene } from './scenes/media';
 import { PreloadScene } from './scenes/preload';
 import { IntroScene } from './scenes/intro';
+import { OutroScene } from './scenes/outro';
 import { MenuScene } from './scenes/menu';
 import { PlayScene } from './scenes/play';
 import { ResultScene } from './scenes/result';
@@ -30,7 +31,7 @@ const game = new Phaser.Game({
   // 30 fps machine, so the whole game (movement, bullets, cooldowns, timers) ran at half speed.
   // min 20 fps = one frame never counts for more than 50 ms (no tunnelling through walls).
   fps: { smoothStep: false, min: 20 },
-  scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, MediaScene],
+  scene: [PreloadScene, BootScene, MenuScene, IntroScene, VillageScene, PlayScene, TreasuryScene, ResultScene, OutroScene, MediaScene],
 });
 
 // Largest whole-number zoom that fits the window. Every game pixel becomes an exact

@@ -7,7 +7,7 @@ import { loadSave, updateSave } from '../save';
 // A file named <key>.png replaces the placeholder with the same key: no code change needed.
 //
 // Dev hooks (URL parameters), to jump to one moment without playing up to it:
-//   ?scene=intro | village | treasury | menu | media   (media = the art and sound checklist)
+//   ?scene=intro | outro | village | treasury | menu | media   (outro = the ending; media = the art and sound checklist)
 //   ?play            start the fight right away (no landing)
 //     &t=30500       fight clock in ms (30500 = the fisherman is there)
 //     &stage=3       start the boss in stage 2 or 3
@@ -517,7 +517,7 @@ export class BootScene extends Phaser.Scene {
     const scene = q.get('scene');
     if (q.has('play')) {
       this.scene.start('play', { startMs: Number(q.get('t') ?? 0), stage: Number(q.get('stage') ?? 1), openShop: q.has('shop'), bossDead: q.has('dead'), lose: q.has('lose'), landing: false });
-    } else if (scene && ['intro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
+    } else if (scene && ['intro', 'outro', 'village', 'treasury', 'menu', 'media'].includes(scene)) {
       this.scene.start(scene, scene === 'treasury' ? { found: [], wallet: loadSave().wallet, timeMs: 60_000 } : { openShop: q.has('merchant'), openBar: q.has('bar'), inYard: q.has('yard'), tutorial: q.has('tutorial') });
     } else {
       this.scene.start('menu');
