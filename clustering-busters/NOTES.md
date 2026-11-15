@@ -31,6 +31,7 @@ The GitHub integration builds every push from the repo root and fails (the app l
 
 - **Media**: `/media/sprites|sheets|fonts|audio` are cached immutable for a year. Reference media only through the manifest (URLs carry `?v=<content hash>`), never by a plain path. A file `public/media/sprites/<key>.png` replaces the code-drawn placeholder with that key.
 - **`index.html`**: keep the opening tag exactly `<head>`; the Vite plugin injects the media manifest right after it and starts sprite downloads early.
+- **Fonts in `index.html`**: write `@font-face` sources exactly as `url('./media/fonts/<name>.ttf')` (single quotes, `.ttf`); only that form gets its `?v=` hash, and an unhashed `/media/fonts` URL would stay cached for a year after a change.
 - **Phaser** is aliased to `phaser/dist/phaser-arcade-physics.min.js` (no Matter.js). The preload loader uses `imageLoadType: 'HTMLImageElement'`. `tools/import-art.sh` writes losslessly compressed PNGs.
 - **Pure modules** (`src/game/*`, `ringArt.ts`, `heroFrames.ts`, `fireFrames.ts`) have no Phaser and are tested with `node --test`. Imports between them keep the `.ts` extension (Node runs them directly; `tsconfig` allows it).
 - **`api/`** imports shared code with a **`.js`** extension (`'../src/game/leaderboard.js'`). A `.ts` path builds but crashes on Vercel with `ERR_MODULE_NOT_FOUND`.
