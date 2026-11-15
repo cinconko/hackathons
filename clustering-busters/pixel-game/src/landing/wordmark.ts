@@ -27,7 +27,7 @@ interface Tile {
   t: number;                       // seconds in the current state
 }
 
-const C = { gold: '#ffcc44', goldDark: '#b8862a', ink: '#1a1424', night: '#1d1729', edge: '#3a2f52', hi: '#fff3c4' };
+const C = { gold: '#ffcc44', goldDark: '#ffcc44', ink: '#111111', night: '#111111', edge: '#3a3a3a', hi: '#fff3c4' };   // RING: gold, black shadow; FALL: black, gold shadow
 
 export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null, heroImg: HTMLImageElement | null, still: boolean) {
   const ctx = canvas.getContext('2d')!;
