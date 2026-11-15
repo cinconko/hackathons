@@ -201,7 +201,7 @@ export abstract class CutsceneScene extends Phaser.Scene {
   }
 
   private advance() {
-    if (this.busy || this.ending) return;
+    if (this.busy || this.ending || this.shot < 0) return;   // no shot on screen yet (or any more)
     if (this.typing) { this.typing.remove(); this.typing = null; this.caption.setText(this.fullText); return; }
     if (this.line + 1 < this.linesOf(this.shot).length) { this.line++; this.say(); return; }
     this.next();
