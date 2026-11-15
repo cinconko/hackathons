@@ -7,8 +7,9 @@ import { updateSave } from '../save';
 import { fadeToScene, FONT, hex, TITLE_FONT } from '../ui';
 
 // After the treasury: what you found this run. The wallet arrives already counted (the arena
-// and the treasury keep it up to date); this screen saves it. Continue -> back to the village
-// (after your first win: the ending cutscene first).
+// and the treasury keep it up to date); this screen saves it. Continue -> back to the village.
+// After your first win it only saves and goes straight to the ending, whose THE END card shows
+// the time and rings (one end screen, not two).
 // (Losing does not come here: Mossback bounces you straight home.)
 export class ResultScene extends Phaser.Scene {
   constructor() { super('result'); }
@@ -26,6 +27,11 @@ export class ResultScene extends Phaser.Scene {
         bestTimeMs: newBest ? data.timeMs : s.bestTimeMs,
       };
     });
+    // the first recovered treasury: no separate results screen, the ending's THE END card shows them
+    if (data.won && save.wins === 1) {
+      this.scene.start('outro', { timeMs: data.timeMs, newBest, found: data.found, worth: walletValue(save.wallet) });
+      return;
+    }
 
     this.add.text(WIDTH / 2, 36, data.won ? 'TREASURY RECOVERED' : 'DEFEATED', { fontFamily: TITLE_FONT, fontSize: '16px', color: data.won ? '#ffcc44' : '#e03a4a' }).setOrigin(0.5);
     this.add.text(WIDTH / 2, 54, data.won ? `Time ${formatTime(data.timeMs)}${newBest ? '   new best!' : ''}` : 'The catapult is waiting. Try again.', { ...FONT, color: '#cccccc' }).setOrigin(0.5);
@@ -42,8 +48,7 @@ export class ResultScene extends Phaser.Scene {
     drawFrame(this);
     this.cameras.main.fadeIn(500);
     playMusic(this, 'victory');
-    // your first recovered treasury ends the story: the ending cutscene, then the village (the merchant deals new cards)
-    const back = () => (data.won && save.wins === 1 ? fadeToScene(this, 'outro', { timeMs: data.timeMs }) : fadeToScene(this, 'village', { fromRun: true }));
+    const back = () => fadeToScene(this, 'village', { fromRun: true });   // the merchant deals new cards
     this.time.delayedCall(500, () => {   // a short pause so a held attack key does not skip this screen
       this.input.keyboard?.once('keydown-ENTER', back);
       this.input.once('pointerdown', back);
