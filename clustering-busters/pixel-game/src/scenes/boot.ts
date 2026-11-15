@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
 import { makeVillageArt } from '../villageArt';
+import { fireFrame, FLICKER, type FireFrame } from '../fireFrames';
+
+/** The flicker's frames in texture order: campfire_<kind>_0 is the drawing as is. */
+const FIRE_FRAMES: readonly FireFrame[] = ['still', 'left', 'right', 'low'];
 import { CATALOG, RARITY_ORDER, STAGES, type ArmorId, type CatalogId } from '../game/rules';
 import { mediaStatus, ROBES } from '../media';
 import { paintRing, RING_LOOKS, RING_SIZE } from '../ringArt';
@@ -466,8 +470,12 @@ export class BootScene extends Phaser.Scene {
       if (this.anims.exists(key)) return;
       this.anims.create({ key, frames: frames.map(([k, duration]) => ({ key: k, duration })), repeat: -1 });
     };
-    anim('campfire_wood', [['campfire_wood_0', 130], ['campfire_wood_1', 110], ['campfire_wood_2', 120]]);
-    anim('campfire_stone', [['campfire_stone_0', 130], ['campfire_stone_1', 110], ['campfire_stone_2', 120]]);
+    // the campfire's flicker (src/fireFrames.ts); without the team's art, the three drawn frames above
+    for (const kind of ['wood', 'stone']) {
+      const key = (f: FireFrame) => `campfire_${kind}_${FIRE_FRAMES.indexOf(f)}`;
+      const team = this.textures.exists(`campfire_${kind}_3`);
+      anim(`campfire_${kind}`, team ? FLICKER.map(([f, ms]) => [key(f), ms] as [string, number]) : [[`campfire_${kind}_0`, 130], [`campfire_${kind}_1`, 110], [`campfire_${kind}_2`, 120]]);
+    }
     anim('fountain', [['fountain_0', 260], ['fountain_1', 260]]);
     anim('beerguy', [['beerguy_0', 1100], ['beerguy_1', 700]]);
     anim('barkeeper', [['barkeeper_0', 1300], ['barkeeper_1', 600]]);
@@ -614,26 +622,15 @@ export class BootScene extends Phaser.Scene {
 
   /**
    * The team's campfires (sprites/campfire_wood.png and campfire_stone.png, from art/Campfire/) ->
-   * three flicker frames each: as drawn, the flame 1 px taller, the flame brighter.
+   * four flicker frames each (src/fireFrames.ts): as drawn, the flame's tip leaning left, leaning
+   * right, dipping. Only the flame moves; the logs and stones stay as drawn.
    */
   private campfireArt() {
     for (const kind of ['wood', 'stone']) {
       const src = `campfire_${kind}`;
       if (!this.textures.exists(src)) continue;
       const { w, h, data } = this.pixels(src);
-      const isFlame = (d: Uint8ClampedArray, i: number) => d[i + 3] > 0 && d[i] > 180 && d[i] - d[i + 2] > 70;
-      const taller = new ImageData(new Uint8ClampedArray(data.data), w, h);
-      for (let y = 1; y < h; y++) for (let x = 0; x < w; x++) {
-        const i = (y * w + x) * 4;
-        if (isFlame(data.data, i)) taller.data.set(data.data.subarray(i, i + 4), i - w * 4);
-      }
-      const bright = new ImageData(new Uint8ClampedArray(data.data), w, h);
-      for (let i = 0; i < bright.data.length; i += 4) {
-        if (isFlame(data.data, i)) { bright.data[i + 1] = Math.min(255, bright.data[i + 1] + 45); bright.data[i + 2] = Math.min(255, bright.data[i + 2] + 20); }
-      }
-      this.addPixels(`${src}_0`, data);
-      this.addPixels(`${src}_1`, taller);
-      this.addPixels(`${src}_2`, bright);
+      FIRE_FRAMES.forEach((f, i) => this.addPixels(`${src}_${i}`, new ImageData(fireFrame(data.data, w, h, f), w, h)));
     }
   }
 }
