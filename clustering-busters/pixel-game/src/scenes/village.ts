@@ -14,7 +14,7 @@ import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs'
 import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
 import { banner, floatText, FONT, hex, TITLE_FONT, walletHud } from '../ui';
-import { BOOK_H, BOOK_PAGE, crisp, priceTag, shopBook } from '../shopArt';
+import { BOOK_H, BOOK_PAGE, clearSpot, clothColor, clothPatch, crisp, priceTag, shopBook, wareArt } from '../shopArt';
 import { Tutorial } from '../tutorial';
 
 // The hub between fights:
@@ -116,6 +116,7 @@ const PARTS: readonly Part[] = [
   { lvl: 6, key: 'flag', x: 304, y: 127, depth: 8 },
 ];
 
+const VEIL = 0.5;   // how dark the veil over the merchant's rug is (its painted clutter dimmed)
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 /** Each merchant's shop window: his title, what he says, the frame in the colour of what he sells. */
 const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string; color: number }>> = {
@@ -524,27 +525,42 @@ export class VillageScene extends Phaser.Scene {
     const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
     if (rug) {
       c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
-      c.addAt(this.add.graphics().fillStyle(0x000000, 0.5).fillRect(x + 1, y + 22, w - 2, h - 36)
+      c.addAt(this.add.graphics().fillStyle(0x000000, VEIL).fillRect(x + 1, y + 22, w - 2, h - 36)
         .fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);   // title and keys line
     }
     const money = walletValue(s.wallet);
     if (!offers.length) c.add(this.add.text(x + w / 2, y + h / 2, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
     const slot = Math.min(60, (w - 20) / Math.max(1, offers.length));
     const x0 = x + w / 2 - (slot * (offers.length - 1)) / 2;
-    const spots = offers.map((_, i) => ({ x: Math.round(x0 + i * slot), y: y + 110 + (i % 2 ? 3 : -3) }));   // along the front of the rug, a bit strewn; the book opens above
+    // along the front of the rug, a bit strewn (the book opens above), each on a clear patch of cloth,
+    // not on top of an item painted on the rug
+    const spots = offers.map((_, i) => {
+      const want = { x: Math.round(x0 + i * slot), y: y + 110 + (i % 2 ? 3 : -3) };
+      if (!rug) return want;
+      const at = clearSpot(this, rug, x + w / 2, y + h / 2, want, 22, { x: Math.min(14, Math.floor((slot - 26) / 2)), y: 8 });
+      return { x: at.x, y: Math.max(at.y, y + 24 + BOOK_H + 22) };   // never up under the open book
+    });
     offers.forEach((o, i) => {
       const sold = s.inventory.owned.includes(o.id);
       const picked = i === this.sel;
       const { x: ix, y: iy } = spots[i];
       const ware = this.add.container(ix, iy);
       // a soft shadow on the rug; the best deal glows gold instead
+      // the picture, outlined like the rug's own items, scaled by the size of the art itself (the outline
+      // adds 2 px, which must not tip it from 2x down to 1x)
+      const key = this.wareKey(o.id);
+      const probe = crisp(this.add.image(0, 0, key), 40);
+      const zoom = probe.scaleX;
+      probe.destroy();
+      const ic = this.add.image(0, 0, wareArt(this, key)).setScale(zoom);
+      // under it a patch of plain cloth (the painted items fade out around it), then its shadow or glow
+      if (rug) ware.add(clothPatch(this, clothColor(this, rug), (ic.displayWidth >> 1) + 3, (ic.displayHeight >> 1) + 2, VEIL));
       const under = this.add.graphics();
       if (o.special && !sold) {
         under.fillStyle(0xffcc44, 0.18).fillEllipse(0, 2, 44, 30).fillStyle(0xffe27a, 0.22).fillEllipse(0, 2, 30, 20);
         this.tweens.add({ targets: under, alpha: 0.4, yoyo: true, repeat: -1, duration: 600 });
       } else under.fillStyle(0x000000, 0.35).fillEllipse(0, 12, 26, 7);
       ware.add(under);
-      const ic = crisp(this.add.image(0, 0, this.wareKey(o.id)), 40);
       if (sold) ic.setAlpha(0.35);
       ware.add(ic);
       if (picked && !this.dealCards) {   // the picked one floats a little

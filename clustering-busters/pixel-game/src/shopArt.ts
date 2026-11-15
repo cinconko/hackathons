@@ -89,3 +89,141 @@ export function shopBook(s: Phaser.Scene, sx: number, cy: number, p: BookPage, o
   }
   return b;
 }
+
+// ---- wares that belong on the rug ----
+
+const OUTLINE = [0x1c, 0x12, 0x0e];   // the dark brown the rug's own painted items are outlined in
+
+/**
+ * A ware drawn the rug's way (cached as `ware_<key>`): hard edges, an icon's square box cut away,
+ * and a 1 px dark outline like the potions, barrels and shield painted on the rug. So it looks laid
+ * on the rug, not pasted over it.
+ */
+export function wareArt(s: Phaser.Scene, key: string): string {
+  const out = `ware_${key}`;
+  if (s.textures.exists(out) || !s.textures.exists(key)) return s.textures.exists(out) ? out : key;
+  const src = s.textures.get(key).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+  const w = src.width + 2;
+  const h = src.height + 2;
+  const tex = s.textures.createCanvas(out, w, h);
+  if (!tex) return key;
+  const ctx = tex.getContext();
+  ctx.drawImage(src, 1, 1);
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const at = (x: number, y: number) => (y * w + x) * 4;
+  for (let i = 3; i < d.length; i += 4) d[i] = d[i] >= 128 ? 255 : 0;          // hard edges, no fringe
+  if (key.startsWith('icon_')) cutBox(d, w, h, at);
+  // the outline: every empty pixel touching the ware turns dark
+  const filled = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) filled[y * w + x] = d[at(x, y) + 3] === 255 ? 1 : 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    if (filled[y * w + x]) continue;
+    const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => {
+      const nx = x + dx, ny = y + dy;
+      return nx >= 0 && ny >= 0 && nx < w && ny < h && filled[ny * w + nx] === 1;
+    });
+    if (near) { const i = at(x, y); d[i] = OUTLINE[0]; d[i + 1] = OUTLINE[1]; d[i + 2] = OUTLINE[2]; d[i + 3] = 255; }
+  }
+  ctx.putImageData(img, 0, 0);
+  tex.refresh();
+  return out;
+}
+
+/** An icon (boot.ts) is a picture on a square: a dark frame and a coloured fill. Cut both away, from the edge inward. */
+function cutBox(d: Uint8ClampedArray, w: number, h: number, at: (x: number, y: number) => number) {
+  const box = new Set<number>();
+  const rgb = (i: number) => (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+  box.add(rgb(at(1, 1)));   // the frame (the picture starts at 1,1)
+  box.add(rgb(at(2, 2)));   // the fill inside it
+  const seen = new Uint8Array(w * h);
+  const stack: [number, number][] = [];
+  for (let x = 0; x < w; x++) stack.push([x, 0], [x, h - 1]);
+  for (let y = 0; y < h; y++) stack.push([0, y], [w - 1, y]);
+  while (stack.length) {
+    const [x, y] = stack.pop()!;
+    if (x < 0 || y < 0 || x >= w || y >= h || seen[y * w + x]) continue;
+    seen[y * w + x] = 1;
+    const i = at(x, y);
+    if (d[i + 3] === 255 && !box.has(rgb(i))) continue;   // the picture itself: stop here
+    d[i + 3] = 0;
+    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+  }
+}
+
+const busyMaps = new Map<string, { w: number; h: number; busy: Uint8Array; cloth: number }>();
+
+/** Which pixels of a rug picture are painted items (1) and which are plain cloth (0). Cached. */
+function busyMap(s: Phaser.Scene, rugKey: string) {
+  const hit = busyMaps.get(rugKey);
+  if (hit) return hit;
+  const src = s.textures.get(rugKey).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+  const cv = document.createElement('canvas');
+  cv.width = src.width;
+  cv.height = src.height;
+  const ctx = cv.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+  // the cloth = the most common colour in the middle of the rug
+  const count = new Map<number, number>();
+  for (let y = cv.height / 4; y < (cv.height * 3) / 4; y += 3) for (let x = cv.width / 4; x < (cv.width * 3) / 4; x += 3) {
+    const i = (Math.floor(y) * cv.width + Math.floor(x)) * 4;
+    const k = ((d[i] >> 3) << 10) | ((d[i + 1] >> 3) << 5) | (d[i + 2] >> 3);
+    count.set(k, (count.get(k) ?? 0) + 1);
+  }
+  const cloth = [...count.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  const cr = (cloth >> 10) << 3, cg = ((cloth >> 5) & 31) << 3, cb = (cloth & 31) << 3;
+  const busy = new Uint8Array(cv.width * cv.height);
+  for (let p = 0; p < busy.length; p++) {
+    const i = p * 4;
+    busy[p] = Math.abs(d[i] - cr) + Math.abs(d[i + 1] - cg) + Math.abs(d[i + 2] - cb) > 60 ? 1 : 0;
+  }
+  const m = { w: cv.width, h: cv.height, busy, cloth: (cr << 16) | (cg << 8) | cb };
+  busyMaps.set(rugKey, m);
+  return m;
+}
+
+/**
+ * Where to lay a ware so it does not cover an item painted on the rug: the least cluttered spot of
+ * `size` px within `reach` px of `want` (screen coordinates; the rug's centre is at rugX, rugY).
+ */
+export function clearSpot(s: Phaser.Scene, rugKey: string, rugX: number, rugY: number, want: { x: number; y: number }, size = 22, reach = { x: 14, y: 8 }) {
+  const m = busyMap(s, rugKey);
+  const ox = rugX - m.w / 2;
+  const oy = rugY - m.h / 2;
+  const clutter = (cx: number, cy: number) => {
+    let n = 0;
+    for (let y = Math.round(cy - oy - size / 2); y < cy - oy + size / 2; y++) {
+      for (let x = Math.round(cx - ox - size / 2); x < cx - ox + size / 2; x++) {
+        if (x >= 0 && y >= 0 && x < m.w && y < m.h) n += m.busy[y * m.w + x];
+      }
+    }
+    return n;
+  };
+  let best = { x: want.x, y: want.y, score: Infinity };
+  for (let dy = -reach.y; dy <= reach.y; dy += 2) {
+    for (let dx = -reach.x; dx <= reach.x; dx += 2) {
+      const score = clutter(want.x + dx, want.y + dy) * 4 + Math.abs(dx) + Math.abs(dy);   // clutter first, then stay close
+      if (score < best.score) best = { x: want.x + dx, y: want.y + dy, score };
+    }
+  }
+  return { x: Math.round(best.x), y: Math.round(best.y) };
+}
+
+/** The rug's plain cloth colour (to lay a patch of cloth under a ware). */
+export const clothColor = (s: Phaser.Scene, rugKey: string): number => busyMap(s, rugKey).cloth;
+
+/**
+ * A soft patch of the rug's cloth under a ware (rx, ry: its half size): the items painted on the rug
+ * fade into plain cloth around it, so the ware lies on the rug instead of on top of a painted potion.
+ * `shade` darkens the cloth like the veil over the rug (0.5 = half dark).
+ */
+export function clothPatch(s: Phaser.Scene, cloth: number, rx: number, ry: number, shade: number): Phaser.GameObjects.Graphics {
+  const k = 1 - shade;
+  const c = (Math.round(((cloth >> 16) & 255) * k) << 16) | (Math.round(((cloth >> 8) & 255) * k) << 8) | Math.round((cloth & 255) * k);
+  const g = s.add.graphics();
+  g.fillStyle(c, 0.45).fillEllipse(0, 2, rx * 2 + 12, ry * 2 + 10);
+  g.fillStyle(c, 0.75).fillEllipse(0, 2, rx * 2 + 6, ry * 2 + 5);
+  g.fillStyle(c, 1).fillEllipse(0, 2, rx * 2, ry * 2);
+  return g;
+}
