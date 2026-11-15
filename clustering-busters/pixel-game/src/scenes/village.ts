@@ -165,6 +165,7 @@ export class VillageScene extends Phaser.Scene {
   private hand!: ReturnType<typeof handHud>;
   private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
   private natureSeed = 1;
+  private gearTop = 0;                                   // the first row shown in YOUR GEAR (it scrolls)
   private paths: Phaser.GameObjects.TileSprite[] = [];   // the road and the side paths (paved as the village grows)
   private levelHud!: { g: Phaser.GameObjects.Graphics; name: Phaser.GameObjects.Text; next: Phaser.GameObjects.Text; luck: Phaser.GameObjects.Text };
   private pendingGrow = false;  // a purchase raised the level: build when the shop closes
@@ -337,6 +338,7 @@ export class VillageScene extends Phaser.Scene {
   private closePanel() {
     this.panel?.destroy();
     this.panel = null;
+    this.input.setDefaultCursor('default');   // a hand cursor left over from a card under the mouse
     this.prompt.setVisible(false);
     if (this.revealHand) this.time.delayedCall(200, () => this.doRevealHand());
     if (this.pendingGrow) { this.pendingGrow = false; this.time.delayedCall(this.revealHand ? 1800 : 250, () => this.grow()); }
@@ -359,8 +361,51 @@ export class VillageScene extends Phaser.Scene {
     const next = JD(k.D) || JD(k.RIGHT) || JD(k.S) || JD(k.DOWN);
     if (count > 0 && (prev || next)) { this.sel = (this.sel + (next ? 1 : count - 1)) % count; this.note = ''; this.render(); }
     if (JD(k.ENTER) || JD(k.SPACE)) this.choose();
-    if (this.mode !== 'bar' && JD(k.Q)) { this.mode = this.mode === 'cards' ? 'gear' : 'cards'; this.sel = 0; this.note = ''; this.render(); }
+    if (this.mode !== 'bar' && JD(k.Q)) this.toggleGear();
     if (JD(k.E) || JD(k.ESC)) this.closePanel();
+  }
+
+  /** Merchant cards <-> your gear (Q, or a click on the keys line). */
+  private toggleGear() {
+    this.mode = this.mode === 'cards' ? 'gear' : 'cards';
+    this.sel = 0;
+    this.note = '';
+    this.render();
+  }
+
+  // ---- the mouse in the shop: hover picks, a click buys / wears, the keys line is clickable ----
+
+  /**
+   * A hand cursor over `obj`; hovering it calls `hover`, a left click calls `click`. Both wait one tick:
+   * they re-render the panel, which destroys `obj` itself, and Phaser must finish its input pass first.
+   */
+  private clickable<T extends Phaser.GameObjects.GameObject>(obj: T, click: () => void, hover?: () => void): T {
+    obj.setInteractive({ useHandCursor: true });
+    obj.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.leftButtonDown()) this.time.delayedCall(0, () => { if (this.panel) click(); }); });
+    if (hover) obj.on('pointerover', () => this.time.delayedCall(0, () => { if (this.panel) hover(); }));
+    return obj;
+  }
+
+  /** Mouse over row/card `i`: it becomes the picked one (as A/D would). */
+  private hoverPick(i: number) {
+    if (this.sel === i) return;
+    this.sel = i;
+    this.note = '';
+    this.render();
+  }
+
+  /** The keys line at the bottom of a panel; the parts with an action are clickable (and light up). */
+  private keysLine(c: Phaser.GameObjects.Container, x: number, y: number, parts: [string, (() => void)?][]) {
+    let px = x;
+    for (const [label, act] of parts) {
+      const t = this.add.text(px, y, label, { ...FONT, color: act ? '#c8b8e8' : '#888888' });
+      if (act) {
+        this.clickable(t, act);
+        t.on('pointerover', () => t.setColor('#ffcc44')).on('pointerout', () => t.setColor('#c8b8e8'));
+      }
+      c.add(t);
+      px += t.width + 8;
+    }
   }
 
   private choose() {
@@ -520,6 +565,8 @@ export class VillageScene extends Phaser.Scene {
         card.add(this.add.text(0, T + ch - 12, `${o.price} rings`, { ...FONT, color: money >= o.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(0.5, 0));
       }
       c.add(card);
+      // the mouse: hover picks the card, a click buys it
+      c.add(this.clickable(this.add.zone(cx0 + i * (cw + gap) + cw / 2, cy + ch / 2, cw, ch), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
       if (this.dealCards) {          // dealt from the merchant: slides in face down, flips over
         const tx = card.x;
         const ty = card.y;
@@ -539,7 +586,7 @@ export class VillageScene extends Phaser.Scene {
     this.dealCards = false;
     this.popCard = -1;
     if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 8, y + h - 11, 'A/D pick  Enter buy  Q your gear  E leave', { ...FONT, color: '#888888' }));
+    this.keysLine(c, x + 8, y + h - 11, [['Click or A/D+Enter: buy'], ['Q your gear', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
   private cardStats(it: CatalogItem): string {
@@ -557,7 +604,11 @@ export class VillageScene extends Phaser.Scene {
     const { c, bg, x, y, h } = this.frame('YOUR GEAR', 'Enter on a weapon or armor to wear it.', 'player', 0x6fd13a, 240, 150);
     if (!inv.owned.length) c.add(this.add.text(x + 10, y + 34, 'Nothing yet: buy a card first.', { ...FONT, color: '#ffffff' }));
     const visible = 9;
-    const start = Phaser.Math.Clamp(this.sel - 4, 0, Math.max(0, inv.owned.length - visible));
+    // scroll only when the pick leaves the visible rows: a mouse hover never moves the list under the mouse
+    if (this.sel < this.gearTop) this.gearTop = this.sel;
+    if (this.sel >= this.gearTop + visible) this.gearTop = this.sel - visible + 1;
+    this.gearTop = Phaser.Math.Clamp(this.gearTop, 0, Math.max(0, inv.owned.length - visible));
+    const start = this.gearTop;
     inv.owned.slice(start, start + visible).forEach((id: CatalogId, n) => {
       const i = start + n;
       const it = item(id);
@@ -567,9 +618,10 @@ export class VillageScene extends Phaser.Scene {
       c.add(this.add.text(x + 8, ry, `${i === this.sel ? '>' : ' '}${it.name}`, FONT));
       c.add(this.add.text(x + 100, ry, KIND_NAMES[it.kind].toLowerCase(), { ...FONT, color: '#8a8a8a' }));
       c.add(this.add.text(x + 232, ry, worn ? 'EQUIPPED' : it.kind === 'special' ? 'key 1-8' : '', { ...FONT, color: worn ? '#6fd13a' : '#9fd3ff' }).setOrigin(1, 0));
+      c.add(this.clickable(this.add.zone(x + 3, ry - 2, 234, 11).setOrigin(0), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
     });
     if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44' }));
-    c.add(this.add.text(x + 8, y + h - 11, 'W/S choose  Enter wear  Q cards  E leave', { ...FONT, color: '#888888' }));
+    this.keysLine(c, x + 8, y + h - 11, [['Click or W/S+Enter: wear'], ['Q cards', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
   /**
