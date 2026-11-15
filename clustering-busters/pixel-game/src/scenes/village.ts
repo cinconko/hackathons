@@ -13,7 +13,7 @@ import { MERCHANT_ROBES, playMusic, sfx } from '../media';
 import { bouncedBackLines, GRANDPA, NPCS, talk, type NpcId } from '../game/npcs';
 import { addKeys, near, steer, type Keys, dress, heroLook } from '../player';
 import { loadSave, updateSave } from '../save';
-import { banner, floatText, FONT, TITLE_FONT, walletHud } from '../ui';
+import { banner, floatText, FONT, hex, TITLE_FONT, walletHud } from '../ui';
 import { Tutorial } from '../tutorial';
 
 // The hub between fights:
@@ -115,6 +115,8 @@ const PARTS: readonly Part[] = [
   { lvl: 6, key: 'flag', x: 304, y: 127, depth: 8 },
 ];
 
+const BOOK_PAGE = 70;   // the shop's book: width of one page (game pixels)
+const BOOK_H = 64;      // ...and its height
 const KIND_COLORS: Readonly<Record<ItemKind, number>> = { range: 0x4a90d9, melee: 0xd94a4a, special: 0xa04ad9, armor: 0x9a9aa8 };
 /** Each merchant's shop window: his title, what he says, the frame in the colour of what he sells. */
 const MERCHANT_LOOK: Readonly<Record<MerchantKind, { title: string; line: string; color: number }>> = {
@@ -161,6 +163,7 @@ export class VillageScene extends Phaser.Scene {
   private afterBounce: (() => void)[] = [];   // bounced home: what waits until Grandpa has spoken
   private dealCards = false;             // deal the cards with a flip when the shop opens
   private popCard = -1;                  // the card just bought: pop it
+  private bookShown = -1;                // the ware whose book is open (a new pick opens it with a flourish)
   private pour = false;                  // a drink was just bought: pour it
   private hand!: ReturnType<typeof handHud>;
   private revealHand = false;            // first weapon bought: pop the indicator up when the shop closes
@@ -331,6 +334,7 @@ export class VillageScene extends Phaser.Scene {
     this.mode = mode;
     this.sel = 0;
     this.note = '';
+    this.bookShown = -1;
     this.dealCards = mode === 'cards' && !new URLSearchParams(window.location.search).has('nodeal');   // &nodeal: dev hook, no deal animation
     this.render();
   }
@@ -499,102 +503,157 @@ export class VillageScene extends Phaser.Scene {
   }
 
   /**
-   * The merchant's table: 3 cards from a classic merchant, 5 from the special one (4 + the best deal:
-   * gold, shimmering, old price crossed out). Dealt with a flip when the shop opens; a bought one pops.
+   * The merchant's rug: his wares lie on it (3 from a classic merchant, 5 from the special one: 4 +
+   * the best deal, glowing gold, its tag with the old price crossed out). Each has a price tag on a
+   * string. The picked one (mouse over it, or A/D) lifts a little and a book opens next to it with
+   * its name, stats and what it does. The wares drop onto the rug when the shop opens; a bought one pops.
    */
   private renderCards() {
     const s = loadSave();
     const offers = this.offers();
     const who = MERCHANT_LOOK[s.merchantKind];
     const { c, x, y, w, h } = this.frame(who.title, who.line, 'merchant', who.color, 308, 170);
-    // his rug, big and sharp, behind the cards (in his robe's colour); dark bands keep the title and the keys readable
+    // his rug, big and sharp (in his robe's colour); its painted clutter dimmed so the wares stand out
     const robe = MERCHANT_ROBES[s.merchantKind];
     const rug = this.textures.exists(`rug_${robe}`) ? `rug_${robe}` : this.textures.exists('rug') ? 'rug' : null;
     if (rug) {
       c.addAt(this.add.image(x + w / 2, y + h / 2, rug), 1);
-      c.addAt(this.add.graphics().fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);   // title and keys line
+      c.addAt(this.add.graphics().fillStyle(0x000000, 0.5).fillRect(x + 1, y + 22, w - 2, h - 36)
+        .fillStyle(0x000000, 0.6).fillRect(x + 1, y + 1, w - 2, 21).fillRect(x + 1, y + h - 14, w - 2, 13), 2);   // title and keys line
     }
-    const cw = 58;
-    const ch = 112;
-    const gap = 3;
-    const cx0 = x + (w - (offers.length * cw + (offers.length - 1) * gap)) / 2;
-    const cy = y + 25;
     const money = walletValue(s.wallet);
-    if (!offers.length) c.add(this.add.text(x + w / 2, cy + 40, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
+    if (!offers.length) c.add(this.add.text(x + w / 2, y + h / 2, 'You own everything!', { ...FONT, color: '#ffffff' }).setOrigin(0.5));
+    const slot = Math.min(60, (w - 20) / Math.max(1, offers.length));
+    const x0 = x + w / 2 - (slot * (offers.length - 1)) / 2;
+    const spots = offers.map((_, i) => ({ x: Math.round(x0 + i * slot), y: y + 110 + (i % 2 ? 3 : -3) }));   // along the front of the rug, a bit strewn; the book opens above
     offers.forEach((o, i) => {
       const it = item(o.id);
       const sold = s.inventory.owned.includes(o.id);
       const picked = i === this.sel;
-      const col = o.special ? 0xc89a1a : KIND_COLORS[it.kind];
-      // each card is its own container, centred, so it can flip and pop
-      const card = this.add.container(cx0 + i * (cw + gap) + cw / 2, cy + ch / 2 - (picked ? 4 : 0));
-      const L = -cw / 2;
-      const T = -ch / 2;
-      const g = this.add.graphics();
-      g.fillStyle(sold ? 0x1e1e24 : o.special ? 0x3a2a14 : 0x2a2238).fillRect(L, T, cw, ch);
-      g.fillStyle(picked ? 0xffffff : col).fillRect(L, T, cw, 2).fillRect(L, T + ch - 2, cw, 2).fillRect(L, T, 2, ch).fillRect(L + cw - 2, T, 2, ch);
-      g.fillStyle(col, 0.85).fillRect(L + 2, T + 2, cw - 4, 10);
-      card.add(g);
-      card.add(this.add.text(0, T + 3, o.special ? 'BEST DEAL' : KIND_NAMES[it.kind], { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
+      const { x: ix, y: iy } = spots[i];
+      const ware = this.add.container(ix, iy);
+      // a soft shadow on the rug; the best deal glows gold instead
+      const under = this.add.graphics();
       if (o.special && !sold) {
-        // a shimmering gold frame and a discount badge
-        const shine = this.add.graphics();
-        shine.lineStyle(1, 0xffe27a, 1).strokeRect(L + 2, T + 2, cw - 4, ch - 4);
-        card.add(shine);
-        this.tweens.add({ targets: shine, alpha: 0.15, yoyo: true, repeat: -1, duration: 500 });
-        // under the header: the old price crossed out (left) and the discount badge (right)
-        const old = this.add.text(L + 4, T + 14, `${o.full}`, { ...FONT, color: '#9a9aa8' });
-        card.add(old);
-        const marks = this.add.graphics();
-        marks.fillStyle(0xd83a3a).fillRect(L + 3, T + 18, old.width + 2, 1);
-        marks.fillStyle(0xd83a3a).fillRect(L + cw - 25, T + 14, 22, 9);
-        card.add(marks);
-        card.add(this.add.text(L + cw - 14, T + 14, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
-      }
-      const ic = this.add.image(0, T + 32, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
-      ic.setScale(Math.max(1, Math.floor(Math.min(2, 24 / Math.max(ic.width, ic.height)))));   // whole steps: team art stays crisp
+        under.fillStyle(0xffcc44, 0.18).fillEllipse(0, 2, 44, 30).fillStyle(0xffe27a, 0.22).fillEllipse(0, 2, 30, 20);
+        this.tweens.add({ targets: under, alpha: 0.4, yoyo: true, repeat: -1, duration: 600 });
+      } else under.fillStyle(0x000000, 0.35).fillEllipse(0, 12, 26, 7);
+      ware.add(under);
+      const ic = this.add.image(0, 0, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
+      ic.setScale(Math.max(1, Math.min(2, Math.floor(40 / Math.max(ic.width, ic.height)))));   // whole steps: team art stays crisp
       if (sold) ic.setAlpha(0.35);
-      card.add(ic);
-      // long names ("Hand cannon") wrap onto two lines; the stats follow below them
-      const name = this.add.text(0, T + 47, it.name, { ...FONT, color: sold ? '#666666' : o.special ? '#ffe27a' : '#ffffff', align: 'center', wordWrap: { width: cw - 6 } }).setOrigin(0.5, 0);
-      card.add(name);
-      card.add(this.add.text(L + 4, name.y + name.height + 3, this.cardStats(it), { ...FONT, color: sold ? '#555555' : '#c8b8e8', wordWrap: { width: cw - 8 }, lineSpacing: 1 }));
-      if (sold) {
-        card.add(this.add.text(0, T + ch - 12, 'SOLD', { ...FONT, color: '#6fd13a' }).setOrigin(0.5, 0));
-      } else {
-        card.add(this.add.text(0, T + ch - 12, `${o.price} rings`, { ...FONT, color: money >= o.price ? '#ffcc44' : '#ff6a6a' }).setOrigin(0.5, 0));
+      ware.add(ic);
+      if (picked && !this.dealCards) {   // the picked one floats a little
+        ic.y = -3;
+        this.tweens.add({ targets: ic, y: -5, yoyo: true, repeat: -1, duration: 500, ease: 'Sine.easeInOut' });
+        ware.add(this.add.image(10, -12, 'sparkle'));
       }
-      c.add(card);
-      // the mouse: hover picks the card, a click buys it
-      c.add(this.clickable(this.add.zone(cx0 + i * (cw + gap) + cw / 2, cy + ch / 2, cw, ch), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
-      if (this.dealCards) {          // dealt from the merchant: slides in face down, flips over
-        const tx = card.x;
-        const ty = card.y;
-        card.setPosition(x + 14, y + 12).setScale(0.2, 0.2).setAlpha(0);
-        this.tweens.add({ targets: card, x: tx, y: ty, scaleY: 1, alpha: 1, duration: 260, delay: i * 120, ease: 'Quad.easeOut' });
-        this.tweens.add({ targets: card, scaleX: 1, duration: 200, delay: i * 120 + 200, ease: 'Back.easeOut' });
+      // the price tag on its string: cream paper, dark ink (red when you can't pay it)
+      const tagY = 23;
+      const tag = this.add.container(0, tagY).setRotation(i % 2 ? 0.06 : -0.06);
+      const label = sold
+        ? this.add.text(0, 0, 'SOLD', { ...FONT, color: '#2f7a1a' }).setOrigin(0.5)
+        : this.add.text(-4, 0, `${o.price}`, { ...FONT, color: money >= o.price ? '#3a2410' : '#b02020' }).setOrigin(0.5);
+      const tw = label.width + (sold ? 8 : 16);
+      const paper = this.add.graphics();
+      paper.fillStyle(0x5a3a1a).fillRect(-tw / 2 - 1, -7, tw + 2, 14);
+      paper.fillStyle(picked ? 0xfff4d0 : 0xe8d8b0).fillRect(-tw / 2, -6, tw, 12);
+      paper.fillStyle(0x5a3a1a).fillRect(-1, -5, 2, 2);   // the hole for the string
+      tag.add(paper);
+      tag.add(label);
+      if (!sold) tag.add(this.add.image(label.x + label.width / 2 + 5, 0, 'ring_classic'));
+      if (o.special && !sold) {   // the old price, crossed out, and the discount, under the tag
+        const old = this.add.text(-9, 10, `${o.full}`, { ...FONT, color: '#c8c8d0' }).setOrigin(0.5, 0);
+        tag.add(old);
+        tag.add(this.add.graphics().fillStyle(0xd83a3a).fillRect(old.x - old.width / 2 - 1, 14, old.width + 2, 1).fillRect(5, 10, 22, 9));
+        tag.add(this.add.text(16, 10, `-${Math.round(o.discount * 100)}%`, { ...FONT, color: '#ffffff' }).setOrigin(0.5, 0));
+      }
+      ware.add(this.add.graphics().fillStyle(0xd8c8a0).fillRect(0, 10, 1, tagY - 15));   // the string
+      ware.add(tag);
+      c.add(ware);
+      // the mouse: hover picks it (and opens the book), a click buys it
+      c.add(this.clickable(this.add.zone(ix, iy + 8, Math.min(slot, 44), 52), () => { this.sel = i; this.choose(); }, () => this.hoverPick(i)));
+      if (this.dealCards) {          // set out on the rug: each drops in and bounces
+        ware.setY(iy - 40).setAlpha(0);
+        this.tweens.add({ targets: ware, y: iy, alpha: 1, duration: 420, delay: i * 110, ease: 'Bounce.easeOut' });
       }
       if (i === this.popCard) {      // just bought: a happy pop with sparkles
-        this.tweens.add({ targets: card, scale: 1.12, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
+        this.tweens.add({ targets: ware, scale: 1.18, duration: 140, yoyo: true, ease: 'Quad.easeOut' });
         for (let k = 0; k < 6; k++) {
-          const sp = this.add.image(card.x + Phaser.Math.Between(-cw / 2, cw / 2), card.y + Phaser.Math.Between(-ch / 2, ch / 2), 'sparkle');
+          const sp = this.add.image(ix + Phaser.Math.Between(-16, 16), iy + Phaser.Math.Between(-16, 16), 'sparkle');
           c.add(sp);
           this.tweens.add({ targets: sp, y: sp.y - 10, alpha: 0, duration: 600, delay: k * 60 });
         }
       }
     });
+    // the book for the picked ware, open just above it (kept inside the window)
+    const o = offers[this.sel];
+    if (o) {
+      const spineX = Phaser.Math.Clamp(spots[this.sel].x, x + BOOK_PAGE + 8, x + w - BOOK_PAGE - 8);
+      const fresh = this.bookShown !== this.sel || this.dealCards;
+      c.add(this.book(spineX, y + 24 + BOOK_H / 2, o, fresh, this.dealCards ? offers.length * 110 + 300 : 0));
+      this.bookShown = this.sel;
+    }
     this.dealCards = false;
     this.popCard = -1;
     if (this.note) c.add(this.add.text(x + 8, y + h - 21, this.note, { ...FONT, color: '#ffcc44' }));
     this.keysLine(c, x + 8, y + h - 11, [['Click or A/D+Enter: buy'], ['Q your gear', () => this.toggleGear()], ['E leave', () => this.closePanel()]]);
   }
 
-  private cardStats(it: CatalogItem): string {
-    // short: five cards share the window (weapons: numbers only; specials need their effect)
-    const cd = it.cooldownMs ? `cd ${it.cooldownMs / 1000}s` : '';
-    if (it.kind === 'armor') return `${it.desc}\nalways worn`;
-    if (it.kind === 'special') return `${it.desc}\n${cd}`;
-    return `${it.damage} dmg\n${cd}`;
+  /**
+   * An open book, its spine at (sx, cy): the name and kind on the left page, the stats and what it
+   * does on the right. `open`: the pages unfold from the spine (a new pick), after `delay` ms.
+   */
+  private book(sx: number, cy: number, o: ReturnType<VillageScene['offers']>[number], open: boolean, delay: number) {
+    const it = item(o.id);
+    const PW = BOOK_PAGE;
+    const PH = BOOK_H;
+    const ink = '#3a2410';
+    const b = this.add.container(sx, cy);
+    const cover = this.add.graphics();
+    cover.fillStyle(0x000000, 0.4).fillRect(-PW - 3, -PH / 2 + 3, PW * 2 + 8, PH + 4);   // its shadow on the rug
+    cover.fillStyle(0x6b2a1a).fillRect(-PW - 4, -PH / 2 - 2, PW * 2 + 8, PH + 4);         // the leather cover
+    cover.fillStyle(0x4a1a10).fillRect(-1, -PH / 2 - 2, 2, PH + 4);                        // the spine
+    b.add(cover);
+    const page = (side: -1 | 1) => {
+      const pg = this.add.container(0, 0);
+      const g = this.add.graphics();
+      g.fillStyle(0xf2e6c4).fillRect(side < 0 ? -PW : 1, -PH / 2, PW - 1, PH);
+      g.fillStyle(0xd8c89c).fillRect(side < 0 ? -2 : 1, -PH / 2, 1, PH);                    // the fold's shade
+      pg.add(g);
+      return pg;
+    };
+    const left = page(-1);
+    const right = page(1);
+    const col = o.special ? '#a0700a' : hex(KIND_COLORS[it.kind]);
+    const name = this.add.text(-PW / 2, -PH / 2 + 4, it.name, { ...FONT, color: ink, align: 'center', wordWrap: { width: PW - 8 } }).setOrigin(0.5, 0);
+    left.add(name);
+    left.add(this.add.text(-PW / 2, name.y + name.height + 3, o.special ? 'BEST DEAL' : KIND_NAMES[it.kind], { ...FONT, color: col }).setOrigin(0.5, 0));
+    const pic = this.add.image(-PW / 2, PH / 2 - 15, it.kind === 'melee' || it.kind === 'range' ? `held_${o.id}` : this.textures.exists(`card_${o.id}`) ? `card_${o.id}` : `icon_${o.id}`);
+    pic.setScale(Math.max(1, Math.min(2, Math.floor(30 / Math.max(pic.width, pic.height)))));
+    left.add(pic);
+    right.add(this.add.text(5, -PH / 2 + 4, this.bookStats(it), { ...FONT, color: ink, wordWrap: { width: PW - 8 }, lineSpacing: 1 }));
+    b.add([left, right]);
+    if (open) {
+      left.setScale(0, 1);
+      right.setScale(0, 1);
+      b.setAlpha(0);
+      this.tweens.add({ targets: b, alpha: 1, duration: 120, delay });
+      this.tweens.add({ targets: [left, right], scaleX: 1, duration: 260, delay: delay + 60, ease: 'Back.easeOut' });
+    }
+    return b;
+  }
+
+  /** The right page: the numbers and what it does. */
+  private bookStats(it: CatalogItem): string {
+    const out: string[] = [];
+    if (it.damage) out.push(`${it.damage} damage`);
+    if (it.cooldownMs) out.push(`every ${it.cooldownMs / 1000}s`);
+    if (out.length) out.push('');
+    out.push(it.desc);   // armor: its desc already says how much it takes away
+    if (it.kind === 'special') out.push('key 1-8');
+    else if (it.kind === 'armor') out.push('always worn');
+    return out.join('\n');
   }
 
   /** Everything you own: equip a different weapon or armor. */
