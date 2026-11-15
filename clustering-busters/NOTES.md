@@ -1,13 +1,13 @@
 # Clustering Busters: running notes
 
-What the game is: [`PLAN.md`](PLAN.md). This file: how we work on it, how it ships, and the things the code no longer explains (its comments were stripped in `d1a56af`; only 7 one-line bug warnings remain).
+What the game is: [`PLAN.md`](PLAN.md). This file: how we work on it, how it ships, and the things the code no longer explains (its comments were stripped; only 7 one-line bug warnings remain).
 
 ## Deploying (Vercel project `ringfall`)
 
 Production: **https://ringfall-gold.vercel.app** (public; the old password gate is gone).
 
 1. Commit only your own files, by path. Never `git add -A`: other people's unfinished work sits in the same folder.
-2. Tell the other sessions **"deploying <sha>"**. Wait if someone else is deploying.
+2. Tell the team **"deploying <sha>"**. Wait if someone else is deploying.
 3. Check the commit sits on top of what is live (`git merge-base --is-ancestor <live> <sha>`), so nothing rolls back.
 4. Deploy from a clean copy of the commit, never from the working folder (it holds `.env.local` with the Supabase secrets, and other people's half-done files):
    ```bash
@@ -21,11 +21,11 @@ API changes: try a preview first (`vercel deploy` without `--prod`, then `vercel
 
 The GitHub integration builds every push from the repo root and fails (the app lives in `clustering-busters/pixel-game`). Those "Error" / "Blocked" entries never touch production; the CLI deploys above are what ship.
 
-## Working with several Claude sessions
+## Working together
 
 - Claim files before editing ("I'm taking village.ts"), say when you are done. Ask before touching someone's claimed or uncommitted files.
-- A session never commits or deploys without its own user's go.
-- Check a peer's commit before deploying on top of it: right files, right base.
+- Never commit or deploy someone else's work without asking them.
+- Check a teammate's commit before deploying on top of it: right files, right base.
 
 ## Conventions (the code's comments are gone, so they live here)
 
@@ -49,7 +49,7 @@ The GitHub integration builds every push from the repo root and fails (the app l
 - Row level security on with **no** policies: the public key can do nothing; only `api/scores.ts` (service-role key, server side) reads and writes.
 - Every fight gets a signed **run ticket** (HMAC; `SCORE_TICKET_SECRET`, falling back to the service-role key). A score needs a valid, unused ticket, and the time can't be shorter than the ticket's age. Names (2-14 letters, digits, space, `_ . -`) and times (20 s to 2 h) are checked on the server.
 - Env vars live in Vercel only (`vercel env pull` writes `.env.local`, gitignored). Never put a key in the repo or the browser bundle.
-- Schema changes: run them in Supabase's SQL editor yourself (sessions are blocked from using production credentials from `.env.local`), **before** deploying code that needs them.
+- Schema changes: run them yourself in Supabase's SQL editor (don't feed production credentials from `.env.local` into scripts), **before** deploying code that needs them.
 
 ## Dev hooks (URL parameters, local dev)
 
@@ -67,7 +67,7 @@ The GitHub integration builds every push from the repo root and fails (the app l
 ### 15 Nov
 
 - Story: 6-shot opening with dialogue, the ending after the first win, Brann's training. Leaderboard (Supabase, nicknames, only real runs). Public one-page site with logo, preview card and SEO tags. Village restyled to match the new catapult; merchant shops that grow with the village; fisherman's shop like the merchant's; farmer hero and knights; the campfire flickers instead of strobing; full playthrough bug hunt; comments stripped and a performance pass (game ready ~30 % sooner).
-- Merged into `main` (PR #1, `f096a84`). `main` also has the team's chiptune tracks, not yet in the game.
+- Merged into `main` (PR #1). `main` also has the team's chiptune tracks, not yet in the game.
 
 ### 14 Nov
 
