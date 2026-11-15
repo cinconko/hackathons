@@ -1,3 +1,5 @@
+import { paintRing, RING_LOOKS, RING_SIZE, type RingLook } from '../ringArt';
+
 // The hero's wordmark: RINGFALL built from pixel rings (5x7 letters, one ring per pixel), RING in
 // gold, FALL in black, and here and there a lucky rare (blue) or super rare (pink) ring. Our farmer follows the mouse (or finger) through the letters and knocks tiles out: they
 // fly off, spin, fall, then slide back home. Every tile knocked counts in the "Rings knocked" tag.
@@ -27,29 +29,25 @@ interface Tile {
   t: number;                       // seconds in the current state
 }
 
-// One ring, 8x8 pixels, two thick, like the game's ring pickups: drawn once per kind (with its hard
-// shadow one pixel down-right) into a small canvas, then stamped for every ring of the word.
+// One ring per pixel of the letters: the game's own ring (src/ringArt.ts), with a hard shadow one
+// pixel down-right, drawn once per kind into a small canvas and stamped for every ring of the word.
+// RING is gold rings with pearls, FALL black rings with gold stones; the lucky ones are the game's
+// rare and super rare rings exactly as you pick them up.
 type Kind = 'gold' | 'dark' | 'rare' | 'super';
-const RING_PX = ['..####..', '.######.', '##....##', '##....##', '##....##', '##....##', '.######.', '..####..'];
-const SHINE: [number, number][] = [[2, 1], [1, 2], [3, 1]];   // a lit top-left
-const KINDS: Record<Kind, { fill: string; shine: string; shadow: string }> = {
-  gold: { fill: '#ffcc44', shine: '#fff3c4', shadow: '#111111' },
-  dark: { fill: '#111111', shine: '#4a4a4a', shadow: '#ffcc44' },
-  rare: { fill: '#44aaff', shine: '#d2efff', shadow: '#111111' },
-  super: { fill: '#ff55dd', shine: '#ffd6f6', shadow: '#111111' },
+const LOOKS: Record<Kind, { look: RingLook; shadow: string }> = {
+  gold: { look: { H: 0xfff3c4, B: 0xffcc44, D: 0xb8862a, w: 0xffffff, g: 0xf4f4f8, d: 0xc8c8d0 }, shadow: '#111111' },
+  dark: { look: { H: 0x5a5a5a, B: 0x2a2a2a, D: 0x111111, w: 0xfff3c4, g: 0xffcc44, d: 0xb8862a }, shadow: '#ffcc44' },
+  rare: { look: RING_LOOKS.rare, shadow: '#111111' },
+  super: { look: RING_LOOKS.superRare, shadow: '#111111' },
 };
+const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`;
 function ringSprite(k: Kind): HTMLCanvasElement {
   const c = document.createElement('canvas');
-  c.width = c.height = 9;
+  c.width = c.height = RING_SIZE + 1;
   const g = c.getContext('2d')!;
-  const paint = (dx: number, color: string) => {
-    g.fillStyle = color;
-    RING_PX.forEach((row, y) => Array.from(row).forEach((p, x) => { if (p === '#') g.fillRect(x + dx, y + dx, 1, 1); }));
-  };
-  paint(1, KINDS[k].shadow);
-  paint(0, KINDS[k].fill);
-  g.fillStyle = KINDS[k].shine;
-  for (const [x, y] of SHINE) g.fillRect(x, y, 1, 1);
+  g.fillStyle = LOOKS[k].shadow;
+  paintRing(LOOKS[k].look, (_, x, y) => g.fillRect(x + 1, y + 1, 1, 1));
+  paintRing(LOOKS[k].look, (color, x, y) => { g.fillStyle = hex(color); g.fillRect(x, y, 1, 1); });
   return c;
 }
 /** Which rings are lucky: fixed, so the word looks the same every visit (about 1 in 19 rare, 2 super rare). */
@@ -131,13 +129,13 @@ export function wordmark(canvas: HTMLCanvasElement, counter: HTMLElement | null,
   }
 
   // ---- drawing ----
-  const sprites = Object.fromEntries((Object.keys(KINDS) as Kind[]).map((k) => [k, ringSprite(k)])) as Record<Kind, HTMLCanvasElement>;
+  const sprites = Object.fromEntries((Object.keys(LOOKS) as Kind[]).map((k) => [k, ringSprite(k)])) as Record<Kind, HTMLCanvasElement>;
   function tile(t: Tile) {
     ctx.save();
     ctx.translate(t.x + 0.5, t.y + 0.5);
     ctx.rotate(t.r);
-    const s = 1.05;                                       // a ring is 8 of its 9 pixels: they nearly touch
-    ctx.drawImage(sprites[t.kind], -s / 2, -s / 2, s * 9 / 8, s * 9 / 8);
+    const s = 1.1, n = RING_SIZE + 1;                     // rings a little over a cell: they nearly touch
+    ctx.drawImage(sprites[t.kind], -s / 2, -s / 2, s * n / RING_SIZE, s * n / RING_SIZE);
     ctx.restore();
   }
   function drawHero() {
